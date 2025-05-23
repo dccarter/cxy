@@ -26,7 +26,7 @@ steps:
     directory: ./build
     commands:
       - export LLVM_MAJOR_VERSION=`llvm-config --version | cut -d '.' -f 1`
-      - FILE_CHECK=`llvm-config --prefix`/bin/FileCheck $CI_WORKSPACE/tests/runner.sh
+      - FILE_CHECK=`llvm-config --prefix`/bin/FileCheck CXY_PLUGINS_DIR=./plugins $CI_WORKSPACE/tests/runner.sh
 
   - name: Stdlib tests
     image: suilteam/cxy-dev:latest-${CXY_IMAGE}
