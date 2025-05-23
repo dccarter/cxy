@@ -75,8 +75,8 @@ static cstring findCxyPluginDir(CompilerDriver *driver)
         memcpy(tmp, cxyRoot, len);
         if (cxyRoot[len - 1] != '/')
             tmp[len++] = '/';
-        memcpy(&tmp[len], "lib/cxy/plugins", 17);
-        tmp[len + 17] = '\0';
+        memcpy(&tmp[len], "lib/cxy/plugins", 16);
+        tmp[len + 16] = '\0';
         if (realpath(tmp, tmp2) == NULL) {
             logWarning(
                 driver->L, NULL, "$CXY_ROOT/lib/cxy/plugins not found", NULL);
@@ -90,7 +90,7 @@ static cstring findCxyPluginDir(CompilerDriver *driver)
         char *binary = strrchr(tmp, '/');
         if (binary == NULL)
             return NULL;
-        memcpy(binary, "/lib/cxy/plugins", 20);
+        memcpy(binary, "/lib/cxy/plugins", 17);
         if (realpath(tmp, tmp2) == NULL) {
             logWarning(driver->L,
                        NULL,

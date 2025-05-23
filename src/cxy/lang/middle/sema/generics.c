@@ -315,6 +315,7 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             arg->literal.value = value;
             arg->type = NULL;
         }
+        csAssert0(index < paramsCount);
         paramTypes[index] = maybeUnThisType(checkType(visitor, arg));
     }
 

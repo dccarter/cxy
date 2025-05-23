@@ -737,6 +737,7 @@ static void visitBlockStmt(AstVisitor *visitor, AstNode *node)
     ctx->locals = prevLocals;
     ctx->cleanupBlocks = prevCleanups;
     freeDynArray(&locals);
+    freeDynArray(&cleanups);
 }
 
 static void visitIfStmt(AstVisitor *visitor, AstNode *node)

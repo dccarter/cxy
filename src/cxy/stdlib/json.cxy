@@ -63,10 +63,15 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     }
     else #if (T.isSlice || T.isArray || T.annotations.[:isVector]) {
         os << '[';
-        #const M = T.elementType;
         for (const member, i: it) {
             if (i != 0) os << ", "
-            toJSON[#{M}](os, &member)
+            #if (T.annotations.[:isVector]) {
+                toJSON[typeof!(T.elementType)](os, &member)
+            }
+            else {
+                #const M = T.elementType;
+                toJSON[#{M}](os, &member)
+            }
         }
         os << ']'
     }

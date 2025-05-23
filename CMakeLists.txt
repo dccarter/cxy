@@ -307,12 +307,14 @@ target_compile_definitions(cxy PRIVATE
 
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fetch.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fserver.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/hash.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/http.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/jsonrpc.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/list.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/log.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/net.cxy

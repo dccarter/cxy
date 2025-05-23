@@ -1115,8 +1115,8 @@ const Type *makeStructType(TypeTable *table,
 {
     GetOrInset ret = {};
     if (flags & flgAnonymous) {
-        NamedTypeMember **sortedMembers =
-            mallocOrDie(sizeof(NamedTypeMember *) * membersCount);
+        NamedTypeMember **sortedMembers = allocFromMemPool(
+            table->memPool, sizeof(NamedTypeMember *) * membersCount);
         for (u64 i = 0; i < membersCount; i++) {
             sortedMembers[i] = &members[i];
         }
