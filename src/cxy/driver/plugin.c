@@ -6,7 +6,8 @@
 
 #include <dlfcn.h>
 #include <errno.h>
-#include <sys/syslimits.h>
+
+#include <limits.h>
 
 static cstring CXY_pluginsDir = NULL;
 
