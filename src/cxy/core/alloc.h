@@ -9,7 +9,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "core/utils.h"
+#include "utils.h"
 
 static inline void *mallocOrDie(size_t size)
 {

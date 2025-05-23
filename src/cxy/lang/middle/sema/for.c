@@ -18,9 +18,11 @@ static const Type *findCustomRange(TypingContext *ctx,
         rangeOp = matchOverloadedFunction(
             ctx->L, rangeOp, (const Type *[]){}, 0, loc, flags & flgConst);
     }
-    type = getTypeBase(type);
-    if (type) {
-        return findCustomRange(ctx, type, loc, flags);
+    else {
+        type = getTypeBase(type);
+        if (type) {
+            return findCustomRange(ctx, type, loc, flags);
+        }
     }
 
     return rangeOp;
@@ -315,7 +317,8 @@ void checkRangeExpr(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
         return;
     }
-    else if (!isNumericType(start)) {
+
+    if (!isNumericType(start)) {
         logError(ctx->L,
                  &node->rangeExpr.start->loc,
                  "`range` start type '{t}' is not supported, expecting a "

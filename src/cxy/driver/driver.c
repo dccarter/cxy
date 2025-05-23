@@ -15,6 +15,7 @@
 #include "lang/frontend/ttable.h"
 #include "lang/middle/builtins.h"
 #include "lang/middle/mir/context.h"
+#include "plugin.h"
 
 #include "src/builtins.h"
 
@@ -155,6 +156,22 @@ cstring getFilenameWithoutDirs(cstring fileName)
     return fileName;
 }
 
+cstring getFilenameWithoutExt(StrPool *strings, cstring fileName)
+{
+    if (fileName[0] == '/') {
+        const char *slash = strrchr(fileName, '/');
+        if (slash) {
+            fileName = slash + 1;
+        }
+    }
+
+    cstring ext = strrchr(fileName, '.');
+    if (ext) {
+        return makeStringSized(strings, fileName, ext - fileName);
+    }
+    return fileName;
+}
+
 void makeDirectoryForPath(CompilerDriver *driver, cstring path)
 {
     u64 len;
@@ -274,42 +291,50 @@ bool initCompilerDriver(CompilerDriver *compiler,
     char tmp[PATH_MAX];
     compiler->pool = pool;
     compiler->strings = strings;
-    compiler->types = newTypeTable(compiler->pool, compiler->strings);
-    compiler->moduleCache = newHashTable(sizeof(CachedModule));
-    compiler->nativeSources = newHashTable(sizeof(cstring));
-    compiler->linkLibraries = newHashTable(sizeof(cstring));
     compiler->L = log;
     compiler->currentDir = makeString(compiler->strings, getcwd(tmp, PATH_MAX));
     compiler->currentDirLen = strlen(compiler->currentDir);
-
-    internCommonStrings(compiler->strings);
+    realpath(compiler->cxyBinaryPath, tmp);
+    compiler->cxyBinaryPath = makeString(compiler->strings, tmp);
     const Options *options = &compiler->options;
-    compiler->mir = mirContextCreate(compiler);
-    csAssert0(compiler->mir);
-    compiler->backend = initCompilerBackend(compiler, argc, argv);
-    csAssert0(compiler->backend);
-    initCompilerPreprocessor(compiler);
-    initCImporter(compiler);
-    initializeBuiltins(compiler->L);
+    if (!compiler->options.buildPlugin) {
+        compiler->nativeSources = newHashTable(sizeof(cstring));
+        compiler->linkLibraries = newHashTable(sizeof(cstring));
+        internCommonStrings(compiler->strings);
+        compiler->types = newTypeTable(compiler->pool, compiler->strings);
+        compiler->moduleCache = newHashTable(sizeof(CachedModule));
+        compiler->mir = mirContextCreate(compiler);
+        csAssert0(compiler->mir);
+        compiler->backend = initCompilerBackend(compiler, argc, argv);
+        csAssert0(compiler->backend);
+        initCompilerPreprocessor(compiler);
+        initCImporter(compiler);
+        initializeBuiltins(compiler->L);
+        pluginInit(compiler);
 
-    if (options->cmd == cmdBuild || !options->withoutBuiltins) {
-        return compileBuiltin(compiler,
-                              CXY_BUILTINS_SOURCE,
-                              CXY_BUILTINS_SOURCE_SIZE,
-                              "__builtins.cxy");
+        if (options->cmd == cmdBuild || !options->withoutBuiltins) {
+            return compileBuiltin(compiler,
+                                  CXY_BUILTINS_SOURCE,
+                                  CXY_BUILTINS_SOURCE_SIZE,
+                                  "__builtins.cxy");
+        }
     }
     return true;
 }
 
 void deinitCompilerDriver(CompilerDriver *driver)
 {
-    deinitCompilerBackend(driver);
-    deinitCompilerPreprocessor(driver);
-    deinitCImporter(driver);
-    freeHashTable(&driver->moduleCache);
-    freeHashTable(&driver->linkLibraries);
-    freeHashTable(&driver->nativeSources);
-    freeTypeTable(driver->types);
+    if (!driver->options.buildPlugin) {
+        pluginDeinit(driver);
+        deinitCompilerBackend(driver);
+        deinitCompilerPreprocessor(driver);
+        deinitCImporter(driver);
+
+        freeHashTable(&driver->moduleCache);
+        freeHashTable(&driver->linkLibraries);
+        freeHashTable(&driver->nativeSources);
+        freeTypeTable(driver->types);
+    }
     deinitCommandLineOptions(&driver->options);
 }
 
@@ -514,6 +539,33 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
         return compileProgram(driver, program, fileName, true);
     }
     return false;
+}
+
+bool compilePlugin(const char *fileName, CompilerDriver *driver)
+{
+    const Options *options = &driver->options;
+    printStatus(driver->L, cWHT "Building plugin %s..." cDEF, fileName);
+    FormatState cmd = newFormatState("", true);
+    cstring outputPath = makeStringConcat(
+        driver->strings,
+        options->pluginsDir,
+        "/",
+        options->output ?: getFilenameWithoutExt(driver->strings, fileName));
+    makeDirectoryForPath(driver, outputPath);
+    format(&cmd,
+           "cc {s} -o {s} -shared -fPIC -lcxy-plugin",
+           (FormatArg[]){{.s = fileName}, {.s = outputPath}});
+    cstring cxyRoot = getenv("CXY_ROOT");
+    if (cxyRoot) {
+        format(&cmd,
+               " -L{s}/lib -I{s}/include",
+               (FormatArg[]){{.s = cxyRoot}, {.s = cxyRoot}});
+    }
+    cstring cmdStr = formatStateToString(&cmd);
+    printStatus(driver->L, cWHT "Command %s" cDEF, cmdStr);
+    int status = system(formatStateToString(&cmd));
+    freeFormatState(&cmd);
+    return status == 0;
 }
 
 bool compileString(CompilerDriver *driver,

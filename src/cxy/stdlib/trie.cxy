@@ -80,7 +80,7 @@ pub class Trie[Data] {
 
             node = *child;
             if (node.data) {
-                found = (i+1, &node.data.val)
+                found = (<i64>(i+1), &node.data.val)
             }
         }
         return found

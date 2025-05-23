@@ -214,3 +214,15 @@ char *flagsToString(u64 flags)
     freeFormatState(&state);
     return str;
 }
+
+bool isKeyword(TokenTag tag)
+{
+    switch (tag) {
+#define f(T, ...) case tok##T:
+        KEYWORD_LIST(f)
+#undef f
+        return true;
+    default:
+        return false;
+    }
+}

@@ -908,6 +908,19 @@ AstNode *evalAstAnnotationMemberAccess(EvalContext *ctx,
     return makeNullLiteral(ctx->pool, loc, NULL, makeNullType(ctx->types));
 }
 
+AstNode *evalPluginMemberAccess(EvalContext *ctx,
+                                const FileLoc *loc,
+                                AstNode *node,
+                                cstring name)
+{
+    return makeAstNode(
+        ctx->pool,
+        loc,
+        &(AstNode){.tag = astCxyPluginAction,
+                   .CxyPluginAction = {.name = name,
+                                       .plugin = node->pluginDecl.plugin}});
+}
+
 static void initDefaultMembers(EvalContext *ctx)
 {
     defaultMembers = newHashTable(sizeof(AstNodeGetMember));
@@ -1043,7 +1056,8 @@ AstNode *evalAstNodeMemberAccess(EvalContext *ctx,
 {
     if (annotation)
         return evalAstAnnotationMemberAccess(ctx, loc, node, name);
-
+    if (nodeIs(node, PluginDecl))
+        return evalPluginMemberAccess(ctx, loc, node, name);
     HashTable *table = NULL;
     switch (node->tag) {
     case astStructDecl:

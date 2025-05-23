@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#include <core/array.h>
-#include <core/utils.h>
+#include "array.h"
+#include "utils.h"
 #include <stdio.h>
 
 enum { cmdNoValue, cmdNumber, cmdString, cmdArray };
@@ -133,39 +133,15 @@ bool cmdParseBitFlags(CmdParser *P,
 #define Type(V) .validator = V
 #define Def(D) .def = D
 #define BindArray(Arr) .val.array = Arr
-#define Positionals(...)                                                       \
-    {                                                                          \
-        __VA_ARGS__                                                            \
-    }
-#define Opt(...)                                                               \
-    {                                                                          \
-        __VA_ARGS__, .validator = NULL                                         \
-    }
-#define Str(...)                                                               \
-    {                                                                          \
-        __VA_ARGS__, .validator = cmdParseString                               \
-    }
-#define Int(...)                                                               \
-    {                                                                          \
-        __VA_ARGS__, .validator = cmdParseInteger                              \
-    }
-#define Bool(...)                                                              \
-    {                                                                          \
-        __VA_ARGS__, .validator = cmdParseBoolean                              \
-    }
-#define Float(...)                                                             \
-    {                                                                          \
-        __VA_ARGS__, .validator = cmdParseDouble                               \
-    }
-#define Bytes(...)                                                             \
-    {                                                                          \
-        __VA_ARGS__, .validator = cmdParseByteSize                             \
-    }
+#define Positionals(...) {__VA_ARGS__}
+#define Opt(...) {__VA_ARGS__, .validator = NULL}
+#define Str(...) {__VA_ARGS__, .validator = cmdParseString}
+#define Int(...) {__VA_ARGS__, .validator = cmdParseInteger}
+#define Bool(...) {__VA_ARGS__, .validator = cmdParseBoolean}
+#define Float(...) {__VA_ARGS__, .validator = cmdParseDouble}
+#define Bytes(...) {__VA_ARGS__, .validator = cmdParseByteSize}
 
-#define Use(V, ...)                                                            \
-    {                                                                          \
-        __VA_ARGS__, .validator = V                                            \
-    }
+#define Use(V, ...) {__VA_ARGS__, .validator = V}
 
 #define Sizeof(T, ...) (sizeof((T[]){__VA_ARGS__}) / sizeof(T))
 #define Command(N, H, P, ...)                                                  \
@@ -195,10 +171,7 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
 #define DefaultCmd(C) Cmd(C)
 
 #define __FLATTEN_COMMAND(FC) &(FC).meta,
-#define __FLATTEN_COMMANDS(COMMANDS)                                           \
-    {                                                                          \
-        COMMANDS(__FLATTEN_COMMAND)                                            \
-    }
+#define __FLATTEN_COMMANDS(COMMANDS) {COMMANDS(__FLATTEN_COMMAND)}
 
 #define __INIT_COMMAND(N)                                                      \
     {                                                                          \

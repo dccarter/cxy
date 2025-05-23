@@ -254,7 +254,7 @@ pub func None[T]() => Optional[T]()
 
 pub type HashCode = u32
 #const FNV_32_PRIME = 0x01000193`u32
-
+#const FNV_32_INIT = 0x811c9dc5`u32
 @inline
 pub func hash_fnv1a_uint8(h: HashCode, x: u8) : HashCode
 {
@@ -327,7 +327,7 @@ pub func hash_fnv1a_bytes(h: HashCode,
 }
 
 @[pure]
-pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_PRIME}) : HashCode {
+pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashCode {
     #if (#T == #string) {
         return hash_fnv1a_string(init, val)
     }
@@ -440,8 +440,8 @@ pub struct __string {
     @inline const func `<=`(other: &This) => compare(other) <= 0
     @inline const func `>`(other: &This) => compare(other) > 0
     @inline const func `>=`(other: &This) => compare(other) >= 0
-    @inline const func `[]`(idx: i64) => s.[idx]
-    @inline const func `hash`() => hash_fnv1a_n_string(#{FNV_32_PRIME}, this.s, _size)
+    @inline const func `[]`(idx: u64) => s.[idx]
+    @inline const func `hash`() => hash_fnv1a_n_string(#{FNV_32_INIT}, this.s, _size)
     @inline const func `copy`() { return This(s, _size) }
 
     @inline const func size() => _size
@@ -897,10 +897,10 @@ pub class String : OutputStream {
     @inline
     const func `hash`() {
         if (this._data) {
-            return hash_fnv1a_bytes(#{FNV_32_PRIME}, this._data, this._size)
+            return hash_fnv1a_bytes(#{FNV_32_INIT}, this._data, this._size)
         }
         else {
-            return #{FNV_32_PRIME}
+            return #{FNV_32_INIT}
         }
     }
 
@@ -1281,19 +1281,19 @@ pub struct EqualsCase {
 pub struct HashCase {
     @inline
     const func `()`(value: &const const String) =>
-        hash_fnv1a_string_n_igc(#{FNV_32_PRIME}, value.data(), value.size())
+        hash_fnv1a_string_n_igc(#{FNV_32_INIT}, value.data(), value.size())
 
     @inline
     const func `()`(value: &const __string) =>
         hash_fnv1a_string_n_igc(
-            #{FNV_32_PRIME},
+            #{FNV_32_INIT},
             value.data(),
             value.size()
         )
 
     @inline
     const func `()`(value: const string) =>
-        hash_fnv1a_string_igc(#{FNV_32_PRIME}, value)
+        hash_fnv1a_string_igc(#{FNV_32_INIT}, value)
 }
 
 @[inline]

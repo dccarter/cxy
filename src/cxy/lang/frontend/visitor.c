@@ -26,6 +26,7 @@
     case astPrimitiveType:                                                     \
     case astImportEntity:                                                      \
     case astModuleDecl:                                                        \
+    case astPluginDecl:                                                        \
     case astVarAlias:                                                          \
     case astIdentifier:                                                        \
     case astDestructorRef:                                                     \

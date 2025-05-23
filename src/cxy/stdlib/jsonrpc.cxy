@@ -1,0 +1,316 @@
+module jsonrpc
+
+import "./json.cxy"
+import "./log.cxy"
+
+import { tcpConnect, TcpSocket, TcpListener } from "./tcp.cxy"
+import { Address, BufferedSocketOutputStream, Socket } from "./net.cxy"
+import { Vector } from "./vector.cxy"
+
+import plugin "jsonrpc" as jsonrpc
+
+macro CXY_JSON_RPC_VERSION             "2.0"
+macro CXY_JSON_RPC_API_ERROR           -32000
+macro CXY_JSON_RPC_PARSE_ERROR         -32700
+macro CXY_JSON_RPC_INVALID_REQUEST     -32600
+macro CXY_JSON_RPC_METHOD_NOT_FOUND    -32601
+macro CXY_JSON_RPC_INVALID_PARAMS      -32002
+macro CXY_JSON_RPC_INTERNAL_ERROR      -32603
+
+@json
+struct RpcError {
+    code: i32 = 0;
+    message: String = null;
+    data: String = null;
+
+    func `init`(){}
+    func `init`(code: i32, msg: String) {
+        this.code = code
+        this.message = &&msg
+    }
+}
+
+@json
+struct Response {
+    id: i64 = -1;
+    jsonrpc: String = null;
+    @json(optional: true)
+    result = json.Value();
+    @json(optional: true)
+    error: RpcError? = null;
+
+    func `init`() {}
+
+    const func `==`(@unused other: &This) => false
+}
+
+@json
+struct Request {
+    id: i64 = 0;
+    jsonrpc: String = null;
+    method: String = null;
+    params = json.Value();
+    func `init`() {}
+}
+
+pub exception JsonRpcError(code: i32, msg: String) => msg == null? "" : msg.str()
+pub exception JsonRpcInternalError(msg: String) => msg == null? "": msg.str()
+
+pub class JSONRPCClient[T] {
+    - idGenerator = 0`i64;
+    - sock: Socket
+    - timeout: i64
+
+    func `init`(sock: Socket, timeout: i64){
+        this.sock = &&sock
+        this.timeout = timeout
+    }
+
+    - func header(os: &OutputStream, method: string) {
+        os << "\"jsonrpc\": \"" << CXY_JSON_RPC_VERSION!
+           << "\", \"method\": \"" << method
+           << "\", \"id\": " << idGenerator++
+    }
+
+    - func receive(): !Vector[Response] {
+        var buf: [char, 512] = [];
+        var s = String();
+        // At this point we should have received our request
+        while {
+            var received = sock.receive(buf, sizeof!(buf), timeout);
+            if (!received)
+                raise JsonRpcError(CXY_JSON_RPC_INTERNAL_ERROR!,
+                                   f"Receiving response from server failed: ${strerr()}")
+            var count = *received;
+            if (count > 0)
+                s << __string(buf !: string, count);
+            if (count < sizeof!(buf))
+                break;
+        }
+
+        var obj = json.fromString[json.ShellObject](&s);
+        if (!obj&.isArray())
+            raise JsonRpcError( CXY_JSON_RPC_INTERNAL_ERROR!,
+                                f"Unexpected response, expecting an array of responses: ${s}" )
+        var responses = Vector[Response]();
+        for (var entry: <&const json.Array> *obj) {
+            var resp = json.cast[Response](entry.0);
+            if (!!resp.error && resp.result != null && !!resp.result) {
+                raise JsonRpcError(CXY_JSON_RPC_INTERNAL_ERROR!,
+                f"Response ${resp.id} is invalid, payload contains both error and result")
+            }
+            if (resp.error) {
+                const code = resp.error&.code;
+                if (code < -32099 && code > CXY_JSON_RPC_API_ERROR!)
+                    raise JsonRpcError(code,
+                                       f"internal server error (${resp.error&.message}, ${resp.error&.data})")
+            }
+            responses.push(&&resp)
+        }
+
+        return &&responses
+    }
+
+    func batch(...reqs: auto): !Vector[Response] {
+        {
+            // Submit block
+            var os = BufferedSocketOutputStream(sock);
+            os << "["
+            #const first = true;
+            #for (const req: reqs) {
+                #if (!first)
+                    os << ", "
+
+                os << "{"
+                header(&os, #{req}.0)
+
+                #const M = typeof!(#{req});
+                #if (M.membersCount == 2) {{
+                    os << ", \"params\": {"
+
+                    const args = #{req}.1;
+                    #const A = typeof!(args);
+                    #for(const i: 0..A.membersCount) {
+                        #if (i != 0)
+                            os << ", "
+                        os << "\"" << args.#{i}.0 << "\": "
+                        json.toJSON(&os, args.#{i}.1)
+                    }
+                    os << "}"
+                }}
+                os << "}"
+                #{first = false}
+            }
+            os << "]"
+        }
+        return receive();
+    }
+
+    func submit[T](method: string, ...args: auto): !T {
+        var resps = batch((method, (...&&args)))
+        var resp = resps.[0];
+        if (resp.error) {
+            raise JsonRpcError(resp.error&.code,
+                               f"Server returned error (${resp.error&.message}, ${resp.error&.data})")
+        }
+        return json.cast[T](&resp.result)
+    }
+
+    jsonrpc.addClientMethods!((submit, Exception, Void), #T)
+}
+
+pub func connect[T](address: Address, timeout: i64 = 0): !JSONRPCClient[T] {
+    var sock = tcpConnect(address, timeout);
+    return JSONRPCClient[T](TcpSocket(&&sock, &&address), timeout)
+}
+
+pub class JSONRPCServer[T] {
+    @static
+    LOG_TAG = "JSON_RPC_SERVER";
+    - timeout = 0`u64;
+    - listener: TcpListener
+    - api: T
+
+    func `init`(addr: Address, api: T) {
+        listener = TcpListener(&&addr)
+        this.api = &&api
+    }
+
+    func handle(method: __string, params: &const json.Value): RpcError | json.Value {
+        var id = hash(&method)
+        switch(id) {
+            #for(const member: T.members) {
+                #if (member.isFunction && member.attributes.["api"]) {
+                    case #{hash!(member.name)} =>
+                        if (method == __string(#{member.name})) {
+                            var result = this.#{mk_ident!(member.name)}(params) catch {
+                                if (var err = (ex!) as JsonRpcError) {
+                                    return RpcError(err.code, err.msg)
+                                }
+                                else {
+                                    return RpcError(CXY_JSON_RPC_INTERNAL_ERROR!, ex!.what())
+                                }
+                            }
+                            return json.toJSONValue(result)
+                        }
+                }
+            }
+            default =>
+        }
+        // Method not found
+        return RpcError(CXY_JSON_RPC_METHOD_NOT_FOUND!, f"Method '${method}' not found");
+    }
+
+
+    @[static, inline]
+    func param[T](params: &const json.Value, name: String): !T {
+        var tmp = (<&const json.Object>params).[name]
+        if (!tmp) {
+            raise JsonRpcError(
+                CXY_JSON_RPC_INVALID_PARAMS!,
+                f"Missing required argument: '${name}'"
+            )
+        }
+        return json.cast[T](*tmp) catch {
+            raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
+        }
+    }
+
+    func handleRequest(obj: &const json.Value): Response {
+        var resp = Response();
+        resp.jsonrpc = String(CXY_JSON_RPC_VERSION!)
+        const req = json.cast[Request](obj) catch {
+            resp.error = RpcError(CXY_JSON_RPC_INVALID_REQUEST!, ex!.what())
+            return &&resp
+        };
+
+        resp.id = req.id
+        if (resp.jsonrpc != CXY_JSON_RPC_VERSION!) {
+            resp.error = RpcError(
+                CXY_JSON_RPC_API_ERROR!,
+                f"Unsupported RCP version '${resp.jsonrpc}', expecting version '${CXY_JSON_RPC_VERSION!}'"
+            )
+            return &&resp
+        }
+
+        match (handle(req.method.str(), &req.params)) {
+            case json.Value as value => resp.result = <json.Value>value
+            case RpcError as err => resp.error = <RpcError>err
+        }
+
+        return &&resp
+    }
+
+    func receive(sock: Socket): void {
+        var s = String()
+        var buffer: [char, 512] = []
+        while {
+            var len = sock.receive(buffer, sizeof!(buffer), timeout)
+            if (!len) {
+                sock.close()
+                TRC1!("receiving from connection " << sock.address() << " failed: " << strerr() )
+                return
+            }
+            s << __string(buffer !: string, *len)
+            if (*len < sizeof!(buffer))
+                break
+        }
+
+        var reqObj = json.fromString[json.ShellObject](&s) catch {
+            var os = BufferedSocketOutputStream(sock)
+            var resp = Response();
+            resp.jsonrpc = String(CXY_JSON_RPC_VERSION!)
+            resp.error = RpcError(CXY_JSON_RPC_PARSE_ERROR!, ex!.what())
+            json.toJSON(&os, &resp)
+            return
+        }
+
+        if (reqObj&.isArray()) {
+            var os = BufferedSocketOutputStream(sock);
+            os << '['
+            for (const obj: <&const json.Array>*reqObj) {
+                if (obj.1 != 0)
+                    os << ", "
+                var resp = handleRequest(obj.0);
+                json.toJSON(&os, &resp)
+            }
+            os << ']'
+        }
+        else {
+            // Single request
+            var os = BufferedSocketOutputStream(sock)
+            const resp = handleRequest(*reqObj);
+            json.toJSON(&os, &resp)
+        }
+    }
+
+    func handleConnection(sock: Socket): void {
+        TRC!("handling connection from " << sock.address() )
+        while (sock) {
+            receive(sock)
+        }
+        TRC!("done handling connection from " << sock.address() )
+    }
+
+    func start() {
+        DBG!("listening at " << listener.address())
+        if (!listener.listen(1024)) {
+            ERR!("lister failed" << strerr())
+            return;
+        }
+
+        while (listener) {
+            var sock = listener.accept();
+            if (!sock)
+                continue;
+
+            async { handleConnection( sock.move() ) }
+        }
+        DBG!("Server done")
+    }
+
+    jsonrpc.addServerMethods!((json, api, param, Exception, Void), #T)
+}
+
+@inline
+pub func server[T](addr: Address, api: T) => JSONRPCServer[T](addr, &&api)

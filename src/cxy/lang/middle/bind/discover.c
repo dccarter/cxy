@@ -79,6 +79,12 @@ static void bindImportDecl(AstVisitor *visitor, AstNode *node)
     }
 }
 
+static void bindPluginDecl(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    defineSymbol(ctx->env, ctx->L, node->_name, node);
+}
+
 void bindDeclaration(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
@@ -108,6 +114,7 @@ AstNode *bindAstPhase1(CompilerDriver *driver, Env *env, AstNode *node)
     AstVisitor visitor = makeAstVisitor(&context, {
         [astDefine] = bindDefine,
         [astImportDecl] = bindImportDecl,
+        [astPluginDecl] = bindPluginDecl,
         [astGenericDecl] = bindDeclaration,
         [astFuncDecl] = bindDeclaration,
         [astMacroDecl] = bindDeclaration,

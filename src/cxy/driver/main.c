@@ -9,7 +9,7 @@
 int main(int argc, char **argv)
 {
     FormatState state = newFormatState("    ", !isColorSupported(stderr));
-    CompilerDriver driver = {0};
+    CompilerDriver driver = {.cxyBinaryPath = argv[0]};
     Log log = newLog(NULL, NULL);
     MemPool pool = newMemPool();
     StrPool strings = newStrPool(&pool);
@@ -27,8 +27,12 @@ int main(int argc, char **argv)
         goto exit;
     }
 
-    for (int i = 1; i < argc && status; ++i)
-        status &= compileFile(argv[i], &driver);
+    for (int i = 1; i < argc && status; ++i) {
+        if (driver.options.cmd == cmdBuild && driver.options.build.plugin)
+            status &= compilePlugin(argv[i], &driver);
+        else
+            status &= compileFile(argv[i], &driver);
+    }
 
 exit:
 

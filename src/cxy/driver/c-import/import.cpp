@@ -598,7 +598,7 @@ AstNode *toCxy(IncludeContext &ctx, const clang::EnumDecl &decl)
 
     auto node = makeEnumAst(ctx.pool,
                             &loc,
-                            flgNative | flgPublic,
+                            flgPublic,
                             name,
                             makeTypeReferenceNode(ctx.pool, type, builtinLoc()),
                             options.first,

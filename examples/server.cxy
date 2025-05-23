@@ -2,17 +2,19 @@ import { Address } from "stdlib/net.cxy"
 import { TcpSocket, TcpListener } from "stdlib/tcp.cxy"
 
 func handleConnection(sock: TcpSocket) {
-    var buffer: [char, 512];
-    sock.send("Welcome...\n")
+    var buffer: [char, 512] = [];
+    println("Handling connection from ", sock.address())
     while (sock) {
         var len = sock.receive(buffer, 512);
         if (len) {
-            sock.send("You said: ")
-            sock.sendBuffer(buffer, *len)
-            if ((buffer.[0] == 'Q ' as char) && (buffer.[1] == 'U ' as char)) {
-                // Quit signal
-                sock.close()
-            }
+            println(__string(buffer !: string, *len))
+            const str = """[{
+                "jsonrpc": "2.0",
+                "result": 200,
+                "error": { "code": -32000, "message": "What the fuck", "data": "1000" },
+                "id": 42
+            }]""";
+            sock.send(str)
         }
     }
 }

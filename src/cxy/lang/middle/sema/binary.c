@@ -231,13 +231,41 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
             logError(
                 ctx->L,
                 &node->loc,
-                "left hand side of `{$}is{$}` operator must be a type",
+                "right hand side of `{$}is{$}` operator must be a type",
                 (FormatArg[]){{.style = keywordStyle}, {.style = resetStyle}});
             node->type = ERROR_TYPE(ctx);
             return;
         }
 
         node->type = getPrimitiveType(ctx->types, prtBool);
+        if (typeIsBaseOf(left_, right)) {
+            // transform to lhs.v_table.__tid == tidof!(right)
+            AstNode *target = makeMemberExpr(
+                ctx->pool,
+                &lhs->loc,
+                flgNone,
+                duplicateAstNode(ctx->pool, lhs),
+                makeIdentifier(ctx->pool, &lhs->loc, S_vtable, 0, NULL, NULL),
+                NULL,
+                NULL);
+            lhs->type = NULL;
+            clearAstBody(lhs);
+            lhs->tag = astMemberExpr;
+            lhs->memberExpr.target = target;
+            lhs->memberExpr.member =
+                makeIdentifier(ctx->pool, &lhs->loc, S___tid, 0, NULL, NULL);
+
+            clearAstBody(rhs);
+            rhs->tag = astIntegerLit;
+            rhs->intLiteral.uValue = resolveAndUnThisType(right)->index;
+            rhs->type = getPrimitiveType(ctx->types, prtU64);
+
+            node->type = NULL;
+            node->binaryExpr.op = opEq;
+            astVisit(visitor, node);
+            return;
+        }
+
         if (!isUnionType(left_)) {
             node->tag = astBoolLit;
             node->boolLiteral.value = compareTypes(left, right);
@@ -369,7 +397,7 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
         node->rangeExpr.start = binary.binaryExpr.lhs;
         node->rangeExpr.end = binary.binaryExpr.rhs;
         node->rangeExpr.step = NULL;
-        node->type = getPrimitiveType(ctx->types, prtI64);
+        node->type = type;
         break;
     }
     default:

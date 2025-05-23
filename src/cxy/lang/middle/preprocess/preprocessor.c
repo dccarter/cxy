@@ -87,12 +87,14 @@ static void visitMacroCall(AstVisitor *visitor, AstNode *node)
 {
     PreprocessorContext *ctx = getAstVisitorContext(visitor);
     AstNode *callee = node->callExpr.callee, *args = node->callExpr.args;
+    if (!nodeIs(callee, Identifier))
+        return;
     AstNode *macro =
         preprocessorFindMacro(ctx->preprocessor, callee->ident.value)
             ?: findSymbolOnly(ctx->env, callee->ident.value);
 
     astVisitManyNodes(visitor, args);
-    if (macro == NULL)
+    if (macro == NULL || nodeIs(macro, GenericDecl) || nodeIs(macro, FuncDecl))
         return;
 
     if (!nodeIs(macro, MacroDecl)) {

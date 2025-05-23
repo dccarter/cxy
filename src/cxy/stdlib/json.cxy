@@ -1,5 +1,7 @@
 module json
 import "./base64.cxy"
+import { Vector } from "./vector.cxy"
+import { HashMap } from "./hash.cxy"
 
 macro EOS  '\0'as char
 
@@ -32,7 +34,6 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
                 #if (first == false) {
                     os << ", "
                 }
-
                 os << '"' << #{member.name} << "\": ";
                 #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
                     os << '"'
@@ -40,7 +41,7 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
                     os << '"'
                 }
                 else {
-                    toJSON[#{member.Tinfo}](os, &it.#{mk_ident!(member.name)})
+                    toJSON[#{M}](os, &it.#{mk_ident!(member.name)})
                 }
                 #{first = false}
             }
@@ -60,17 +61,17 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
         }
         os << "]"
     }
-    else #if (T.isSlice || T.isArray) {
+    else #if (T.isSlice || T.isArray || T.annotations.[:isVector]) {
         os << '[';
-        var first = true;
-        for (const member, _: it) {
-            if (!first) os << ", "
-
-            toJSON[#{T.elementType}](os, &member)
-
-            first = false
+        #const M = T.elementType;
+        for (const member, i: it) {
+            if (i != 0) os << ", "
+            toJSON[#{M}](os, &member)
         }
         os << ']'
+    }
+    else #if (T.isClass && has_member!(#T, "toJSON", #const func(_: &OutputStream) -> void)) {
+        it.toJSON(os)
     }
     else {
         // give up here
@@ -79,6 +80,7 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
 }
 
 exception JSONParserError(msg: String) => (msg != null)? msg.str() : ""
+exception JSONError(msg: String) => (msg != null)? msg.str() : ""
 
 pub class JSONParser {
     - data: __string
@@ -232,6 +234,12 @@ pub class JSONParser {
 
     @inline func tag() => (line, col)
 
+    func expectNull(): !void {
+        var l, c = tag()
+        if (!matchNull())
+            raise JSONParserError(f"${l}:${c} - expected characters, expecting `null`")
+    }
+
     func skipValue(): !void {
         skipWhitespace()
         if (data.[off] == '"'`char) {
@@ -363,6 +371,18 @@ func parseJSON[T](p: &JSONParser): !T {
             p.expectChar('}')
             return &&tmp
         }
+        else #if (T.annotations.[:isVector]) {
+            var tmp = T();
+            p.expectChar( '[' )
+            while(p.peekChar() != ']') {
+                if (tmp.size() != 0) {
+                    p.expectChar(',')
+                }
+                tmp.push(parseJSON[T.ElementType](p))
+            }
+            p.expectChar( ']')
+            return &&tmp
+        }
         else {
             error!(
                 "type `{t}` cannot be implicitly parsed from json, implement `{t}::fromJSON(p: &JSONParser)",
@@ -378,6 +398,392 @@ pub func parse[T](p: &JSONParser): !T => parseJSON[T](p)
 pub func fromString[T](s: &const String): !T {
     var p = JSONParser(s.__str());
     return parse[T](&p)
+}
+
+pub enum Tag {
+    @str("Unknown")
+    Unknown,
+    @str("Null")
+    Null,
+    @str("Boolean")
+    Boolean,
+    @str("Number")
+    Number,
+    @str("String")
+    String,
+    @str("Array")
+    Array,
+    @str("Object")
+    Object
+}
+
+pub class Value {
+    - tag: Tag
+    func `init`(tag: Tag = .Null) {
+        this.tag = tag
+    }
+
+    @inline
+    const func isNull() => tag == .Null
+
+    @inline
+    const func isBoolean() => tag == .Boolean
+
+    @inline
+    const func isNumber() => tag == .Number
+
+    @inline
+    const func isString() => tag == .String
+
+    @inline
+    const func isArray() => tag == .Array
+
+    @inline
+    const func isObject() => tag == .Object
+
+    virtual func fromJSON(p: &JSONParser): !void {
+        p.expectNull()
+    }
+
+    virtual const func toJSON(os: &OutputStream): void {
+        os << "null"
+    }
+
+    const func `==`(other: &Value) => (this !: ^const void) == (other !: ^const void)
+
+    const func `!!`() => this.tag != .Null
+
+    const func `str`(os: &OutputStream) {
+        toJSON(os)
+    }
+}
+
+class JSONString: Value {
+    value: String
+
+    func `init`(s: String = null) {
+        super(Tag.String)
+        value = &&s
+    }
+
+    func fromJSON(p: &JSONParser): !void {
+        var s = p.expectString()
+        if (!s.empty())
+            value = String(s)
+    }
+
+    const func toJSON(os: &OutputStream): void {
+        module.toJSON(os, &value)
+    }
+}
+
+class Number: Value {
+    value: f64
+    func `init`(value: f64 = 0) {
+        super(Tag.Number)
+        this.value = value
+    }
+
+    func `init`(value: i64 = 0) {
+        super(Tag.Number)
+        this.value = value
+    }
+
+    func fromJSON(p: &JSONParser): !void {
+        value = p.expectFloat[f64]()
+    }
+
+    const func toJSON(os: &OutputStream): void {
+        module.toJSON(os, value)
+    }
+}
+
+class Boolean: Value {
+    value: bool
+    func `init`(value: bool = false) {
+        super(Tag.Boolean)
+        this.value = value
+    }
+
+    func fromJSON(p: &JSONParser): !void {
+        value = p.expectBool()
+    }
+
+    const func toJSON(os: &OutputStream): void {
+        module.toJSON(os, value)
+    }
+}
+
+class Array: Value {
+    - elems = Vector[Value]()
+    func `init`() {
+        super(Tag.Array)
+    }
+
+    @inline
+    const func `..`() => elems.op__range()
+
+    @inline
+    func `[]`(idx: i32) => elems.[idx]
+    @inline
+    func `[]=`(idx: i32, value: Value) { elems.[idx] = &&value }
+
+    const func toJSON(os: &OutputStream) {
+        os << "["
+        for (const value, i: elems) {
+            if (i != 0)
+                os << ", "
+            value.toJSON(os)
+        }
+        os << "]"
+    }
+
+    func fromJSON(p: &JSONParser): !void {
+        p.expectChar('['`char)
+        while (p.peekChar() != ']'`char) {
+            if (!elems.empty())
+                p.expectChar(','`char)
+            var value: Value = null;
+            switch(p.peekChar()) {
+                case 'n'`char => value = Value()
+                case 'f'`char, 't'`char => value = Boolean()
+                case '0'`char..'9'`char => value = Number()
+                case '"'`char => value = JSONString()
+                case '['`char => value = This()
+                case '{'`char => value = createObject()
+                default => raise JSONParserError("")
+            }
+            value.fromJSON(p)
+            elems.push(&&value)
+        }
+        p.expectChar(']'`char)
+    }
+}
+
+class Object: Value {
+    - members = HashMap[String, Value]()
+    func `init`() {
+        super(Tag.Object)
+    }
+
+    @inline
+    const func `..`() => members.op__range()
+    @inline
+    func `[]`(name: String) => members.[&&name]
+    @inline
+    const func `[]`(name: String) => members.[&&name]
+    @inline
+    func `[]=`(name: String, value: Value) => members.[&&name] = &&value
+
+    func set[T](name: String, value: T) {
+        #if (T.isBoolean)
+            members.[&&name] = Boolean(value)
+        else #if (T.isChar || T.isNumber)
+            members.[&&name] = Number(value)
+        else #if (T.isString)
+            members.[&&name] = JSONString(value)
+        else {
+            members.[&&name] = &&value
+        }
+    }
+
+    func fromJSON(p: &JSONParser): !void {
+        p.expectChar('{'`char)
+        while (p.peekChar() != '}'`char) {
+            if (!members.empty())
+                p.expectChar(','`char)
+            var name = p.expectKey();
+            p.expectChar(':'`char)
+
+            var value: Value = null;
+            switch(p.peekChar()) {
+                case 'n'`char => value = Value()
+                case 'f'`char, 't'`char => value = Boolean()
+                case '-'`char =>
+                case '0'`char..'9'`char => value = Number()
+                case '"'`char => value = JSONString()
+                case '['`char => value = Array()
+                case '{'`char => value = This()
+                default => raise JSONParserError(f"Unexpected character: ${p.peekChar()}")
+            }
+            value.fromJSON(p)
+            members.[String(name)] = &&value
+        }
+        p.expectChar('}'`char)
+    }
+
+    const func toJSON(os: &OutputStream): void {
+        os << "{"
+        var first = true;
+        for (const name, value: members) {
+            if (!first)
+                os << ", "
+            os << '"' << name << "\": "
+            value.toJSON(os)
+            first = false
+        }
+        os << "}"
+    }
+}
+
+func createObject(): Value{ return Object() }
+
+macro jsonRequireTag(value, kind) {
+    if (value!.tag != kind!)
+        raise JSONError(f"Expecting a '${kind!}' Value, got a '${value!.tag}'")
+}
+
+struct ShellObject {
+    - value: Value = null
+    func `init`() {}
+
+    func fromJSON(p: &JSONParser): !void {
+        if (p.peekChar() == EOS!)
+            raise JSONParserError("End of Stream")
+        switch(p.peekChar()) {
+            case 'n'`char => value = Value()
+            case 'f'`char, 't'`char => value = Boolean()
+            case '0'`char..'9'`char => value = Number()
+            case '"'`char => value = JSONString()
+            case '['`char => value = Array()
+            case '{'`char => value = Object()
+            default => raise JSONParserError("")
+        }
+        value.fromJSON(p)
+    }
+
+    const func toJSON(os: &OutputStream): void {
+        if (value != null)
+            value.toJSON(os)
+        else
+            os << "\"null\""
+    }
+
+    const func `!!`() => value != null
+
+    const func `&.`() {
+        assert!(value != null)
+        return &value
+    }
+
+    const func `deref`() {
+        assert!(value != null)
+        return &value
+    }
+}
+
+pub func cast[Target](src: &const Value): !Target {
+    #if (#Target == #Value) {
+        return <Target>src
+    }
+    else #if (#Target == #bool) {
+        jsonRequireTag!(src, Tag.Boolean)
+        return (<&const Boolean> src).value
+    }
+    else #if (Target.isNumber) {
+        jsonRequireTag!(src, Tag.Number)
+        return <Target>(<&const Number>src).value
+    }
+    else #if (Target.isString && Target.isClass) {
+        jsonRequireTag!(src, Tag.String)
+        return (<&const JSONString>src).value
+    }
+    else #if (Target.isOptional) {
+        #const M = Target.targetType;
+        if (src.tag == .Null)
+            return None[M]()
+        else
+            return Some(cast[M](src))
+    }
+    else #if (Target.isStruct || Target.isClass) {
+        jsonRequireTag!(src, Tag.Object)
+        var value = Target();
+        const obj = <&const Object>src;
+        #for (const member: Target.members) {
+            #if (member.isField) {{
+                #const M = member.Tinfo;
+                #const jsonAttr = member.attributes.["json"]
+                const val = obj.[#{member.name}];
+                #if (jsonAttr && jsonAttr.["optional"]) {
+                    if (val) {
+                        value.#{mk_ident!(member.name)} = cast[M](*val)
+                    }
+                }
+                else {
+                    #if (!M.isOptional) {
+                        if (!val) {
+                            var msg = String("Any.cast failed, missing required member ");
+                            msg << #{member.name}
+                            raise JSONParserError(&&msg)
+                        }
+                        value.#{mk_ident!(member.name)} = cast[M](*val)
+                    }
+                    else {
+                        if (val)
+                            value.#{mk_ident!(member.name)} = cast[M](*val)
+                    }
+                }
+            }}
+        }
+        return &&value
+    }
+    else {
+        error!("Unsupported cast target type '{t}'", #Target)
+    }
+}
+
+func toJSONValue[T](value: &const T): Value {
+    #if (#T == #bool) {
+        return Boolean(value)
+    }
+    else #if (T.isNumber) {
+        return Number(value)
+    }
+    else #if (T.isString) {
+        return JSONString(value)
+    }
+    else #if (T.isOptional) {
+        if (!value) {
+            return Value()
+        }
+        else {
+            return toJSONValue(*value)
+        }
+    }
+    else #if (T.isClass || T.isStruct) {
+        var obj = Object();
+        #for (const member: T.members) {
+            #if (member.isField) {{
+                #const M = member.Tinfo;
+                #const jsonAttr = member.attributes.["json"]
+                #if (!jsonAttr || !jsonAttr.["ignore"]) {
+                    const val = value.#{member.name};
+                    #if (jsonAttr && jsonAttr.["optional"]) {
+                        #if (M.isClass) {
+                            if (val != null) {
+                                obj.[#{member.name}] = toJSONValue(&val)
+                            }
+                        }
+                        else #if (M.isOptional) {
+                            if (!!val) {
+                                obj.[#{member.name}] = toJSONValue(&val)
+                            }
+                        }
+                        else {
+                            obj.[#{member.name}] = toJSONValue(&val)
+                        }
+                    }
+                    else {
+                        obj.[#{member.name}] = toJSONValue(&val)
+                    }
+                }
+            }}
+        }
+        return &&obj
+    }
+    else {
+        error!("Unsupported cast target type '{t}'", #T)
+    }
 }
 
 test "Json encode" {
@@ -406,4 +812,11 @@ test "Json encode" {
     s.clear()
     toJSON(&s, &x)
     ok!(s == "null")
+
+    var z = Vector[i32]();
+    z.push(10)
+    z.push(20)
+    s.clear()
+    toJSON(&s, &z)
+    ok!(s == "[10, 20]")
 }

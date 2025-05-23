@@ -82,6 +82,7 @@ void suggestSimilarSymbol(const Env *env, Log *L, const char *name)
         return;
 
     const char *similar = NULL;
+    FileLoc loc = {};
     for (Scope *scope = env->scope; scope; scope = scope->prev) {
         Symbol *symbols = scope->symbols.elems;
         for (u32 i = 0; i < scope->symbols.capacity; i++) {
@@ -91,12 +92,13 @@ void suggestSimilarSymbol(const Env *env, Log *L, const char *name)
             if (dist < minDist) {
                 minDist = dist;
                 similar = symbols[i].name;
+                loc = symbols[i].node->loc;
             }
         }
     }
 
     if (similar) {
-        logNote(L, NULL, "did you mean '{s}'", (FormatArg[]){{.s = similar}});
+        logNote(L, &loc, "did you mean '{s}'", (FormatArg[]){{.s = similar}});
     }
 }
 
@@ -215,6 +217,34 @@ void defineFunctionDecl(Env *env, Log *L, const char *name, AstNode *node)
     node->list.first = sym->node;
 
     sym->index++;
+}
+AstNode *findSymbolInRoot(const Env *env,
+                          Log *L,
+                          const char *name,
+                          const FileLoc *loc)
+{
+    Scope *scope = env->first;
+    u32 hash = hashPtr(hashInit(), name);
+    Symbol *symbol = findInHashTable(&scope->symbols,
+                                     &(Symbol){.name = name},
+                                     hash,
+                                     sizeof(Symbol),
+                                     compareSymbols);
+    if (symbol)
+        return symbol->node;
+
+    if (L) {
+        logError(L,
+                 loc,
+                 "undefined module symbol '{s}'",
+                 (FormatArg[]){{.s = name}});
+        Scope tmp = *env->first;
+        tmp.next = NULL;
+        Env tmpEnv = {&tmp, &tmp};
+        suggestSimilarSymbol(&tmpEnv, L, name);
+    }
+
+    return NULL;
 }
 
 AstNode *findSymbol(const Env *env,

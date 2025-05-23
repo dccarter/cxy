@@ -455,17 +455,32 @@ bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node)
         type = getTypeBase(type);
     } while (type);
 
-    if (type == NULL)
-        return false;
-
-    transformToMemberCallExpr(
-        visitor,
-        node,
-        transformRValueToLValue(visitor, shallowCloneAstNode(ctx->pool, node)),
-        S_Truthy,
-        NULL);
-
-    type = checkType(visitor, node);
+    if (type == NULL) {
+        type = resolveAndUnThisType(node->type);
+        if (!isClassType(type))
+            return false;
+        // Transform to comparison with null
+        AstNode *lhs = duplicateAstNode(ctx->pool, node);
+        clearAstBody(node);
+        node->tag = astBinaryExpr;
+        node->type = NULL;
+        clearAstBody(node);
+        node->binaryExpr.lhs = lhs;
+        node->binaryExpr.rhs =
+            makeNullLiteral(ctx->pool, &node->loc, NULL, type);
+        node->binaryExpr.op = opNe;
+        type = checkType(visitor, node);
+    }
+    else {
+        transformToMemberCallExpr(
+            visitor,
+            node,
+            transformRValueToLValue(visitor,
+                                    shallowCloneAstNode(ctx->pool, node)),
+            S_Truthy,
+            NULL);
+        type = checkType(visitor, node);
+    }
     return typeIs(type, Primitive);
 }
 
@@ -636,32 +651,32 @@ AstNode *implementDefaultInitializer(AstVisitor *visitor,
     AstNodeList initializers = {NULL};
 
     for (; member; member = member->next) {
-        if (nodeIs(member, FieldDecl) && member->structField.value != NULL) {
-            insertAstNode(
-                &initializers,
-                makeExprStmt(
-                    ctx->pool,
-                    &member->loc,
-                    flgMember,
-                    makeAssignExpr(ctx->pool,
-                                   &member->loc,
-                                   flgNone,
-                                   makeResolvedPath(ctx->pool,
-                                                    &member->loc,
-                                                    member->structField.name,
-                                                    flgAddThis,
-                                                    member,
-                                                    NULL,
-                                                    NULL),
-                                   opAssign,
-                                   member->structField.value,
-                                   NULL,
-                                   NULL),
-                    NULL,
-                    NULL));
-            member->structField.value = NULL;
-        }
         last = member;
+        if (hasFlag(member, Static) || !nodeIs(member, FieldDecl) ||
+            member->structField.value == NULL)
+            continue;
+        insertAstNode(&initializers,
+                      makeExprStmt(ctx->pool,
+                                   &member->loc,
+                                   flgMember,
+                                   makeAssignExpr(ctx->pool,
+                                                  &member->loc,
+                                                  flgNone,
+                                                  makeResolvedPath(
+                                                      ctx->pool,
+                                                      &member->loc,
+                                                      member->structField.name,
+                                                      flgAddThis,
+                                                      member,
+                                                      NULL,
+                                                      NULL),
+                                                  opAssign,
+                                                  member->structField.value,
+                                                  NULL,
+                                                  NULL),
+                                   NULL,
+                                   NULL));
+        member->structField.value = NULL;
     }
 
     if (!isVirtual && initializers.first == NULL)

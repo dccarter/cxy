@@ -3,6 +3,14 @@
 > Cxy programming language is a work in progress, feel free to play around
 > and report any issues. :construction:
 
+`cxy` is a c-style object-oriented programming language that transpiles to C.
+
+```c
+func main() {
+  println("Hello World!")
+}
+```
+
 ## Comments
 
 `cxy` supports `c`-style comments
@@ -34,7 +42,7 @@ can be bound to a desired type using the `:<type>` operator.
 'a'
 '\n' // escaped character
 '☺️' // wide character
-'! ' as char // bound to type char
+'!'`char // bound to type char
 ```
 
 ### Integers
@@ -48,7 +56,7 @@ fit the integer literal. If a specific type is desired, the literal can be bound
 0o77 // octal
 0xaf // hex
 
-100 as i64 // Bound to type i64
+100`64 // Bound to type i64
 ```
 
 ### Float Literals
@@ -60,7 +68,7 @@ to the type.
 0.00    // float
 1e10    // exponential
 1e-10   // exponential
-1.32 as f32  // bound to f32
+1.32`f32  // bound to f32
 ```
 
 ### String Literals
@@ -172,7 +180,7 @@ Slice types are unsized arrays denoted by the syntax `[Type]`, where the size is
 
 * Enumerable and indexable
 * Can be created from array types or via the `Slice` constructor
-* Internal represented by the builtin `Slice` type
+* Internally represented by the builtin `Slice` type
 
 ```c
 func show(nums: [i32]) {
@@ -205,7 +213,7 @@ a.0 == 10; // true
 ### Pointers
 
 A pointer type is denoted by the `^` before the type name. Pointer type variable stores the
-memory addresses other variables.
+memory addresses of other variables.
 
 * the `ptrof` operator can be used to get the pointer of a variable
 * just like in `c`, a `null` literal can be assigned to a pointer
@@ -251,7 +259,7 @@ A type can be made optional by adding the `?` character at the end of the type n
 * `null` can be assigned to an optional variable, marking is not having a value
 * builtin function `Some` can be used to create an optional value, `None` can be used
   to create an invalid optional value.
-* Optional implements the truthy `!!` operator which returns true of the optional has a valid
+* Optional implements the truthy `!!` operator which returns true if the optional has a valid
   value.
 * Implements the dereference operator `*` which returns the underlying optional value.
 
@@ -263,7 +271,7 @@ var y = None[i32]();
 // Creates a valid i32 value
 var y:i32? = 10;
 // Same as above
-var y = Some(10);
+var y = Some(10`i32);
 
 // Test the optional for validity
 if (y) {
@@ -277,12 +285,13 @@ if (y) {
 A tagged union is a list of types seperated by the `|` character that a variable can assume.
 
 * They are called tagged because the compiler will generate a tag to go with the union type.
-* A tagged union variable can be cast to a concrete type, provided they type is a union member
+* A tagged union variable can be cast to a concrete type, provided the type is a union member
 * `match` statement can be used to execute a certain block of code depending on the type of
   value stored on the union variable.
+* `is` operator can be used to check if a union value has the given type
 
 ```c
-var a: i32|string = 10 as i32;
+var a: i32|string = 10`i32;
 a = "Hello World";
 
 var b = <string>a; // Ok since string is in the union i32|string
@@ -295,11 +304,15 @@ match(a) {
     case i32 as e => println("We have ", e)
 }
 
+if (a is string) {
+  // evaluates to true because a has a string value at this point
+}
+
 ```
 
 ### Function Types
 
-`cxy` supports function types which can with the following syntax
+`cxy` supports function types which can have the following syntax
 
 ```c
 // greeter should be a function that accepts a string argument and returns nothing
@@ -334,8 +347,8 @@ type Result[T] = Error | T
 
 * Functions are private to the module by default, there can be made global by prefixing
   the declaration with `pub` keyword.
-* The return type of function is optional (deduced by compiler if not specified). If the
-  function is called declaration or is recursive, its return type will be required.
+* The return-type of a function is optional (deduced by compiler if not specified). If the
+  function is called before its declaration, or it is recursive, its return type will be required.
 * Simple function types can return expressions using the `=>` operator
 * `@inline` attribute can be specified to force the function to be inlined
 * Function type parameters allowed on functions, by default they are transformed to closure
@@ -380,10 +393,10 @@ func greet(fn: func(ms: string) -> void) {
 ### External Function Declaration
 
 * Prefixed with the `extern` keyword.
-* Extern functions do not have body since they are expected to be declared somewhere else (likely in a c source file
+* Extern functions do not have a body since they are expected to be declared somewhere else (likely in a c source file
   or library)
 * The function will need to be provided at link time, this can be as simply as linking against a
-  library that provides one or authoring one on `c`.
+  library that provides one or authoring one in `c`.
 
 ```c
 pub extern func strlen(s: string) : u64

@@ -1,11 +1,9 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include "core/hash.h"
-#include "core/utils.h"
+#include "hash.h"
+#include "utils.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,7 +18,7 @@ extern "C" {
  * The collision resolution strategy is linear probing.
  */
 
-typedef struct {
+typedef struct HashTable {
     size_t capacity;
     size_t size;
     HashCode *hashes;

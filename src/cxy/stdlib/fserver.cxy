@@ -347,11 +347,11 @@ pub class FileServer {
         var ranges = Vector[(i64, i64)]();
         while (i < s.size()) {
             // Skip white-space
-            while(s.[i] == ' ' as char) i++;
+            while(s.[i] == ' '`char) i++;
             var start = s.toi[i64]();
             var end: i64;
             s = s.substr(j)
-            var tmp = s.indexOf('-' as char);
+            var tmp = s.indexOf('-'`char);
             if (tmp) {
                 i = <i64> *tmp
                 s = s.substr(i+1)
@@ -369,7 +369,7 @@ pub class FileServer {
             }
             ranges.push((start, end))
 
-            tmp = s.indexOf(',' as char)
+            tmp = s.indexOf(','`char)
             if (tmp) {
                 i = (<i64> *tmp + 1)
             }
@@ -498,7 +498,7 @@ pub class FileServer {
             var total = s.st_size;
             total += SysConfPageSize - (total % SysConfPageSize)
             cf.data = vmem.mmap(null, total, PROT_READ!, MAP_SHARED!, cf.fd, 0)
-            if (cf.data == ((-1 as u64) !: ^void)) {
+            if (cf.data == ((-1`u64) !: ^void)) {
                 WRN!("mapping static resource (" << cf.fd << ") of size " << total << " failed: " << errno!);
                 return false;
             }
@@ -508,7 +508,7 @@ pub class FileServer {
         else {
             // read file
             var total = s.st_size + 8;
-            var nread = 0 as u64;
+            var nread = 0`u64;
             var toread = s.st_size;
             var b = malloc(total) !: ^char;
              while (nread < toread) {

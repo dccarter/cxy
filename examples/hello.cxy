@@ -1,7 +1,61 @@
-func get(x: u8): bool? {
-    return null
+import "stdlib/jsonrpc.cxy"
+import { getLocalAddress, Address } from "stdlib/net.cxy"
+
+class Calculator {
+    func `init`(){}
+    @api
+    func add(a: i32, b: i32) => a + b
+    @api
+    func sub(a: i32, b: i32) => a - b
 }
-func main(): void {
-    var s = "Hello World";
-    var cs: ^const char = s;
+
+func add() { }
+func main(): !void {
+    var addr = getLocalAddress("0.0.0.0", 8080)
+    #if (defined BUILD_SERVER) {
+        var calc = Calculator();
+        var server = jsonrpc.server(addr, calc);
+        server.start()
+    }
+    else {
+        var client = jsonrpc.connect[Calculator](addr);
+        println("10 + 100 = ", client.add(10, 100))
+        println("10 - 100 = ", client.sub(10, 100))
+        var resp = client.batch(
+            ("add", (("a", 3), ("b", 4))),
+            ("sub", (("a", 17), ("b", 4)))
+        );
+        println(resp.[0].result, resp.[1].result)
+    }
 }
+
+//class Hello {
+//    @static
+//    LOG_TAG = "Hello"
+//
+//    func `init`(){}
+//
+//    func say() {
+//        println(LOG_TAG)
+//    }
+//}
+//
+//class Greeter {
+//    @static
+//    hello: Hello = null;
+//
+//    func `init`() {
+//        if (hello == null) {
+//            hello = Hello()
+//        }
+//    }
+//
+//    func greet() {
+//        hello.say()
+//    }
+//}
+//
+//func main(): !void {
+//    var x = Greeter();
+//    x.greet()
+//}

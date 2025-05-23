@@ -179,7 +179,10 @@ void bindPath(AstVisitor *visitor, AstNode *node)
     BindContext *ctx = getAstVisitorContext(visitor);
     AstNode *base = node->path.elements;
     if (!base->pathElement.isKeyword) {
-        AstNode *resolved = resolvePathBaseUpChain(visitor, node);
+        AstNode *resolved =
+            hasFlag(base, Module)
+                ? findSymbolInRoot(ctx->env, ctx->L, base->_name, &base->loc)
+                : resolvePathBaseUpChain(visitor, node);
         if (resolved == NULL)
             return;
         if (nodeIs(resolved, VarDecl) && resolved->_name != base->_name) {
@@ -751,6 +754,16 @@ void bindCallExpr(AstVisitor *visitor, AstNode *node)
 void bindMacroCallExpr(AstVisitor *visitor, AstNode *node)
 {
     BindContext *ctx = getAstVisitorContext(visitor);
+    AstNode *callee = node->macroCallExpr.callee;
+    if (nodeIs(callee, Path) && callee->path.elements->next != NULL) {
+        bindPath(visitor, callee);
+        callee = shallowCloneAstNode(ctx->pool, callee);
+        callee->next = node->macroCallExpr.args;
+        node->macroCallExpr.args = callee;
+        node->macroCallExpr.callee->tag = astIdentifier;
+        node->macroCallExpr.callee->ident.value = S___CxyPluginAction;
+    }
+
     EvaluateMacro macro = findBuiltinMacroByNode(node->macroCallExpr.callee);
     if (macro == NULL) {
         logError(ctx->L,
@@ -761,6 +774,7 @@ void bindMacroCallExpr(AstVisitor *visitor, AstNode *node)
     }
 
     node->macroCallExpr.evaluator = macro;
+
     astVisitManyNodes(visitor, node->macroCallExpr.args);
 }
 

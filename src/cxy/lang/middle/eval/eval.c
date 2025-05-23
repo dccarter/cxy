@@ -96,7 +96,7 @@ bool comptimeCompareTypes(const AstNode *lhs, const AstNode *rhs)
                    ? comptimeCompareTypes(lhs, rhs->reference.target)
                    : comptimeCompareTypes(lhs, rhs);
     default:
-        return false;
+        return lhs == rhs;
     }
 }
 

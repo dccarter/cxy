@@ -297,7 +297,7 @@ pub func getLocalAddress(name: string, port: u16, mode: IPVersion = IPVersion.An
     switch (mode) {
         case IPVersion.V4 => ipv6 = null
         case IPVersion.V6 => ipv4 = null
-        default =>
+        default =>{}
     }
 
     if (ipv4 != null) {
@@ -409,7 +409,7 @@ pub async func getRemoteAddress(name: string, port: u16, mode: IPVersion = IPVer
                 ipv6 = null
             }
 
-        default =>
+        default =>{}
     }
 
     if (ipv4 != null) {
