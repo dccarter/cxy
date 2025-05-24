@@ -52,6 +52,7 @@ typedef struct {
 
 MemPool newMemPool(void);
 void *allocFromMemPool(MemPool *, size_t);
+void *callocFromMemPool(MemPool *, size_t, size_t);
 void *allocTrackedMem(MemPool *, size_t);
 void *reallocTrackedMem(MemPool *, void *, size_t);
 void *allocFromCacheOrPool(MemPool *, MemPoolCacheId, size_t);

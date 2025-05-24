@@ -90,6 +90,11 @@ static cstring findCxyPluginDir(CompilerDriver *driver)
         char *binary = strrchr(tmp, '/');
         if (binary == NULL)
             return NULL;
+        char *bin = strrchr(binary - 1, '/');
+        if (bin != NULL) {
+            if (binary - bin == 4 && strncmp(bin, "/bin", 4) == 0)
+                binary = bin;
+        }
         memcpy(binary, "/lib/cxy/plugins", 17);
         if (realpath(tmp, tmp2) == NULL) {
             logWarning(driver->L,
@@ -141,7 +146,7 @@ Plugin *loadPlugin(CompilerDriver *driver,
     }
     printStatus(driver->L, "initializing plugin '{s}'", name);
 
-    plugin = allocFromMemPool(driver->pool, sizeof(Plugin));
+    plugin = callocFromMemPool(driver->pool, 1, sizeof(Plugin));
     plugin->name = name;
     plugin->path = path;
     plugin->handle = handle;

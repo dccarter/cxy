@@ -2021,7 +2021,7 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
                  (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
         return NULL;
     }
-    CBackend *backend = allocFromMemPool(driver->pool, sizeof(CBackend));
+    CBackend *backend = callocFromMemPool(driver->pool, 1, sizeof(CBackend));
     driver->backend = backend;
     backend->output = f;
     backend->filename = filename;

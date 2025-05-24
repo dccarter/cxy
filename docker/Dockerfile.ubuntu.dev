@@ -3,4 +3,13 @@ FROM ubuntu:latest AS builder
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing cmake \
-  clang llvm llvm-dev libclang-dev clang-format gdb openssl libssl-dev
+  clang llvm llvm-dev libclang-dev clang-format gdb openssl libssl-dev openssh-server \
+  rsync
+
+RUN echo 'root:dev123' | chpasswd
+RUN mkdir -p /var/run/sshd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed -i 's/@include \/etc\/ssh\/sshd_config.d\/\*\.conf//g' /etc/ssh/sshd_config
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]

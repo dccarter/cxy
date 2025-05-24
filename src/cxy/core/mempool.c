@@ -73,6 +73,14 @@ void *allocFromMemPool(MemPool *mem_pool, size_t size)
     return ptr;
 }
 
+void *callocFromMemPool(MemPool *mem_pool, size_t count, size_t size)
+{
+    size_t total_size = count * size;
+    void *ptr = allocFromMemPool(mem_pool, total_size);
+    memset(ptr, 0, total_size);
+    return ptr;
+}
+
 void *allocTrackedMem(MemPool *pool, size_t size)
 {
     TrackedMemoryItem *item = mallocOrDie(size + sizeof(TrackedMemoryItem));
