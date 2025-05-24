@@ -1,5 +1,5 @@
 func main(args: [string]) {
-  var a = (0 : i32)
+  var a = <i32>0
   if (true) {
     a = 1
   }

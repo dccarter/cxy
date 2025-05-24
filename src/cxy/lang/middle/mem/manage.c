@@ -17,6 +17,7 @@ typedef struct {
     AstNode *lastDropScope;
     bool used;
     bool destroyed;
+    u32 idx;
 } VariableTrace;
 
 typedef struct {
@@ -95,16 +96,19 @@ static void insertVariableTrace(MemContext *ctx,
                                 AstNode *node,
                                 VariableState state)
 {
-    const HmapStatus status = hmapPut(
-        &ctx->variables,
-        &(VariableTrace){
-            .variable = node, .scope = ctx->currentBlock, .state = state});
+    const HmapStatus status =
+        hmapPut(&ctx->variables,
+                &(VariableTrace){.variable = node,
+                                 .scope = ctx->currentBlock,
+                                 .state = state,
+                                 .idx = ctx->variables.nitems});
     csAssert0(status.s);
 }
 
 static DynArray captureVariableState(MemContext *ctx)
 {
-    DynArray vars = newDynArray(sizeof(VariableTrace));
+    DynArray vars =
+        newDynArrayWithSize(sizeof(VariableTrace), ctx->variables.nitems);
     // dynArrayFor(var, AstNode *, ctx->locals)
     // {
     //     VariableTrace *vt = findVariableTrace(ctx, *var);
@@ -115,7 +119,9 @@ static DynArray captureVariableState(MemContext *ctx)
     VariableTrace *vt = NULL;
     while ((vt = hmapNext(&it))) {
         pushOnDynArray(&vars, vt);
+        ((VariableTrace *)vars.elems)[vt->idx] = *vt;
     }
+    vars.size = ctx->variables.nitems;
     return vars;
 }
 
@@ -731,6 +737,7 @@ static void visitBlockStmt(AstVisitor *visitor, AstNode *node)
     ctx->locals = prevLocals;
     ctx->cleanupBlocks = prevCleanups;
     freeDynArray(&locals);
+    freeDynArray(&cleanups);
 }
 
 static void visitIfStmt(AstVisitor *visitor, AstNode *node)

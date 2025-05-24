@@ -8,8 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "core/hash.h"
-#include "core/utils.h"
+#include "hash.h"
+#include "utils.h"
 
 #ifdef __cplusplus
 extern "C" {

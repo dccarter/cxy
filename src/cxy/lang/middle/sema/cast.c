@@ -6,6 +6,7 @@
 #include "check.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 
 static void castIntegerLiteral(const Type *to, AstNode *expr)
 {
@@ -124,6 +125,51 @@ void checkCastExpr(AstVisitor *visitor, AstNode *node)
                  "type '{t}' cannot be cast to type '{t}'",
                  (FormatArg[]){{.t = expr}, {.t = target}});
     }
+
+    if (typeIsBaseOf(expr, target)) {
+        // this is a special cast, we need to change to a ternary expr
+        AstNode *exp = node->castExpr.expr;
+        AstNode *lhs = makeMemberExpr(
+            ctx->pool,
+            &exp->loc,
+            flgNone,
+            makeMemberExpr(
+                ctx->pool,
+                &exp->loc,
+                flgNone,
+                deepCloneAstNode(ctx->pool, exp),
+                makeIdentifier(ctx->pool, &exp->loc, S_vtable, 0, NULL, NULL),
+                NULL,
+                NULL),
+            makeIdentifier(ctx->pool, &exp->loc, S___tid, 0, NULL, NULL),
+            NULL,
+            NULL);
+        AstNode *rhs =
+            makeUnsignedIntegerLiteral(ctx->pool,
+                                       &exp->loc,
+                                       resolveAndUnThisType(target)->index,
+                                       NULL,
+                                       getPrimitiveType(ctx->types, prtU64));
+        exp->type = target;
+        node->type = NULL;
+        node->tag = astTernaryExpr;
+        node->ternaryExpr.cond = makeBinaryExpr(
+            ctx->pool, &exp->loc, flgNone, lhs, opEq, rhs, NULL, NULL);
+        // It's ok to make it a cast expression, we won't get into an infinite
+        // casting loop because it is already typed
+        node->ternaryExpr.body = makeCastExpr(ctx->pool,
+                                              &exp->loc,
+                                              flgNone,
+                                              exp,
+                                              node->castExpr.to,
+                                              NULL,
+                                              target);
+        node->ternaryExpr.otherwise =
+            makeNullLiteral(ctx->pool, &node->loc, NULL, target);
+        astVisit(visitor, node);
+        return;
+    }
+
     node->type = target;
     if (typeIs(expr, Union)) {
         node->castExpr.idx = findUnionTypeIndex(

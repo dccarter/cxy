@@ -5,7 +5,6 @@
 #pragma once
 
 #include "core/utils.h"
-#include "lang/middle/builtins.h"
 #include "operator.h"
 
 #ifdef __cplusplus
@@ -117,6 +116,8 @@ extern "C" {
     f(__union_dctor)            \
     f(__union_copy)             \
     f(__async)                  \
+    f(__CxyPluginAction)        \
+    f(__tid)                    \
     f(CXY__main)                \
     f(resolve)                  \
     f(reject)                   \
@@ -134,6 +135,16 @@ extern "C" {
     ff(copy,                "__copy")            \
     ff(AsmInputPrefix,      "\"r\"")             \
     ff(AsmOutputPrefix,     "\"=r\"")
+
+#define OVERRIDABLE_BUILTINS(f)    \
+    f(__scheduler)                 \
+    f(__thread_launch)             \
+    f(timestamp)                   \
+    f(fdWaitRead)                  \
+    f(fdWaitWrite)                 \
+    f(sleepAsync)                  \
+    f(__smart_ptr_alloc)           \
+    f(__smart_ptr_alloc_trace)
 
 // clang-format on
 

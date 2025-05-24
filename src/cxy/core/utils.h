@@ -243,7 +243,7 @@ attr(noreturn) attr(format, printf, 1, 2) void cxyAbort(const char *fmt, ...);
 #define make(T, ...) ((T){__VA_ARGS__})
 #define New(P, T, ...)                                                         \
     ({                                                                         \
-        T *LINE_VAR(aNa) = allocFromMemPool((P), sizeof(T));                   \
+        T *LINE_VAR(aNa) = callocFromMemPool((P), 1, sizeof(T));               \
         *LINE_VAR(aNa) = make(T, __VA_ARGS__);                                 \
         LINE_VAR(aNa);                                                         \
     })

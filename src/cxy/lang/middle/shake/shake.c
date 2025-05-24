@@ -560,6 +560,13 @@ static void shakeWhileStmt(AstVisitor *visitor, AstNode *node)
     astVisit(visitor, node->whileStmt.body);
 }
 
+static void shakeFieldDecl(AstVisitor *visitor, AstNode *node)
+{
+    ShakeAstContext *ctx = getAstVisitorContext(visitor);
+    node->flags |= findAttribute(node, S_static) == NULL ? flgNone : flgStatic;
+    astVisitFallbackVisitAll(visitor, node);
+}
+
 static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
 {
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
@@ -1216,6 +1223,7 @@ AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node)
         [astWhileStmt] = shakeWhileStmt,
         [astForStmt] = shakeForStmt,
         [astFuncDecl] = shakeFuncDecl,
+        [astFieldDecl] = shakeFieldDecl,
         [astUnionDecl] = shakeUnionDecl,
         [astGenericDecl] = shakeGenericDecl,
         [astTestDecl] = shakeTestDecl,

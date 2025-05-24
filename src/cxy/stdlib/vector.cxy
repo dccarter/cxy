@@ -3,6 +3,10 @@ module vector
 macro DEFAULT_VECTOR_CAPACITY <u64>16
 
 pub class Vector[T] {
+    `noComparator = true;
+    `isVector = true;
+    type elementType = T;
+
     - _data: ^T
     - _size: u64
     - _capacity: u64

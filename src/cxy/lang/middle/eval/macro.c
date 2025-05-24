@@ -22,6 +22,7 @@
 
 #include "core/alloc.h"
 #include "core/sb.h"
+#include "driver/plugin.h"
 #include "lang/middle/sema/check.h"
 
 #include <string.h>
@@ -263,6 +264,25 @@ static AstNode *makeForceDropNode(AstVisitor *visitor,
         ctx->pool, &node->loc, flgForced, bfiDrop, args, type);
 }
 
+static AstNode *makeCxyPluginActionNode(AstVisitor *visitor,
+                                        attr(unused) const AstNode *node,
+                                        attr(unused) AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentLimit(ctx, &node->loc, args, 1, UINT8_MAX))
+        return NULL;
+    if (!evaluate(visitor, args))
+        return NULL;
+    csAssert0(nodeIs(args, CxyPluginAction));
+
+    AstNode *action = args;
+    args = args->next;
+    return invokeCxyPluginAction(action->CxyPluginAction.plugin,
+                                 action->CxyPluginAction.name,
+                                 node,
+                                 args);
+}
+
 static AstNode *makeExNode(AstVisitor *visitor,
                            attr(unused) const AstNode *node,
                            attr(unused) AstNode *args)
@@ -408,6 +428,47 @@ static AstNode *makeHasTypeNode(AstVisitor *visitor,
     args->next = NULL;
     args->tag = astBoolLit;
     args->boolLiteral.value = nodeIs(type, TypeDecl);
+    return args;
+}
+
+static AstNode *makeHashAstNode(AstVisitor *visitor,
+                                attr(unused) const AstNode *node,
+                                attr(unused) AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+    if (!evaluate(visitor, args))
+        return NULL;
+
+    HashCode hash = hashInit();
+    switch (args->tag) {
+    case astBoolLit:
+        hash = hashUint8(hash, args->boolLiteral.value);
+        break;
+    case astCharLit:
+        hash = hashUint32(hash, args->charLiteral.value);
+        break;
+    case astIntegerLit:
+        hash = hashUint64(hash, args->intLiteral.value);
+        break;
+    case astFloatLit:
+        hash = hashUint64(hash, args->floatLiteral._bits);
+        break;
+    case astStringLit:
+        hash = hashStr(hash, args->stringLiteral.value);
+        break;
+    default:
+        logError(ctx->L,
+                 &args->loc,
+                 "macro 'hash!' is supported on primitive literals",
+                 NULL);
+        return NULL;
+    }
+    clearAstBody(args);
+    args->tag = astIntegerLit;
+    args->intLiteral.uValue = hash;
+    args->type = getPrimitiveType(ctx->types, prtU64);
     return args;
 }
 
@@ -1613,6 +1674,7 @@ static int compareBuiltinMacros(const void *lhs, const void *rhs)
  * or a trie, but with these minimal entries, it's fast enough.
  */
 static const BuiltinMacro builtinMacros[] = {
+    {.name = "__CxyPluginAction", makeCxyPluginActionNode},
     {.name = "__copy", makeCopyNode},
     {.name = "__forcedrop", makeForceDropNode},
     {.name = "assert", makeAssertNode},
@@ -1628,6 +1690,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "file", makeFilenameNode},
     {.name = "has_member", makeHasMemberNode},
     {.name = "has_type", makeHasTypeNode},
+    {.name = "hash", makeHashAstNode},
     {.name = "indexof", makeIndexOfNode},
     {.name = "info", makeAstLogNoteNode},
     {.name = "init_defaults", makeInitializeDefaults},
@@ -1689,7 +1752,7 @@ void evalMacroCall(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    substitute->next = node->next;
+    getLastAstNode(substitute)->next = node->next;
     substitute->parentScope = node->parentScope;
     *node = *substitute;
 }

@@ -206,13 +206,55 @@ set(CXY_DRIVER_SOURCES
         src/cxy/driver/options.c
         src/cxy/driver/stages.c
         src/cxy/driver/stats.c
+        src/cxy/driver/plugin.c
 
         src/cxy/driver/c-import/context.cpp
         src/cxy/driver/c-import/import.cpp
 )
 
+set(CXY_PLUGIN_LIB_SOURCES
+        src/cxy/lang/frontend/ast.c
+        src/cxy/lang/frontend/capture.c
+        src/cxy/lang/frontend/operator.c
+        src/cxy/lang/frontend/strings.c
+        src/cxy/lang/frontend
+        src/cxy/lang/frontend/ttable.c
+        src/cxy/lang/frontend/types.c
+        src/cxy/plugin/plugin.c
+        src/cxy/plugin/shared.c
+)
+
+set(CXY_CORE_HEADERS
+        src/cxy/core/alloc.h
+        src/cxy/core/args.h
+        src/cxy/core/array.h
+        src/cxy/core/e4c.h
+        src/cxy/core/format.h
+        src/cxy/core/hash.h
+        src/cxy/core/hmap.h
+        src/cxy/core/htable.h
+        src/cxy/core/log.h
+        src/cxy/core/mempool.h
+        src/cxy/core/primes.h
+        src/cxy/core/sb.h
+        src/cxy/core/strpool.h
+        src/cxy/core/utils.h
+)
+
+set(CXY_PLUGIN_LIB_HEADERS
+        src/cxy/lang/frontend/ast.h
+        src/cxy/lang/frontend/flag.h
+        src/cxy/lang/frontend/operator.h
+        src/cxy/lang/frontend/strings.h
+        src/cxy/lang/frontend/token.h
+        src/cxy/lang/frontend/ttable.h
+        src/cxy/lang/frontend/types.h
+        src/cxy/plugin/plugin.h
+)
+
 add_executable(cxy
         src/cxy/driver/main.c
+        src/cxy/plugin/shared.c
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
         ${CXY_3RD_PARTY_SOURCES}
         ${CXY_CORE_SOURCES}
@@ -220,6 +262,25 @@ add_executable(cxy
         ${CXY_MIDDLE_SOURCES}
         ${CXY_LANG_BACKEND_SOURCES}
         ${CXY_DRIVER_SOURCES})
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
+
+add_library(cxy-plugin STATIC
+        ${CXY_CORE_SOURCES}
+        ${CXY_PLUGIN_LIB_SOURCES})
+
+add_custom_command(
+        TARGET cxy-plugin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CXY_PLUGIN_LIB_HEADERS}
+        ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CXY_CORE_HEADERS}
+        ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:cxy-plugin>
+        ${CMAKE_CURRENT_BINARY_DIR}/install/lib
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 set(CLANG_LIBS clangAST clangBasic clangFrontend clangLex clangParse clangSema)
 if (ENABLE_LLVM_BACKEND)
@@ -246,12 +307,14 @@ target_compile_definitions(cxy PRIVATE
 
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fetch.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fserver.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/hash.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/http.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/jsonrpc.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/list.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/log.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/net.cxy
@@ -262,7 +325,12 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/thread.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/time.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/trie.cxy
-        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy)
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy
+)
+
+set(CXY_STDLIB_PLUGINS
+    jsonrpc.c
+)
 
 if(NOT TARGET FileCheck)
     # Download the LLVM FileCheck utility for tests.
@@ -284,15 +352,54 @@ add_executable(lex-tester
     ${CXY_CORE_SOURCES}
 )
 
-# Install cxy binary
-install(TARGETS cxy
-        DESTINATION bin
+add_library(demo-plugin SHARED examples/plugin.c)
+target_include_directories(
+        demo-plugin
+        PRIVATE ${CMAKE_BINARY_DIR}/install/include)
+target_link_libraries(
+        demo-plugin
+        cxy-plugin
 )
 
-# Install stdlib
-install(DIRECTORY src/cxy/stdlib
-        DESTINATION lib/cxy/std
+set_target_properties(demo-plugin
+        PROPERTIES
+        PREFIX ""
+        SUFFIX ""
 )
+
+# Add stdlib test cases
+foreach (CXY_PLUGIN ${CXY_STDLIB_PLUGINS})
+    get_filename_component(_PLUGIN ${CXY_PLUGIN} NAME_WE)
+    message(STATUS "Adding cxy plugin target ${_PLUGIN} '${CXY_PLUGIN}'")
+    add_library(${_PLUGIN} SHARED ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/plugins/${CXY_PLUGIN})
+    target_include_directories(
+            ${_PLUGIN}
+            PRIVATE ${CMAKE_BINARY_DIR}/install/include
+    )
+    target_link_libraries(
+            ${_PLUGIN}
+            cxy-plugin
+    )
+    set_target_properties(${_PLUGIN}
+            PROPERTIES
+            PREFIX ""
+            SUFFIX ""
+            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugins
+    )
+    install(TARGETS ${_PLUGIN} DESTINATION lib/cxy/plugins)
+endforeach ()
+
+# Install cxy binary
+install(TARGETS cxy DESTINATION bin)
+# Install plugin library
+install(TARGETS cxy-plugin DESTINATION lib)
+# Install plugin headers
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy
+        DESTINATION include)
+# Install stdlib
+install(DIRECTORY src/cxy/stdlib DESTINATION lib/cxy/std)
+# Install plugins
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugins DESTINATION lib/cxy)
 
 include(CTest)
 enable_testing()
@@ -308,3 +415,7 @@ foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
     add_test(NAME "stdlib/${_FILE}"
              COMMAND cxy test --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy --with-mm ${CXY_SRC})
 endforeach ()
+
+if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/plugins)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugins)
+endif()

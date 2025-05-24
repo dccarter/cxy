@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 struct StrPool;
+struct Plugin;
 
 // clang-format off
 
@@ -71,6 +72,8 @@ struct StrPool;
     f(InterfaceDecl)                        \
     f(ModuleDecl)                           \
     f(ImportDecl)                           \
+    f(PluginDecl)                           \
+    f(CxyPluginAction)                         \
     f(EnumDecl)                             \
     f(FieldDecl)                            \
     f(ExternDecl)                           \
@@ -302,6 +305,16 @@ struct AstNode {
             AstNode *alias;
             AstNode *entities;
         } import;
+
+        struct {
+            cstring name;
+            struct Plugin *plugin;
+        } pluginDecl;
+
+        struct {
+            cstring name;
+            struct Plugin *plugin;
+        } CxyPluginAction;
 
         struct {
             cstring name;
@@ -934,7 +947,12 @@ AstNode *makePointerAstNode(MemPool *pool,
                             AstNode *pointed,
                             AstNode *next,
                             const Type *type);
-
+AstNode *makeReferenceTypeAstNode(MemPool *pool,
+                                  const FileLoc *loc,
+                                  u64 flags,
+                                  AstNode *referred,
+                                  AstNode *next,
+                                  const Type *type);
 AstNode *makeVoidPointerAstNode(MemPool *pool,
                                 const FileLoc *loc,
                                 u64 flags,

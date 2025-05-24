@@ -198,6 +198,32 @@ AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node)
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNodeList members = {NULL}, init = {NULL};
     csAssert0(hasFlag(node, Virtual));
+    // Add id
+    AstNode *tid = insertAstNode(
+        &members,
+        makeStructField(
+            ctx->pool,
+            &node->loc,
+            S___tid,
+            flgNone,
+            makeTypeReferenceNode(
+                ctx->pool, getPrimitiveType(ctx->types, prtU64), &node->loc),
+            NULL,
+            NULL));
+    insertAstNode(
+        &init,
+        makeFieldExpr(ctx->pool,
+                      &node->loc,
+                      S___tid,
+                      flgNone,
+                      makeUnsignedIntegerLiteral(ctx->pool,
+                                                 &node->loc,
+                                                 unThisType(node->type)->index,
+                                                 NULL,
+                                                 tid->type),
+                      tid,
+                      NULL));
+
     inheritanceChainBuildVTableType(ctx, &members, &init, node);
     csAssert0(members.first != NULL);
 
@@ -248,6 +274,20 @@ AstNode *inheritanceBuildVTable(TypingContext *ctx, AstNode *node)
 
     AstNodeList value = {NULL};
     AstNode *member = def->structExpr.fields;
+    insertAstNode(
+        &value,
+        makeFieldExpr(ctx->pool,
+                      &node->loc,
+                      S___tid,
+                      flgNone,
+                      makeUnsignedIntegerLiteral(ctx->pool,
+                                                 &node->loc,
+                                                 unThisType(node->type)->index,
+                                                 NULL,
+                                                 def->type),
+                      member,
+                      NULL));
+    member = member->next;
     for (; member; member = member->next) {
         AstNode *func =
             findMemberDeclInType(node->type, member->_namedNode.name);

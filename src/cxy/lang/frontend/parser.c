@@ -11,12 +11,14 @@
 
 #include "driver/cc.h"
 #include "driver/driver.h"
+#include "driver/plugin.h"
 
 #include "core/alloc.h"
 #include "core/e4c.h"
 #include "core/mempool.h"
 
 #include "../operations.h"
+#include "lang/middle/builtins.h"
 
 #include <signal.h>
 #include <stdlib.h>
@@ -1269,16 +1271,31 @@ static AstNode *parenExpr(Parser *P, bool strict)
         return closure(P);
 
     const Token start = *consume0(P, tokLParen);
+    bool isSpread = match(P, tokElipsis);
     AstNode *expr = expression(P, true);
-    if (match(P, tokRParen)) {
+    if (!isSpread && match(P, tokRParen)) {
         return newAstNode(
             P, &start, &(AstNode){.tag = astGroupExpr, .groupExpr.expr = expr});
     }
 
     AstNodeList list = {};
-    insertAstNode(&list, expr);
+    insertAstNode(&list,
+                  isSpread ? newAstNode(P,
+                                        &start,
+                                        &(AstNode){.tag = astSpreadExpr,
+                                                   .spreadExpr.expr = expr})
+                           : expr);
     while (match(P, tokComma)) {
-        insertAstNode(&list, expression(P, true));
+        if (check(P, tokRParen))
+            break;
+        isSpread = match(P, tokElipsis);
+        expr = expression(P, true);
+        insertAstNode(&list,
+                      isSpread ? newAstNode(P,
+                                            &start,
+                                            &(AstNode){.tag = astSpreadExpr,
+                                                       .spreadExpr.expr = expr})
+                               : expr);
     }
     consume0(P, tokRParen);
     return newAstNode(
@@ -1736,6 +1753,13 @@ static AstNode *primary_(Parser *P, bool allowStructs)
         AstNode *path = parsePath(P);
         if (allowStructs && check(P, tokLBrace))
             return structExpr(P, path, fieldExpr);
+        return path;
+    }
+    case tokModule: {
+        advance(P);
+        consume0(P, tokDot);
+        AstNode *path = primary_(P, allowStructs);
+        path->path.elements->flags |= flgModule;
         return path;
     }
     case tokLess:
@@ -2918,6 +2942,8 @@ static AstNode *parseClassOrStructMember(Parser *P)
     case tokIdent:
         if (checkPeek(P, 1, tokLNot))
             member = parseIdentifier(P);
+        else if (checkPeek(P, 1, tokDot))
+            member = macroExpression(P, parsePath(P));
         else
             member = parseStructField(P, isPrivate);
         break;
@@ -2925,6 +2951,7 @@ static AstNode *parseClassOrStructMember(Parser *P)
     case tokAsync: {
         u64 flags = isVirtual ? flgVirtual : flgNone;
         flags |= isPrivate ? flgNone : flgPublic;
+        flags |= isConst ? flgConst : flgNone;
         member = funcDecl(P, flags | flgMember);
         break;
     }
@@ -2982,13 +3009,17 @@ static AstNode *parseInterfaceMember(Parser *P)
 static AstNode *comptimeBlock(Parser *P, AstNode *(*parser)(Parser *))
 {
     Token tok = *consume0(P, tokLBrace);
-    AstNode *node = parseManyNoSeparator(P, tokRBrace, parser);
+    AstNodeList nodes = {};
+    // parseManyNoSeparator(P, tokRBrace, parser);
+    while (!check(P, tokRBrace)) {
+        insertAstNode(&nodes, comptime(P, parser));
+    }
     consume0(P, tokRBrace);
     return newAstNode(P,
                       &tok,
                       &(AstNode){.tag = astBlockStmt,
                                  .flags = flgComptime,
-                                 .blockStmt.stmts = node});
+                                 .blockStmt.stmts = nodes.first});
 }
 
 static AstNode *parseComptimeIf(Parser *P, AstNode *(*parser)(Parser *))
@@ -3513,6 +3544,24 @@ static void skipImportTestDecl(Parser *P)
 static AstNode *parseImportDecl(Parser *P)
 {
     Token tok = *consume0(P, tokImport);
+    if (match(P, tokPlugin)) {
+        cstring path = getStringLiteral(P, consume0(P, tokStringLiteral));
+        consume0(P, tokAs);
+        cstring name = getTokenString(P, consume0(P, tokIdent), false);
+        FileLoc loc = locSubRange(&tok.fileLoc, &previous(P)->fileLoc);
+        Plugin *plugin = loadPlugin(P->cc, &loc, name, path);
+        if (plugin == NULL) {
+            parserError(P,
+                        &tok.fileLoc,
+                        "loading plugin {s} from {s} failed",
+                        (FormatArg[]){{.s = name}, {.s = path}});
+        }
+        return makeAstNode(
+            P->memPool,
+            &tok.fileLoc,
+            &(AstNode){.tag = astPluginDecl,
+                       .pluginDecl = {.plugin = plugin, .name = name}});
+    }
     if (match(P, tokTest) && !P->testMode) {
         skipImportTestDecl(P);
         return NULL;

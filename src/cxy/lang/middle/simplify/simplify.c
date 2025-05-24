@@ -733,14 +733,15 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
             *params = nodeIs(func, FuncDecl) ? func->funcDecl.signature->params
                                              : func->funcType.params,
             *param = params;
+    if (param && param->_name == S_this)
+        param = param->next;
     for (u64 i = 0; arg && param; arg = arg->next, i++, param = param->next) {
         if (hasFlag(param, Variadic))
             break;
         if (typeIs(func->type->func.params[i], Auto))
             continue;
-
+        astVisit(visitor, arg);
         if (nodeNeedsTemporaryVar(arg)) {
-            astVisit(visitor, arg);
             AstNode *var =
                 makeVarDecl(ctx->pool,
                             &arg->loc,
@@ -832,10 +833,10 @@ static void visitIdentifier(AstVisitor *visitor, AstNode *node)
 
 static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
 {
-    astVisitFallbackVisitAll(visitor, node);
     SimplifyContext *ctx = getAstVisitorContext(visitor);
     AstNode *lhs = node->binaryExpr.lhs, *rhs = node->binaryExpr.rhs;
     if (node->binaryExpr.op == opIs) {
+        astVisitFallbackVisitAll(visitor, node);
         const Type *type = stripPointerOrReferenceOnce(lhs->type, NULL);
         csAssert0(isUnionType(type));
         u32 idx = findUnionTypeIndex(type, rhs->type);
@@ -859,6 +860,7 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
         node->binaryExpr.op = opEq;
     }
     else if (node->binaryExpr.op == opEq || node->binaryExpr.op == opNe) {
+        astVisitFallbackVisitAll(visitor, node);
         if (nodeIs(rhs, NullLit) && hasFlag(lhs->type, FuncTypeParam)) {
             // We want to turn this into lhs.0 = null
             AstNode *target = deepCloneAstNode(ctx->pool, lhs);
@@ -875,6 +877,142 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
             lhs->memberExpr.target = target;
         }
     }
+    else if (node->binaryExpr.op == opLOr || node->binaryExpr.op == opLAnd) {
+        AstNode *tmp = makeVarDecl(
+            ctx->pool,
+            &lhs->loc,
+            flgMove,
+            makeAnonymousVariable(ctx->strings, "_or"),
+            makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
+            lhs,
+            NULL,
+            node->type);
+        astVisit(visitor, tmp);
+        astModifierAdd(&ctx->block, tmp);
+        AstNode *body = makeExprStmt(
+            ctx->pool,
+            &node->loc,
+            flgNone,
+            makeAssignExpr(
+                ctx->pool,
+                &node->loc,
+                flgNone,
+                makeResolvedIdentifier(
+                    ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type),
+                opAssign,
+                rhs,
+                NULL,
+                node->type),
+            NULL,
+            node->type);
+        AstNode *cond = makeResolvedIdentifier(
+            ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type);
+        if (node->binaryExpr.op == opLOr)
+            cond = makeUnaryExpr(ctx->pool,
+                                 &tmp->loc,
+                                 flgNone,
+                                 true,
+                                 opNot,
+                                 cond,
+                                 NULL,
+                                 cond->type);
+        AstNode *if_ = makeIfStmt(
+            ctx->pool,
+            &node->loc,
+            flgNone,
+            cond,
+            makeBlockStmt(
+                ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types)),
+            NULL,
+            NULL);
+        astVisit(visitor, if_);
+        astModifierAdd(&ctx->block, if_);
+
+        node->tag = astIdentifier;
+        clearAstBody(node);
+        node->ident.value = tmp->_name;
+        node->ident.resolvesTo = tmp;
+    }
+    else {
+        astVisitFallbackVisitAll(visitor, node);
+    }
+}
+
+static void visitTernaryExpr(AstVisitor *visitor, AstNode *node)
+{
+    // Transform to if, this will avoid computing otherwise unecessarily
+    SimplifyContext *ctx = getAstVisitorContext(visitor);
+    AstNode *cond = node->ternaryExpr.cond, *body = node->ternaryExpr.body,
+            *otherwise = node->ternaryExpr.otherwise;
+    AstNode *tmp =
+        makeVarDecl(ctx->pool,
+                    &node->loc,
+                    flgMove,
+                    makeAnonymousVariable(ctx->strings, "_if"),
+                    makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
+                    NULL,
+                    NULL,
+                    node->type);
+    astModifierAdd(&ctx->block, tmp);
+    body = makeExprStmt(
+        ctx->pool,
+        &body->loc,
+        flgNone,
+        makeAssignExpr(
+            ctx->pool,
+            &body->loc,
+            flgNone,
+            makeResolvedIdentifier(
+                ctx->pool, &body->loc, tmp->_name, 0, tmp, NULL, tmp->type),
+            opAssign,
+            body,
+            NULL,
+            body->type),
+        NULL,
+        body->type);
+    otherwise =
+        makeExprStmt(ctx->pool,
+                     &otherwise->loc,
+                     flgNone,
+                     makeAssignExpr(ctx->pool,
+                                    &otherwise->loc,
+                                    flgNone,
+                                    makeResolvedIdentifier(ctx->pool,
+                                                           &otherwise->loc,
+                                                           tmp->_name,
+                                                           0,
+                                                           tmp,
+                                                           NULL,
+                                                           tmp->type),
+                                    opAssign,
+                                    otherwise,
+                                    NULL,
+                                    otherwise->type),
+                     NULL,
+                     otherwise->type);
+    while (nodeIs(cond, GroupExpr))
+        cond = cond->groupExpr.expr;
+    AstNode *if_ = makeIfStmt(
+        ctx->pool,
+        &node->loc,
+        flgNone,
+        cond,
+        makeBlockStmt(
+            ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types)),
+        makeBlockStmt(ctx->pool,
+                      &otherwise->loc,
+                      otherwise,
+                      NULL,
+                      makeVoidType(ctx->types)),
+        NULL);
+    if_->type = makeVoidType(ctx->types);
+    astVisit(visitor, if_);
+    astModifierAdd(&ctx->block, if_);
+    // Update current node
+    node->tag = astIdentifier;
+    clearAstBody(node);
+    node->ident.value = tmp->_name;
+    node->ident.resolvesTo = tmp;
 }
 
 static void visitPathElement(AstVisitor *visitor, AstNode *node)
@@ -924,6 +1062,17 @@ static void visitPathExpr(AstVisitor *visitor, AstNode *node)
         elem = next;
         next = next->next;
         astVisit(visitor, elem);
+        resolved = elem->ident.resolvesTo;
+        if (nodeIs(resolved, VarAlias)) {
+            elem->ident.value = resolved->varAlias.var->_name;
+            elem->ident.resolvesTo = resolved->varAlias.var;
+            if (next == NULL) {
+                replaceAstNodeWith(node, elem);
+                return;
+            }
+            target = elem;
+            continue;
+        }
         if (next) {
             target->next = NULL;
             elem->next = NULL;
@@ -1043,20 +1192,38 @@ static void visitStructDecl(AstVisitor *visitor, AstNode *node)
         member = next;
         next = next->next;
         member->next = NULL;
-        if (nodeIs(member, FieldDecl)) {
+        if (!hasFlag(member, Static) && nodeIs(member, FieldDecl)) {
             member->structField.index = i++;
             insertAstNode(&fields, member);
             continue;
         }
 
-        if (nodeIs(member, FuncDecl)) {
+        if (nodeIs(member, FieldDecl)) {
+            csAssert0(hasFlag(member, Static));
+            AstNode *type = member->structField.type,
+                    *init = member->structField.value;
+            cstring name = member->structField.name;
+            member->tag = astVarAlias;
+            clearAstBody(member);
+            member->varAlias.name = name;
+            member->varAlias.var = insertAstNode(
+                &others,
+                makeVarDecl(ctx->pool,
+                            &member->loc,
+                            member->flags | flgTopLevelDecl,
+                            makeAnonymousVariable(ctx->strings, name),
+                            type,
+                            init,
+                            NULL,
+                            member->type));
+        }
+        else if (nodeIs(member, FuncDecl)) {
             insertAstNode(&others, member);
         }
     }
     node->structDecl.members = fields.first;
     if (others.first)
         astModifierAddAsNext(&ctx->root, others.first);
-    // node->tag = astStructDecl;
 }
 
 static void visitForStmt(AstVisitor *visitor, AstNode *node)
@@ -1415,6 +1582,7 @@ static AstNode *simplifyCode(CompilerDriver *driver, AstNode *node)
         [astPathElem] = visitPathElement,
         [astIdentifier] = visitIdentifier,
         [astBinaryExpr] = visitBinaryExpr,
+        [astTernaryExpr] = visitTernaryExpr,
         [astIndexExpr] = visitIndexExpr,
         [astCallExpr] = visitCallExpr,
         [astCastExpr] = visitCastExpr,

@@ -61,7 +61,7 @@ void buildModuleType(TypeTable *types, AstNode *node, bool isBuiltinModule)
 
     AstNode *decl = node->program.top;
     for (; decl; decl = decl->next) {
-        if (nodeIs(decl, ImportDecl))
+        if (nodeIs(decl, ImportDecl) || nodeIs(decl, PluginDecl))
             continue;
         i = addModuleTypeMember(members, i, decl, builtinsFlags);
     }

@@ -58,6 +58,11 @@ AstNode *findSymbol(const Env *env,
                     const char *name,
                     const FileLoc *loc);
 
+AstNode *findSymbolInRoot(const Env *env,
+                          Log *L,
+                          const char *name,
+                          const FileLoc *loc);
+
 static inline AstNode *findSymbolOnly(const Env *env, const char *name)
 {
     return findSymbol(env, NULL, name, NULL);

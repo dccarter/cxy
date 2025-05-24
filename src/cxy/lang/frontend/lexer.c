@@ -672,15 +672,3 @@ void lexerPush(Lexer *L, const char *fileName)
     buffer->prev = L->buffer;
     L->buffer = buffer;
 }
-
-bool isKeyword(TokenTag tag)
-{
-    switch (tag) {
-#define f(T, ...) case tok##T:
-        KEYWORD_LIST(f)
-#undef f
-        return true;
-    default:
-        return false;
-    }
-}

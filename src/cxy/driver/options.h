@@ -59,6 +59,7 @@ typedef struct Options {
     const char *output;
     const char *libDir;
     const char *buildDir;
+    const char *pluginsDir;
     const char *rest;
     DynArray cflags;
     DynArray cDefines;
@@ -78,6 +79,7 @@ typedef struct Options {
     DynArray loadPassPlugins;
     DumpStatsMode dsmMode;
     cstring operatingSystem;
+    bool buildPlugin;
     union {
         struct {
             bool printIR;
@@ -90,6 +92,9 @@ typedef struct Options {
             DumpModes dumpMode;
             u64 lastStage;
         } dev;
+        struct {
+            bool plugin;
+        } build;
     };
 } Options;
 

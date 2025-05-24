@@ -10,19 +10,6 @@
 extern "C" {
 #endif
 
-// clang-format off
-#define OVERRIDABLE_BUILTINS(f)    \
-    f(__scheduler)                 \
-    f(__thread_launch)             \
-    f(timestamp)                   \
-    f(fdWaitRead)                  \
-    f(fdWaitWrite)                 \
-    f(sleepAsync)                  \
-    f(__smart_ptr_alloc)           \
-    f(__smart_ptr_alloc_trace)
-
-// clang-format on
-
 bool isBuiltinsInitialized();
 void initializeBuiltins(Log *L);
 void setBuiltinsModule(const Type *module, const FileLoc *loc);

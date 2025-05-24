@@ -171,6 +171,8 @@ pub class TcpListener {
 
     func `!!`() => (this !: ^void) != null && fd != -1
 
+    const func address() => &bind
+
     func listen(backlog: i32 = 127) {
         fd = socket.socket(bind.family(), <i32>SOCK_STREAM!, 0)
         if (fd == -1) {

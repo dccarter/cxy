@@ -50,7 +50,7 @@ static void generateFunctionName(FormatState *state, const AstNode *node);
 
 static void addDebugInfo(CodegenContext *ctx, const AstNode *node)
 {
-    if (node == NULL)
+    if (!ctx->debug.enabled || node == NULL)
         return;
     FilePos pos = node->loc.begin;
     if (pos.row == 0)
@@ -1596,21 +1596,35 @@ static void visitCaseStmt(ConstAstVisitor *visitor, const AstNode *node)
             }
         }
         else {
-            astConstVisit(visitor, node->caseStmt.match);
-            format(getState(ctx), ": {{{>}\n", NULL);
+            const AstNode *match = node->caseStmt.match;
+            if (nodeIs(match, RangeExpr)) {
+                astConstVisit(visitor, match->rangeExpr.start);
+                format(getState(ctx), " ... ", NULL);
+                astConstVisit(visitor, match->rangeExpr.end);
+            }
+            else {
+                astConstVisit(visitor, node->caseStmt.match);
+            }
+            format(getState(ctx), ":", NULL);
         }
     }
     else {
-        format(getState(ctx), "default: {{{>}\n", NULL);
+        format(getState(ctx), "default:", NULL);
     }
-    addDebugInfo(ctx, body);
-    astConstVisit(visitor, body);
-    if (nodeIs(body, BlockStmt))
-        body = getLastAstNode(body->blockStmt.stmts);
-    if (!nodeIs(body, ReturnStmt))
-        format(getState(ctx), "\nbreak;{<}\n}", NULL);
-    else
-        format(getState(ctx), "{<}\n}", NULL);
+    if (body) {
+        format(getState(ctx), " {{{>}\n", NULL);
+        addDebugInfo(ctx, body);
+        astConstVisit(visitor, body);
+        if (nodeIs(body, BlockStmt))
+            body = getLastAstNode(body->blockStmt.stmts);
+        if (!nodeIs(body, ReturnStmt))
+            format(getState(ctx), "\nbreak;{<}\n}", NULL);
+        else
+            format(getState(ctx), "{<}\n}", NULL);
+    }
+    else if (node->caseStmt.match == NULL) {
+        format(getState(ctx), " break;\n", NULL);
+    }
 }
 
 static void visitContinueStmt(ConstAstVisitor *visitor, const AstNode *node)
@@ -2007,7 +2021,7 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
                  (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
         return NULL;
     }
-    CBackend *backend = allocFromMemPool(driver->pool, sizeof(CBackend));
+    CBackend *backend = callocFromMemPool(driver->pool, 1, sizeof(CBackend));
     driver->backend = backend;
     backend->output = f;
     backend->filename = filename;

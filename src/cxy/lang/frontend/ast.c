@@ -2331,7 +2331,7 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
         CLONE_MANY(ifStmt, otherwise);
         break;
     case astForStmt:
-        CLONE_ONE(forStmt, var);
+        CLONE_MANY(forStmt, var);
         CLONE_ONE(forStmt, range);
         CLONE_ONE(forStmt, body);
         break;
@@ -2565,6 +2565,8 @@ const char *getDeclarationName(const AstNode *node)
         return node->varDecl.name;
     case astFuncParamDecl:
         return node->funcParam.name;
+    case astFieldDecl:
+        return node->structField.name;
     case astException:
         return node->exception.name;
     default:
@@ -2906,8 +2908,8 @@ AstNode *getBaseClassByName(AstNode *node, cstring name)
 
 int compareNamedAstNodes(const void *lhs, const void *rhs)
 {
-    cstring left = (*((const AstNode **)lhs))->_namedNode.name,
-            right = (*((const AstNode **)rhs))->_namedNode.name;
+    cstring left = (*(const AstNode **)lhs)->_namedNode.name,
+            right = (*(const AstNode **)rhs)->_namedNode.name;
     return left == right ? 0 : strcmp(left, right);
 }
 

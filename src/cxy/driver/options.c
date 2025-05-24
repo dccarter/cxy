@@ -215,7 +215,11 @@ Command(build,
         Str(Name("build-dir"),
             Help("the build directory, used as the working directory for the "
                  "compiler"),
-            Def("")));
+            Def("")),
+        Opt(Name("plugin"),
+            Sf('p'),
+            Help("Build a plugin for the given file"),
+            Def("false")));
 
 Command(test,
         "Runs unit tests declared on the given source files",
@@ -244,9 +248,10 @@ Command(test,
     f(dev.emitAssembly, Local, Option, 8, ## __VA_ARGS__)                       \
     f(dev.emitBitCode, Local, Option, 9, ## __VA_ARGS__)                        \
 
-#define BUILD_CMD_LAYOUT(f, ...)                                               \
+#define BUILD_CMD_LAYOUT(f, ...)                                                \
     f(output, Local, String, 0, ## __VA_ARGS__)                                 \
-    f(buildDir, Local, String, 1, ## __VA_ARGS__)
+    f(buildDir, Local, String, 1, ## __VA_ARGS__)                               \
+    f(build.plugin, Local, Option, 2, ## __VA_ARGS__)                           \
 
 #define TEST_CMD_LAYOUT(f, ...)                                                \
     f(buildDir, Local, String, 0, ## __VA_ARGS__)
@@ -470,7 +475,11 @@ bool parseCommandLineOptions(
             Help("Do not print progress messages during compilation")),
         Str(Name("stdlib"),
             Help("root directory where cxy standard library is installed"),
-            Def("")));
+            Def("")),
+        Str(Name("plugins-dir"),
+            Help("The directory where plugins are installed or where to "
+                 "install them"),
+            Def("./plugins")));
 
     int selected = argparse(argc, &argv, parser);
 
@@ -506,6 +515,18 @@ bool parseCommandLineOptions(
     else if (cmd->id == CMD_build) {
         options->cmd = cmdBuild;
         UnloadCmd(cmd, options, BUILD_CMD_LAYOUT);
+        if (options->build.plugin) {
+            options->buildPlugin = true;
+            if (options->output != NULL && options->output[0] == '/') {
+                logError(
+                    log,
+                    NULL,
+                    "Plugin output '{s}' must not be an absolute path, please"
+                    " use path relative to plugins directory.",
+                    (FormatArg[]){{.s = options->output}});
+                return false;
+            }
+        }
     }
     else if (cmd->id == CMD_test) {
         options->cmd = cmdTest;
@@ -528,9 +549,19 @@ bool parseCommandLineOptions(
     options->dsmMode = getGlobalInt(cmd, 18);
     log->progress = !getGlobalOption(cmd, 19);
     options->libDir = getGlobalString(cmd, 20);
+    options->pluginsDir = getGlobalString(cmd, 21);
 
     if (options->libDir == NULL)
         options->libDir = makeString(strings, getenv("CXY_STDLIB_DIR"));
+    if (options->pluginsDir == NULL) {
+        if (options->buildDir) {
+            options->pluginsDir =
+                makeStringConcat(strings, options->buildDir, "/plugins");
+        }
+        else {
+            options->pluginsDir = makeString(strings, "./plugins");
+        }
+    }
 
     file_count = *argc - 1;
 

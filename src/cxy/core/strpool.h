@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "core/htable.h"
+#include "htable.h"
 
 #ifdef __cplusplus
 extern "C" {

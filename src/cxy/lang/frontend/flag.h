@@ -14,7 +14,7 @@ extern "C" {
 
 // clang-format off
 #define CXY_LANG_FLAGS(f)                       \
-    f(Native,               0)                  \
+    f(Module,               0)                  \
     f(Builtin,              1)                  \
     f(Public,               2)                  \
     f(Private,              3)                  \
@@ -60,7 +60,7 @@ extern "C" {
     f(ReferenceMembers,     43)                 \
     f(Pure,                 44)                 \
     f(Slice,                45)                 \
-    f(Transient,            46)                 \
+    f(Fallthrough,          46)                 \
     f(Static,               47)                 \
     f(SyncCall,             48)                 \
     f(VTable,               49)                 \

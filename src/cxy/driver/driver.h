@@ -53,6 +53,7 @@ typedef struct CompilerDriver {
                        // compile unit)
     u64 sourceDirLen;
     cstring os;
+    cstring cxyBinaryPath;
     CompilerStats stats;
     Log *L;
     TypeTable *types;
@@ -60,6 +61,7 @@ typedef struct CompilerDriver {
     AstNodeList startup;
     CompilerPreprocessor preprocessor;
     CxyPackage package;
+    HashTable plugins;
     struct MirContext *mir;
     void *backend;
     void *cImporter;
@@ -90,6 +92,7 @@ bool initCompilerDriver(CompilerDriver *compiler,
                         char **argv);
 void deinitCompilerDriver(CompilerDriver *driver);
 
+bool compilePlugin(const char *fileName, CompilerDriver *driver);
 bool compileFile(const char *fileName, CompilerDriver *driver);
 bool generateBuiltinSources(CompilerDriver *driver);
 

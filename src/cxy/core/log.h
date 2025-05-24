@@ -2,8 +2,8 @@
 
 #include <stdint.h>
 
-#include "core/format.h"
-#include "core/htable.h"
+#include "format.h"
+#include "htable.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,7 +49,7 @@ typedef struct {
     size_t byteOffset;
 } FilePos;
 
-typedef struct {
+typedef struct FileLoc {
     const char *fileName;
     FilePos begin, end;
 } FileLoc;
