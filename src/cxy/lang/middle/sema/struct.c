@@ -67,8 +67,9 @@ static bool preCheckStructMembers(AstNode *node, NamedTypeMember *members)
                                            .type = member->type,
                                            .decl = member};
             member->structField.index = i;
-            hasMemBuiltins = hasMemBuiltins || isClassType(member->type) ||
-                             isDestructible(member->type);
+            hasMemBuiltins = !hasFlag(member, Static) &&
+                             (hasMemBuiltins || isClassType(member->type) ||
+                              isDestructible(member->type));
         }
         else {
             members[i] = (NamedTypeMember){.name = getDeclarationName(member),

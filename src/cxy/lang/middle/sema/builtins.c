@@ -276,7 +276,7 @@ static void implementStructCopyFunction(AstVisitor *visitor,
     AstNodeList stmts = {NULL};
     bool refMembers = false;
     for (; member; member = member->next) {
-        if (!nodeIs(member, FieldDecl))
+        if (!nodeIs(member, FieldDecl) || hasFlag(member, Static))
             continue;
 
         const Type *type = resolveAndUnThisType(member->type);
@@ -382,7 +382,8 @@ static void implementDestructorFunction(AstVisitor *visitor,
     }
 
     for (; member; member = member->next) {
-        if (!nodeIs(member, FieldDecl) || hasFlag(member, Inherited))
+        if (!nodeIs(member, FieldDecl) || hasFlag(member, Inherited) ||
+            hasFlag(member, Static))
             continue;
 
         const Type *type = member->type;
