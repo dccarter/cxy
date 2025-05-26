@@ -32,4 +32,4 @@ steps:
     image: suilteam/cxy-dev:latest-${CXY_IMAGE}
     directory: ./build
     commands:
-      - ctest --output-on-failure
+      - CXY_PLUGINS_DIR=./plugins ctest --output-on-failure
