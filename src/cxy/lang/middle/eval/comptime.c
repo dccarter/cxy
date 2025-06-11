@@ -661,6 +661,24 @@ static AstNode *evalIsUnionType(EvalContext *ctx,
                                   .boolLiteral.value = typeIs(type, Union)});
 }
 
+static AstNode *evalIsPrimitive(EvalContext *ctx,
+                                const FileLoc *loc,
+                                AstNode *node,
+                                attr(unused) AstNode *args)
+{
+    const Type *type = node->type ?: evalType(ctx, node);
+    type = unwrapType(resolveType(type), NULL);
+    bool isPrimitive = typeIs(type, Primitive);
+    if (!isPrimitive) {
+        isPrimitive = typeIs(type, String) || isBuiltinString(type);
+    }
+
+    return makeAstNode(
+        ctx->pool,
+        loc,
+        &(AstNode){.tag = astBoolLit, .boolLiteral.value = isPrimitive});
+}
+
 static AstNode *isEnum(EvalContext *ctx,
                        const FileLoc *loc,
                        AstNode *node,
@@ -955,6 +973,7 @@ static void initDefaultMembers(EvalContext *ctx)
     ADD_MEMBER("isClass", isClass);
     ADD_MEMBER("isTuple", evalIsTupleType);
     ADD_MEMBER("isUnion", evalIsUnionType);
+    ADD_MEMBER("isPrimitive", evalIsPrimitive);
     ADD_MEMBER("isField", isField);
     ADD_MEMBER("isString", isString);
     ADD_MEMBER("isBoolean", isBoolean);

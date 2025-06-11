@@ -74,6 +74,12 @@ void evalMemberExpr(AstVisitor *visitor, AstNode *node)
     }
 
     AstNode *member = node->memberExpr.member;
+    if (nodeIs(member, MacroCallExpr)) {
+        evalMacroCall(visitor, member);
+        if (nodeIs(member, Error))
+            return;
+    }
+
     if (nodeIs(member, IntegerLit)) {
         evalIntegerMemberExpr(ctx, node);
     }

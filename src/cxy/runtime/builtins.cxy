@@ -23,11 +23,13 @@ pub extern func toupper(c: i32): i32
 pub extern func isspace(c: i32): i32
 pub extern func isdigit(c: i32): i32
 pub extern func isalpha(c: i32): i32
+pub extern func iscntrl(c: i32): i32
 pub extern func sysconf(name: i32): i64
 
 macro isSpace(X) =(isspace(<i32>X!) != 0)
 macro isDigit(X) =(isdigit(<i32>X!) != 0)
 macro isAlpha(X) =(isalpha(<i32>X!) != 0)
+macro isCntrl(X) =(iscntrl(<i32>X!) != 0)
 
 macro alloca(T) =( mk_bc!(bfiAlloca!, #^void, T!) )
 macro zero(V) { mk_bc!(bfiZeromem!, #void, V!) }
@@ -234,7 +236,7 @@ pub struct Optional[T] {
     }
 
     @inline func `!!`() => ok
-    @inline func `deref`() { return val }
+    @inline func `deref`() { assert!(ok); return val }
     @inline func `&.`() { return &val }
     @optimize(0) func move() { ok = false; return &&val }
     // Short circuit to !!opt ? opt.move() : def
@@ -242,6 +244,11 @@ pub struct Optional[T] {
     @inline const func `!!`() => ok
     @inline const func `deref`() { return val }
     @inline const func `&.`() { return &val }
+
+    #if (T.isPrimitive) {
+        @inline const func `==`(other: &const T) => ok && val == other
+        @inline const func `!=`(other: &const T) => !ok || val != other
+    }
 }
 
 /* Creates a valid optional value */
@@ -651,8 +658,6 @@ pub class OutputStream {
             appendBool(val)
         else #if (#U == #wchar || #U == #char)
              appendChar(val)
-         else #if(#U == __string)
-            appendString(val.s)
         else #if (U.isEnum) {
              switch(val) {
                 #for (const V: U.members) {

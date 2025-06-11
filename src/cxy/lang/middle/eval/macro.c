@@ -1328,6 +1328,17 @@ static AstNode *makeUncheckedNode(AstVisitor *visitor,
     return expr;
 }
 
+static AstNode *makeUnmanagedNode(AstVisitor *visitor,
+                                  const AstNode *node,
+                                  AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 1))
+        return NULL;
+    args->flags |= flgUnmanaged;
+    return args;
+}
+
 static AstNode *makeCstrNode(AstVisitor *visitor,
                              const AstNode *node,
                              AstNode *args)
@@ -1716,6 +1727,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "typeat", makeTypeAtIdxNode},
     {.name = "typeof", makeTypeofNode},
     {.name = "unchecked", makeUncheckedNode},
+    {.name = "unmanaged", makeUnmanagedNode},
     {.name = "varargs_def", makeVarArgsDefaultNode},
     {.name = "warn", makeAstLogWarningNode},
 };

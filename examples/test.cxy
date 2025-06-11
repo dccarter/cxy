@@ -1,0 +1,5 @@
+module tests
+
+import test { TestException } from "./testing.cxy"
+
+pub struct Hello { }

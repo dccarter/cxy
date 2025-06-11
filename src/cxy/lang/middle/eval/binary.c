@@ -57,7 +57,7 @@ void evalStringConcatenation(EvalContext *ctx,
                              AstNode *lhs,
                              AstNode *rhs)
 {
-    StringBuilder sb;
+    StringBuilder sb = {};
     stringBuilderInit(&sb);
     evalStringBuilderAppend(ctx, &sb, lhs);
     csAssert0(evalStringBuilderAppend(ctx, &sb, rhs));

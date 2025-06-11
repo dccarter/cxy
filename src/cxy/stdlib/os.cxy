@@ -573,7 +573,9 @@ pub struct Process {
 
     func waitAsync(): !i32 {
         #if (defined MACOS) {
-            warn!("Process::waitAsync is not defined for MACOS yet")
+            #if (!defined MACOS_WAIT_ASYNC_WARNING_OFF) {
+                warn!("Process::waitAsync is not defined for MACOS yet")
+            }
             raise IOError("Process::waitAsync is not defined for MACOS yet")
         }
         else {

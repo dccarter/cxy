@@ -21,6 +21,11 @@ f64 nodeGetNumericLiteral(const AstNode *node)
         return (f64)integerLiteralValue(node);
     case astFloatLit:
         return node->floatLiteral.value;
+    case astGroupExpr:
+        return nodeGetNumericLiteral(node->groupExpr.expr);
+    case astCastExpr:
+    case astTypedExpr:
+        return nodeGetNumericLiteral(node->castExpr.expr);
     default:
         unreachable("NOT A LITERAL");
     }
@@ -100,6 +105,9 @@ void nodeSetNumericLiteral(AstNode *node, AstNode *lhs, AstNode *rhs, f64 value)
     case astFloatLit:
         node->tag = astFloatLit;
         node->floatLiteral.value = value;
+        break;
+    case astGroupExpr:
+        nodeSetNumericLiteral(node, lhs->groupExpr.expr, rhs, value);
         break;
     default:
         unreachable("NOT SUPPORTED");

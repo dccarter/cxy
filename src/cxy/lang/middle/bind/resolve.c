@@ -453,8 +453,8 @@ void bindEnumDecl(AstVisitor *visitor, AstNode *node)
         }
 
         AstNode *value = option->enumOption.value;
-        if (nodeIs(value, IntegerLit)) {
-            nextValue = integerLiteralValue(value) + 1;
+        if (isIntegralLiteral(value)) {
+            nextValue = (i64)nodeGetNumericLiteral(value) + 1;
             continue;
         }
 

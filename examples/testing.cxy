@@ -1,0 +1,18 @@
+module testing
+
+test {
+
+    pub exception TestException(msg: String) => msg == null? "TestException" : msg.str()
+
+    macro assertEq(a, b) {
+        if (a != b) {
+            raise TestException(f"Assertion failed: ${a} != ${b}")
+        }
+    }
+
+    macro assertNeq(a, b) {
+        if (a == b) {
+            raise TestException(f"Assertion failed: ${a} == ${b}")
+        }
+    }
+}

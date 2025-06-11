@@ -226,7 +226,8 @@ static void checkReturnStmt(AstVisitor *visitor, AstNode *node)
             node->returnStmt.expr = expr;
         }
 
-        if (!isTypeAssignableFrom(ret->type, expr_)) {
+        if (!isTypeCastAssignable(ret->type, expr_) &&
+            !isTypeAssignableFrom(ret->type, expr_)) {
             logError(ctx->L,
                      &node->loc,
                      "inconsistent return type, "

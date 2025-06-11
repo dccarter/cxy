@@ -46,7 +46,7 @@ void evalEnumDecl(AstVisitor *visitor, AstNode *node)
                 makeIntegerLiteral(ctx->pool, &option->loc, value, NULL, NULL);
         }
         else {
-            value = integerLiteralValue(option->enumOption.value) + 1;
+            value = (i64)nodeGetNumericLiteral(option->enumOption.value) + 1;
         }
     }
 

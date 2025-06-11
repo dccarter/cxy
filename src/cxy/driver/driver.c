@@ -427,7 +427,8 @@ cstring getIncludeFileLocation(CompilerDriver *driver,
 const Type *compileModule(CompilerDriver *driver,
                           const AstNode *source,
                           AstNode *entities,
-                          AstNode *alias)
+                          AstNode *alias,
+                          bool testMode)
 {
     AstNode *program = NULL;
     bool cached = true;
@@ -449,7 +450,7 @@ const Type *compileModule(CompilerDriver *driver,
                 return NULL;
             }
 
-            program = parseFile(driver, path, false);
+            program = parseFile(driver, path, testMode);
             if (program == NULL)
                 return NULL;
 

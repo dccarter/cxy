@@ -12,6 +12,7 @@
 #include "lang/frontend/visitor.h"
 
 #include "core/alloc.h"
+#include "lang/middle/eval/eval.h"
 
 #include <inttypes.h>
 

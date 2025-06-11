@@ -1817,6 +1817,11 @@ bool isIntegralLiteral(const AstNode *node)
     case astFloatLit:
     case astCharLit:
         return true;
+    case astCastExpr:
+    case astTypedExpr:
+        return isIntegralLiteral(node->castExpr.expr);
+    case astGroupExpr:
+        return isIntegralLiteral(node->groupExpr.expr);
     default:
         return isEnumLiteral(node);
     }

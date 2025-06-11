@@ -36,6 +36,7 @@ static void evaluateStructMembers(AstVisitor *visitor, AstNode *node)
             }
         }
         prev = member;
+        member->parentScope = node;
 
         const Type *type = NULL;
         if (nodeIs(member, FuncDecl)) {

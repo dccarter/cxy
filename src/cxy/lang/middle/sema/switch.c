@@ -139,27 +139,29 @@ void checkCaseStmt(AstVisitor *visitor, AstNode *node)
         getParentScopeWithTag(node, astSwitchStmt)->switchStmt.cond->type;
 
     if (node->caseStmt.match) {
-        const Type *match = checkType(visitor, node->caseStmt.match);
-        if (!isTypeAssignableFrom(match, cond)) {
+        AstNode *match = node->caseStmt.match;
+        if (hasFlag(match, Comptime) && !evaluate(ctx->evaluator, match))
+            return;
+        const Type *type = match->type ?: checkType(visitor, match);
+        if (!isTypeCastAssignable(type, cond)) {
             logError(
                 ctx->L,
-                &node->caseStmt.match->loc,
+                &match->loc,
                 "switch case statement match of type '{t}' incompatible with "
                 "switch pattern type '{t}'",
-                (FormatArg[]){{.t = match}, {.t = cond}});
+                (FormatArg[]){{.t = type}, {.t = cond}});
             node->type = ERROR_TYPE(ctx);
             return;
         }
 
-        if (nodeIs(node->caseStmt.match, RangeExpr)) {
-            AstNode *min = node->caseStmt.match->rangeExpr.start,
-                    *max = node->caseStmt.match->rangeExpr.end;
+        if (nodeIs(match, RangeExpr)) {
+            AstNode *min = match->rangeExpr.start, *max = match->rangeExpr.end;
             if (!isIntegralLiteral(min) || !isIntegralLiteral(max)) {
                 logError(ctx->L,
-                         &node->caseStmt.match->loc,
+                         &match->loc,
                          "switch case statement match of type '{t}' must be a "
                          "compile time literal expression",
-                         (FormatArg[]){{.t = match}});
+                         (FormatArg[]){{.t = type}});
                 node->type = ERROR_TYPE(ctx);
                 return;
             }
@@ -168,7 +170,7 @@ void checkCaseStmt(AstVisitor *visitor, AstNode *node)
             if (!isIntegerTypeInRange(cond, iMin, iMax)) {
                 logError(
                     ctx->L,
-                    &node->caseStmt.match->loc,
+                    &match->loc,
                     "switch case statement range values will never match any "
                     "value of condition type, ({i64} - {i64}) is out of '{t}' "
                     "values range",
@@ -177,12 +179,12 @@ void checkCaseStmt(AstVisitor *visitor, AstNode *node)
                 return;
             }
         }
-        else if (isIntegralLiteral(node->caseStmt.match)) {
-            i64 value = getLiteralValue(node->caseStmt.match);
+        else if (isIntegralLiteral(match)) {
+            i64 value = getLiteralValue(match);
             if (!isIntegerTypeInRange(cond, value, value)) {
                 logError(
                     ctx->L,
-                    &node->caseStmt.match->loc,
+                    &match->loc,
                     "switch case statement integral value will never match any "
                     "value of condition type, {i64} is out of '{t}' "
                     "values range",
@@ -191,12 +193,12 @@ void checkCaseStmt(AstVisitor *visitor, AstNode *node)
                 return;
             }
         }
-        else if (!nodeIs(node->caseStmt.match, StringLit)) {
+        else if (!nodeIs(match, StringLit)) {
             logError(ctx->L,
-                     &node->caseStmt.match->loc,
+                     &match->loc,
                      "switch case statement match of type '{t}' must be a "
                      "compile time literal expression",
-                     (FormatArg[]){{.t = match}});
+                     (FormatArg[]){{.t = type}});
             node->type = ERROR_TYPE(ctx);
             return;
         }

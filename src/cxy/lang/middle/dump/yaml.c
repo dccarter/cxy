@@ -771,7 +771,6 @@ static void visitUnionDecl(ConstAstVisitor *visitor, const AstNode *node)
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
     nodeAddHeader(visitor, node);
 
-    emitMapKey(ctx, node, "name");
     manyNodesToYaml(visitor, "members", node->unionDecl.members);
 }
 

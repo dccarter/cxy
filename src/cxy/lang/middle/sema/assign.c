@@ -41,6 +41,9 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
 
     const Type *lhs = NULL;
     u64 flags = flgNone;
+    if (nodeIs(left, MacroCallExpr)) {
+        astVisit(visitor, left);
+    }
     if (nodeIs(left, IndexExpr)) {
         const Type *target = checkType(visitor, left->indexExpr.target);
         if (typeIs(target, Error)) {

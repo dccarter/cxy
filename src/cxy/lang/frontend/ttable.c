@@ -1379,6 +1379,12 @@ const Type *promoteType(TypeTable *table, const Type *left, const Type *right)
             if (isIntegerType(right))
                 return right->size >= 4 ? right
                                         : getPrimitiveType(table, prtU32);
+            if (isCharacterType(right))
+                return left;
+            return NULL;
+        case prtCChar:
+            if (isCharacterType(right))
+                return right->primitive.id == prtCChar ? left : right;
             return NULL;
         default:
             return NULL;

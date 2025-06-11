@@ -32,7 +32,7 @@ extern "C" {
     f(FuncTypeParam,        15)                 \
     f(Member,               16)                 \
     f(AddThis,              17)                 \
-    f(OutParam,             18)                 \
+    f(Unmanaged,            18)                 \
     f(Typeinfo,             19)                 \
     f(ForwardDecl,          20)                 \
     f(Reference,            21)                 \

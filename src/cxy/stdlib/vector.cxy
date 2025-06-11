@@ -51,6 +51,11 @@ pub class Vector[T] {
         _size++
     }
 
+    @inline
+    func emplace(...args: auto) {
+        push(T(...&&args))
+    }
+
     func pop() {
         assert!(_size > 0)
         _size--
@@ -97,11 +102,37 @@ pub class Vector[T] {
         _data.[index] = &&value
     }
 
+    func removeAt(index: i32) {
+        assert!(index < _size)
+        delete _data.[index]
+        var tmp = ptroff!(_data + index);
+        memmove(tmp, ptroff!(tmp + 1), elemSize() * (_size - index - 1))
+        _size--
+        zero!(ptrof _data.[_size])
+    }
+
+    func insertAt(index: i32, value: T) {
+        assert!(index <= _size)
+        grow()
+        if (index == _size) {
+            _data.[_size] = &&value
+            _size++
+        }
+        else {
+            var tmp = ptroff!(_data + index);
+            memmove(ptroff!(tmp + 1), tmp, elemSize() * (_size - index))
+            // We use unmanaged because the data was unsafely moved, we don't want
+            // the compiler to try an managed the moved memory
+            unmanaged!(_data.[index]) = &&value
+            _size++
+        }
+    }
+
     func `..`() {
         var i : i64 = 0;
-        return () : (T, i64)? => {
+        return () : (&T, i64)? => {
             if (i < _size) {
-                var tmp = (_data.[i], i++);
+                var tmp = (&_data.[i], i++);
                 return &&tmp
             }
             else
@@ -159,7 +190,9 @@ pub class Vector[T] {
         return null
     }
 
-    #if (!(T.isTuple || T.isUnion || T.isUnresolved) ) {
+    #if (!(T.isTuple || T.isUnion || T.isUnresolved) &&
+         !((T.isStruct || T.isClass) || has_member!(#T, "op__eq", #const func(_: &const T) ->bool)))
+    {
         const func indexOf(elem: T) : u64? {
             for (var i: 0.._size) {
                 if (elem == &_data.[i])

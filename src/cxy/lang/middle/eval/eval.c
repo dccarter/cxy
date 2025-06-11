@@ -31,6 +31,19 @@ static void evalGroupExpr(AstVisitor *visitor, AstNode *node)
     node->flags &= ~flgComptime;
 }
 
+static void evalCastExpr(AstVisitor *visitor, AstNode *node)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!evaluate(visitor, node->castExpr.expr)) {
+        node->tag = astError;
+        return;
+    }
+    const Type *type = evalType(ctx, node);
+    if (typeIs(type, Error)) {
+        node->tag = astError;
+    }
+}
+
 static void evalFallback(AstVisitor *visitor, AstNode *node)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);
@@ -360,6 +373,8 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
         [astArrayExpr]= evalArrayExpr,
         [astGroupExpr] = evalGroupExpr,
         [astTernaryExpr] = evalTernaryExpr,
+        [astCastExpr] = evalCastExpr,
+        [astTypedExpr] = evalCastExpr,
         [astEnumDecl] = evalEnumDecl,
         [astMacroCallExpr] = evalMacroCall,
         [astVarDecl] = evalVarDecl,

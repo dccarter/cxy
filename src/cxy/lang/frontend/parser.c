@@ -850,6 +850,7 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
 }
 
 static AstNode *assign(Parser *P, AstNode *(parsePrimary)(Parser *, bool));
+static AstNode *ternary(Parser *P, AstNode *(parsePrimary)(Parser *, bool));
 
 static AstNode *binary(Parser *P,
                        AstNode *lhs,
@@ -895,7 +896,7 @@ static AstNode *assign(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
     const Token tok = *current(P);
     if (isAssignmentOperator(tok.tag)) {
         advance(P);
-        AstNode *rhs = assign(P, parsePrimary);
+        AstNode *rhs = ternary(P, parsePrimary);
 
         return newAstNode_(
             P,
@@ -3528,7 +3529,7 @@ static void skipImportTestDecl(Parser *P)
     bool hasEntities = false;
     if (match(P, tokLBrace)) {
         hasEntities = true;
-        while (!check(P, tokEoF, tokRBrace))
+        while (!match(P, tokEoF, tokRBrace))
             advance(P);
         consume0(P, tokFrom);
     }
@@ -3562,7 +3563,8 @@ static AstNode *parseImportDecl(Parser *P)
             &(AstNode){.tag = astPluginDecl,
                        .pluginDecl = {.plugin = plugin, .name = name}});
     }
-    if (match(P, tokTest) && !P->testMode) {
+    bool testMode = match(P, tokTest);
+    if (testMode && !P->testMode) {
         skipImportTestDecl(P);
         return NULL;
     }
@@ -3587,7 +3589,7 @@ static AstNode *parseImportDecl(Parser *P)
     if (entities == NULL && match(P, tokAs))
         alias = parseIdentifier(P);
 
-    exports = compileModule(P->cc, module, entities, alias);
+    exports = compileModule(P->cc, module, entities, alias, testMode);
     if (exports == NULL) {
         parserFail(P,
                    &tok.fileLoc,

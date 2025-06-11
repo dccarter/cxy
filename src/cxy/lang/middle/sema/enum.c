@@ -27,7 +27,7 @@ void checkEnumDecl(AstVisitor *visitor, AstNode *node)
     else
         base = getPrimitiveType(ctx->types, prtI64);
 
-    if (!isIntegerType(base)) {
+    if (!isIntegerType(base) && !isCharacterType(base)) {
         logError(ctx->L,
                  &node->enumDecl.base->loc,
                  "expecting enum base to be an integral type, got '{t}'",

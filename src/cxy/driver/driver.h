@@ -106,7 +106,8 @@ bool loadCxyfile(CompilerDriver *cc, cstring path);
 const Type *compileModule(CompilerDriver *driver,
                           const AstNode *source,
                           AstNode *entities,
-                          AstNode *alias);
+                          AstNode *alias,
+                          bool testMode);
 
 cstring getIncludeFileLocation(CompilerDriver *driver,
                                const FileLoc *loc,

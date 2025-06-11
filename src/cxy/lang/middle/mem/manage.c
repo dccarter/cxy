@@ -162,7 +162,8 @@ static bool nodeNeedsMemMgmt(const AstNode *node)
 {
     const Type *type = resolveUnThisUnwrapType(node->type);
     if (hasFlags(node,
-                 flgMove | flgTemporary | flgReference | flgTopLevelDecl) ||
+                 flgMove | flgTemporary | flgReference | flgTopLevelDecl |
+                     flgUnmanaged) ||
         hasFlag(type, Extern)) {
         return false;
     }
@@ -485,7 +486,7 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
         VariableTrace *vt = findVariableTrace(ctx, lhs);
         astVisit(visitor, rhs);
         csAssert0(vt);
-        if (vtNeedsMemMgmt(ctx, vt)) {
+        if (!hasFlag(lhs, Unmanaged) && vtNeedsMemMgmt(ctx, vt)) {
             astModifierAdd(&ctx->blockModifier,
                            makeDropVariable(
                                ctx, vt, vtIsUpdatedInChildScopeLoop(ctx, vt)));
@@ -833,7 +834,8 @@ static void withSavedStack(Visitor func, AstVisitor *visitor, AstNode *node)
     __typeof(ctx->stack) stack = ctx->stack;
     node->parentScope = node->parentScope ?: ctx->current;
     ctx->current = node;
-    func(visitor, node);
+    if (!hasFlag(node, Unmanaged))
+        func(visitor, node);
 
     ctx->stack = stack;
 }

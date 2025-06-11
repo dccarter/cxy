@@ -261,6 +261,8 @@ const Type *removeFromTypeTable(TypeTable *table, const Type *type);
 
 AstNode *getTypeDecl(const Type *type);
 
+bool isComparable(const Type *type);
+
 #ifdef __cplusplus
 }
 #endif

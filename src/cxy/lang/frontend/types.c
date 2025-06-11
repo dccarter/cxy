@@ -173,8 +173,8 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
         return unwrapType(getSliceTargetType(to), NULL) ==
                unwrapType(from->array.elementType, NULL);
     }
-
-    const Type *_to = unwrapType(to, NULL), *_from = unwrapType(from, NULL);
+    u64 flags = flgNone;
+    const Type *_to = unwrapType(to, &flags), *_from = unwrapType(from, NULL);
     if (_to == NULL || _from == NULL)
         return false;
     if (isTypeConst(from) && !isTypeConst(to)) {
@@ -234,7 +234,7 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
         default:
             return to->primitive.id == from->primitive.id;
         }
-    case typPointer:
+    case typPointer: {
         if (isVoidPointer(to))
             return typeIs(from, Pointer) || typeIs(from, String) ||
                    typeIs(from, Array) || typeIs(stripAll(from), Class);
@@ -243,8 +243,14 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
             return isTypeAssignableFrom(to->pointer.pointed,
                                         from->array.elementType);
 
-        return typeIs(from, Pointer) && isVoidPointer(from);
+        const Type *type = stripPointer(_to);
+        // string to ^const char
+        if (typeIs(type, Primitive) && type->primitive.id == prtCChar &&
+            (flags & flgConst) == flgConst && typeIs(_from, String))
+            return true;
 
+        return typeIs(from, Pointer) && isVoidPointer(from);
+    }
     case typReference:
         return typeIs(from, Reference) &&
                isTypeAssignableFrom(to->reference.referred,
@@ -368,7 +374,7 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
     }
 
     if (unwrappedTo->tag == unwrappedFrom->tag) {
-        if (to->tag != typPrimitive)
+        if (to->tag != typPrimitive && to->tag != typEnum)
             return (fromFlags & flgConst) ? (toFlags & flgConst) : true;
     }
 
@@ -396,12 +402,10 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
             return isNumericType(unwrappedFrom);
 #undef f
         case prtChar:
-            return (isUnsignedType(unwrappedFrom) &&
-                    unwrappedFrom->size <= 4) ||
+            return (isIntegerType(unwrappedFrom) && unwrappedFrom->size <= 4) ||
                    (unwrappedFrom->primitive.id == prtCChar);
         case prtCChar:
-            return (isUnsignedType(unwrappedFrom) &&
-                    unwrappedFrom->size <= 4) ||
+            return (isIntegerType(unwrappedFrom) && unwrappedFrom->size <= 4) ||
                    (unwrappedFrom->primitive.id == prtChar);
         case prtBool:
             return unwrappedFrom->primitive.id == prtBool;
@@ -409,8 +413,9 @@ bool isTypeCastAssignable(const Type *to, const Type *from)
             return unwrappedTo->primitive.id == unwrappedFrom->primitive.id;
         }
     case typEnum:
-        if (isIntegerType(to))
-            return isTypeCastAssignable(to, from->tEnum.base);
+        if (isIntegerType(unwrappedTo))
+            return isTypeCastAssignable(to, unwrappedFrom->tEnum.base);
+        return isTypeAssignableFrom(unwrappedTo, unwrappedFrom);
     case typPointer:
         if (isVoidPointer(unwrappedFrom) &&
             (isClassType(unwrappedTo) || isStructPointer(unwrappedTo)))

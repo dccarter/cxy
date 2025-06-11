@@ -666,7 +666,7 @@ static void generateFunctionName(FormatState *state, const AstNode *node)
             appendString(state, "_");
         }
         else if (node->type->name) {
-            csAssert0(false);
+            csAssert0(parent == NULL);
         }
     }
     if (nodeIs(node, FuncType)) {
