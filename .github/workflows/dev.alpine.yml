@@ -2,9 +2,6 @@ name: Cxy Alpine Dev Image
 
 on:
   push:
-    tags: [ "v*.*.*" ]
-    branches:
-      - main
     paths:
       - docker/Dockerfile.alpine
       - docker/Dockerfile.alpine.dev
