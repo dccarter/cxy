@@ -1,10 +1,17 @@
 FROM suilteam/cxy-base:ubuntu as builder
 
-# Setup cxy environment variables
+# Build arguments
 ARG RELEASE_TAG=main
+ARG BUILD_ID=0
+
+# Setup cxy environment variables
 ENV RELEASE_TAG=${RELEASE_TAG}
+ENV BUILD_ID=${BUILD_ID}
 ENV CXY_ROOT=/usr/local
 ENV CXY_STDLIB_DIR="${CXY_ROOT}/lib/cxy/std"
+
+LABEL version=${RELEASE_TAG}
+LABEL build=${BUILD_ID}
 
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade

@@ -166,6 +166,9 @@ checkBackendToolChain() {
 INSTALL_DIR=${CXY_ROOT}
 WORKING_DIR=`mktemp -d -t cxy-buildXXXXXX`
 LOG_FILE=${WORKING_DIR}/build.log
+CXY_VERSION=${RELEASE_TAG:-0.1.0}
+CXY_VERSION=${CXY_VERSION#v}
+CXY_BUILD_ID=${BUILD_ID:-0}
 
 cleanup() {
   rm -rf ${WORKING_DIR}
@@ -177,8 +180,9 @@ buildFailure() {
     reportError $1
     cp -rf ${LOG_FILE} /tmp/cxy-build.log
     echo "Build command output saved at /tmp/cxy-build.log"
-    echo "  Feel free to report an error at https://github.com/dccarter/cstar/issues with build log"
+    echo "  Feel free to report an error at https://github.com/dccarter/cxy/issues with build log"
     rm -rf ${WORKING_DIR}
+    exit -1
 }
 
 echo -e "${Bgreen}1. Checking backend toolchains...${reset}"
@@ -186,14 +190,14 @@ checkBackendToolChain
 
 LLVM_ROOT_DIR=`llvm-config --prefix`
 echo -e "${Bgreen}2. Downloading Cxy compiler sources from github...${reset}"
-git clone --quiet https://github.com/dccarter/cstar.git ${WORKING_DIR}/compiler 2>&1 >> ${LOG_FILE}
+git clone --quiet https://github.com/dccarter/cxy.git ${WORKING_DIR}/compiler 2>&1 >> ${LOG_FILE}
 result=$?
 if [[ "${result}" -ne 0 ]] ; then
   buildFailure "Downloading cxy compiler failed..."
 fi
-[[ -n "${GIT_TAG}" ]] && {
+[[ -n "${RELEASE_TAG}" ]] && {
   # Checkout the git tag
-  (cd  ${WORKING_DIR}/compiler; git checkout ${GIT_TAG})
+  (cd  ${WORKING_DIR}/compiler; git checkout -q ${RELEASE_TAG})
   result=$?
   if [[ "${result}" -ne 0 ]] ; then
     buildFailure "Downloading cxy compiler failed..."
@@ -203,7 +207,7 @@ fi
 echo -e "${Bgreen}3. Build downloaded compiler...${reset}"
 cmake -S ${WORKING_DIR}/compiler -B ${WORKING_DIR}/build -DCMAKE_BUILD_TYPE=Debug \
   -DLLVM_ROOT_DIR=$(llvm-config --prefix) -DCMAKE_C_COMPILER=$(which clang) -DCMAKE_CXX_COMPILER=$(which clang++) \
-  -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR} 2>&1 >> ${LOG_FILE}
+  -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR} -DCXY_VERSION=${CXY_VERSION} -DCXY_BUILD_ID=${CXY_BUILD_ID} 2>&1 >> ${LOG_FILE}
 cmake --build ${WORKING_DIR}/build --config Debug --parallel `getconf _NPROCESSORS_ONLN` 2>&1 >> ${LOG_FILE}
 result=$?
 if [[ "${result}" -ne 0 ]] ; then

@@ -34,7 +34,8 @@ jobs:
           push: true
           tags: suilteam/cxy:${{ matrix.IMAGE_TAG }}-${{matrix.IMAGE_OS}}
           build-args: |
-            "RELEASE_TAG=${{ github.ref_name }}"
+            RELEASE_TAG=${{ github.ref_name }}
+            BUILD_ID=${{ github.run_number }}
 
   build:
     name: Create Release

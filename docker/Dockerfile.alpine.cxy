@@ -2,11 +2,17 @@ FROM suilteam/cxy-base:alpine
 
 RUN apk add --update --no-cache wget
 
-# Setup cxy environment variables
+# Build arguments
 ARG RELEASE_TAG=main
+ARG BUILD_ID=0
+# Setup cxy environment variables
 ENV RELEASE_TAG=${RELEASE_TAG}
+ENV BUILD_ID=${BUILD_ID}
 ENV CXY_ROOT=/usr/local
 ENV CXY_STDLIB_DIR="${CXY_ROOT}/lib/cxy/std"
+
+LABEL version=${RELEASE_TAG}
+LABEL build=${BUILD_ID}
 
 # Install cxy compiler
 RUN bash -c "$(wget https://raw.githubusercontent.com/dccarter/cxy/refs/tags/$RELEASE_TAG/src/tools/download-cxy.sh -O -)"

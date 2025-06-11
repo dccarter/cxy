@@ -398,7 +398,7 @@ bool parseCommandLineOptions(
 
     Parser(
         "cxy",
-        CXY_VERSION,
+        CXY_VERSION " (build: " CXY_BUILD_ID ", " __DATE__ ", " __TIME__ ")",
         BUILD_COMMANDS,
         DefaultCmd(dev),
         Int(Name("max-errors"),

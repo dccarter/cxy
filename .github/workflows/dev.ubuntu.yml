@@ -2,6 +2,8 @@ name: Cxy Ubuntu Dev Image
 
 on:
   push:
+    branches:
+      - main
     paths:
       - docker/Dockerfile.ubuntu.dev
   workflow_dispatch:

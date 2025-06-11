@@ -1,10 +1,12 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.16)
 set(CXY_VERSION 0.1.0 CACHE STRING "The version of cxy")
+string(REPLACE v "" ${CXY_VERSION} CXY_VERSION)
 project(cxy
         VERSION ${CXY_VERSION}
         DESCRIPTION "Cxy is a transpiler for a high level programming language that tries to simplify C"
         LANGUAGES C CXX)
 
+set(CXY_BUILD_ID 0 CACHE STRING "The build id of cxy")
 # Configure path for loading project cmake scripts
 set(CMAKE_MODULE_PATH
         ${CMAKE_MODULE_PATH}
@@ -303,7 +305,8 @@ else ()
 endif()
 
 target_compile_definitions(cxy PRIVATE
-        -DCXY_VERSION="${CXY_VERSION}")
+        -DCXY_VERSION="${CXY_VERSION}"
+        -DCXY_BUILD_ID="${CXY_BUILD_ID}")
 
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
