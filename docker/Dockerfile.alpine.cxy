@@ -9,4 +9,4 @@ ENV CXY_ROOT=/usr/local
 ENV CXY_STDLIB_DIR="${CXY_ROOT}/lib/cxy/std"
 
 # Install cxy compiler
-RUN bash -c "$(wget https://raw.githubusercontent.com/dccarter/cstar/refs/heads/$RELEASE_TAG/src/tools/download-cxy.sh -O -)"
+RUN bash -c "$(wget https://raw.githubusercontent.com/dccarter/cxy/refs/tags/$RELEASE_TAG/src/tools/download-cxy.sh -O -)"
