@@ -506,7 +506,7 @@ pub class Socket {
             }
         }
         else if (state == .AE_WRITABLE) {
-            const rc = fdWaitRead(_fd, timeout);
+            const rc = fdWaitWrite(_fd, timeout);
             if (rc != State.AE_WRITABLE) {
                 errno! = ETIMEDOUT!;
                 return false

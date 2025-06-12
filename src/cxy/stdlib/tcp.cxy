@@ -29,7 +29,7 @@ else {
     func Socket_sendfile(outFd: i32, inFd: i32, off: ^u64, count: u64) {
         var offset = <i64>*off;
         var status = sf.sendfile(outFd, inFd, ptrof offset, count)
-        if (status == 0)
+        if (status <= 0)
             *off = offset
         return status
     }
@@ -39,7 +39,7 @@ else {
     func Socket_sendfile(outFd: i32, inFd: i32, off: ^u64, count: u64) {
         var size = <i64> count;
         var status = socket.sendfile(inFd, outFd, <i64>*off, ptrof size, null, 0`i32)
-        if (status == 0)
+        if (status <= 0)
             *off = *off + size
         return status
     }

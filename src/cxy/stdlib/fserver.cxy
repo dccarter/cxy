@@ -341,20 +341,26 @@ pub class FileServer {
         rng: &const String,
         cf: &CachedFile
     ) : Status {
-        var i = 0`i64;
-        var j = 0`i64;
         var s = rng.__str();
+        var eq = s.indexOf('='`char);
+        if (!eq) {
+            TRC!("Range header does not contain '=' character: " << rng)
+            return Status.RequestRangeInvalid
+        }
+        if (s.substr(0, <i64> *eq) != "bytes".s) {
+            TRC!("Range header does not start with 'bytes': " << rng)
+            return Status.RequestRangeInvalid
+        }
+
         var ranges = Vector[(i64, i64)]();
-        while (i < s.size()) {
-            // Skip white-space
-            while(s.[i] == ' '`char) i++;
+        s = s.substr(<i64> *eq + 1);
+        while {
+            s = s.trimLeft()
             var start = s.toi[i64]();
             var end: i64;
-            s = s.substr(j)
-            var tmp = s.indexOf('-'`char);
+            var tmp = s.indexOf('-');
             if (tmp) {
-                i = <i64> *tmp
-                s = s.substr(i+1)
+                s = s.substr(*tmp + 1).trimLeft()
                 end = s.toi[i64]()
             }
             else {
@@ -364,14 +370,17 @@ pub class FileServer {
             TRC!("partial content: " << start << "-" << end << "/" << cf.len)
             // build partial content chunk
             if (start > end || start >= cf.len || end > cf.len) {
-                TRC!("requested range is out of bounds")
+                TRC!("requested range is out of bounds, " << start << "-" << end << "/" << cf.len)
                 return Status.RequestRangeInvalid
             }
-            ranges.push((start, end))
+            ranges.push((start, end-start))
 
             tmp = s.indexOf(','`char)
             if (tmp) {
-                i = (<i64> *tmp + 1)
+                s = s.substr(<i64> *tmp + 1);
+            }
+            else {
+                break
             }
         }
 

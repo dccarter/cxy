@@ -27,6 +27,8 @@ import "native/http/llhttp.h" as parser
 
 pub exception HttpError(msg: String) => msg == null? "" : msg.str()
 
+const LOG_TAG = "HTTP";
+
 pub enum Method : u32 {
     @str("DELETE")
     Delete,
@@ -277,6 +279,8 @@ pub struct SendTempFile {
 pub type ResponseChunk = string | __string | String | SendTempFile | SendFile
 
 pub class Response {
+    @static
+    LOG_TAG = "RESPONSE";
     - _status: Status = .Ok;
     - _headers = HeaderMap();
     - _chunks: Vector[ResponseChunk] = null;
@@ -537,6 +541,7 @@ func requestParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) 
     if (req._s2 != null) {
         // We have seen a new header
         assert!(req._s1 != null)
+        TRC3!("    Header: " << req._s1 << " = " << req._s2)
         req._headers.[&&req._s1] = &&req._s2
         req._s1 = null
         req._s2 = null
