@@ -474,15 +474,7 @@ const Type *compileModule(CompilerDriver *driver,
         }
     }
     else {
-        if (alias == NULL) {
-            logError(
-                driver->L,
-                &source->loc,
-                "importing a C header files requires an alias for the import",
-                NULL);
-            return NULL;
-        }
-        program = importCHeader(driver, source, alias->ident.value);
+        program = importCHeader(driver, source);
         if (program == NULL)
             return NULL;
     }

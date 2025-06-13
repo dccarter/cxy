@@ -668,6 +668,22 @@ struct MacroImporter : clang::PPCallbacks {
     {
     }
 
+    void LexedFileChanged(clang::FileID FID,
+                          LexedFileChangeReason Reason,
+                          clang::SrcMgr::CharacteristicKind FileType,
+                          clang::FileID PrevFID,
+                          clang::SourceLocation Loc) override
+    {
+        if (Reason == LexedFileChangeReason::EnterFile && PrevFID.isValid()) {
+            if (ctx.incs.find(PrevFID) == ctx.incs.end()) {
+                ctx.incs[PrevFID] = {};
+            }
+            else {
+                ctx.incs[PrevFID].insert(FID);
+            }
+        }
+    }
+
     void MacroDefined(const clang::Token &name,
                       const clang::MacroDirective *macro) final override
     {
@@ -864,9 +880,7 @@ static std::string removeSDKVersion(clang::StringRef path)
     return str;
 }
 
-AstNode *importCHeader(CompilerDriver *driver,
-                       const AstNode *node,
-                       cstring name)
+AstNode *importCHeader(CompilerDriver *driver, const AstNode *node)
 {
     auto importer = (cxy::CImporter *)driver->cImporter;
     cstring importerPath = node->loc.fileName;

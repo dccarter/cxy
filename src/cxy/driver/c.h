@@ -10,9 +10,7 @@
 extern "C" {
 #endif
 
-AstNode *importCHeader(CompilerDriver *driver,
-                       const AstNode *node,
-                       cstring name);
+AstNode *importCHeader(CompilerDriver *driver, const AstNode *node);
 
 #ifdef __cplusplus
 }

@@ -1,38 +1,24 @@
 module time
 
-##if (defined MACOS) {
-    import "_time.h" as ctime
-    import "sys/_types/_time_t.h" as _time_t
-}
-else ##if (defined __ALPINE__) {
-    import "time.h" as ctime
+import "time.h" as ctime
+
+##if (defined __ALPINE__) {
     import "bits/alltypes.h" as alltypes
-}
-else {
-    import "time.h" as ctime
-    import "bits/types/time_t.h" as _time_t
-    import "bits/types/struct_tm.h" as struct_tm
 }
 
 macro HTTP_TIME_FMT "%a, %d %b %Y %T GMT";
 macro LOG_TIME_FMT  "%Y-%m-%d %H:%M:%S";
 
-#if (defined MACOS) {
-    type tm = ctime.tm
-    pub type time_t = _time_t.time_t
-}
-else #if (defined __ALPINE__) {
-    type tm = ctime.tm
+#if (defined __ALPINE__) {
     pub type time_t = alltypes.time_t
 }
 else {
-    type tm = struct_tm.tm
-    pub type time_t = _time_t.time_t
+    pub type time_t = ctime.time_t
 }
 
 pub struct Time {
     - _t: time_t
-    - _tm: tm
+    - _tm: ctime.tm
 
     func `init`(t: time_t) {
         _t = t

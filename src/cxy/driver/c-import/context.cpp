@@ -58,6 +58,28 @@ AstNode *IncludeContext::buildModules(llvm::StringRef mainModulePath)
         AstNodeList decls = {nullptr};
         mainModule = buildModule(mainModulePath, decls);
     }
+    // build dependency graph
+    for (auto &[fid, deps] : incs) {
+        auto modulePathRef = SM.getFilename(SM.getLocForStartOfFile(fid));
+        auto module = importer.find(modulePathRef);
+        if (module == nullptr || module->type == NULL)
+            continue;
+        std::vector<const Type *> dependencyModules(deps.size());
+        for (auto &dep : deps) {
+            auto pathRef = SM.getFilename(SM.getLocForStartOfFile(dep));
+            if (auto depModule = importer.find(pathRef)) {
+                dependencyModules.push_back(depModule->type);
+            }
+        }
+        const Type **items = static_cast<const Type **>(allocFromMemPool(
+            pool, sizeof(const Type *) * dependencyModules.size()));
+        memcpy(items,
+               dependencyModules.data(),
+               sizeof(Type *) * dependencyModules.size());
+        Type *type = const_cast<Type *>(module->type);
+        type->module._incs.items = items;
+        type->module._incs.count = dependencyModules.size();
+    }
     return mainModule;
 }
 

@@ -1238,17 +1238,24 @@ static void visitForStmt(AstVisitor *visitor, AstNode *node)
 static void visitBlockStmt(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
+    AstNode *parent = node->parentScope;
+
     AstModifier block = ctx->block;
     astModifierInit(&ctx->block, node);
     AstNode *stmt = node->blockStmt.stmts, *last = node->blockStmt.last;
 
     for (; stmt; stmt = stmt->next) {
         astModifierNext(&ctx->block, stmt);
-        if (hasFlag(stmt, Comptime) || nodeIsNoop(stmt)) {
+        if (hasFlag(stmt, Comptime)) {
             astModifierRemoveCurrent(&ctx->block);
             continue;
         }
         astVisit(visitor, stmt);
+        if (nodeIsNoop(stmt)) {
+            astModifierRemoveCurrent(&ctx->block);
+            continue;
+        }
+
         if (!hasFlag(node, BlockReturns) || stmt->next != NULL) {
             if (isRedundantStatement(stmt)) {
                 logWarningWithId(
@@ -1265,7 +1272,12 @@ static void visitBlockStmt(AstVisitor *visitor, AstNode *node)
     if (last && hasFlag(node, BlockReturns))
         last->flags |= flgBlockValue;
 
-    node->blockStmt.last = last;
+    if (node->blockStmt.stmts == NULL && nodeIs(parent, BlockStmt)) {
+        node->tag = astNoop;
+    }
+    else {
+        node->blockStmt.last = last;
+    }
     ctx->block = block;
 }
 

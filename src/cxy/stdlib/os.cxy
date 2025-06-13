@@ -2,8 +2,10 @@ module os
 
 import { State } from "./coro.cxy"
 
+import "stdlib.h" as stdlib
 import "errno.h" as errno
 import "unistd.h" as unistd
+import "fcntl.h" as fcntl
 import "sys/wait.h" as syswait
 
 import "native/nos.h" as nos
@@ -11,20 +13,14 @@ import "native/nos.h" as nos
 
 ##if (defined MACOS) {
     import "sys/_types/_pid_t.h" as pid_t
-    import "sys/fcntl.h" as fcntl
     import "copyfile.h" as copyfile
-    import "_stdlib.h" as stdlib
 }
 else ##if (defined __ALPINE__) {
-    import "fcntl.h" as fcntl
-    import "stdlib.h" as stdlib
     import "bits/alltypes.h" as types
     import "sys/sendfile.h" as sendfile
     import "sys/syscall.h" as syscall
 }
 else {
-    import "fcntl.h" as fcntl
-    import "stdlib.h" as stdlib
     import "sys/types.h" as types
     import "sys/sendfile.h" as sendfile
     import "sys/pidfd.h" as pidfd

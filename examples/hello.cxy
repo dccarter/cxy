@@ -1,7 +1,6 @@
 
-import { Hello } from "./test.cxy"
+import "stdlib/os.cxy"
 
 func main(): !void {
-    var x = None[i32]();
-    var y = x || 100;
+    printf("Hello World")
 }

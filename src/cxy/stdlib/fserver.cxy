@@ -8,19 +8,11 @@ import { Stat, stat, fstat, FileDescriptor } from "stdlib/os.cxy"
 import { Path } from "stdlib/path.cxy"
 import { Request, Response, Server, Method, Status, SendFile } from "./http.cxy"
 
-import "unistd.h" as unistd
-import "sys/mman.h" as vmem
-
-##if (defined MACOS) {
-import "sys/fcntl.h" as fcntl
-import "sys/syslimits.h" as limits // for PATH_MAX! macro)
-import "_stdlib.h" as stdlib
-}
-else {
-import "fcntl.h" as fcntl
-import "linux/limits.h" as limits // for PATH_MAX! macro
 import "stdlib.h" as stdlib
-}
+import "unistd.h" as unistd
+import "fcntl.h" as fcntl
+import "sys/mman.h" as vmem
+import "limits.h" as limits // for PATH_MAX! macro
 
 #if (defined MACOS) {
 macro StatField(X) mk_ident!("st_", X!, "timespec")

@@ -36,6 +36,7 @@ struct IncludeContext {
     FileLoc loc{};
     std::stack<CurrentRecord> recordsStack{};
     cstring typeDeclName{nullptr};
+    std::map<clang::FileID, std::set<clang::FileID>> incs{};
 
 private:
     AstNode *buildModule(llvm::StringRef path, AstNodeList &nodes);

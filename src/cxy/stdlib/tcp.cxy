@@ -5,24 +5,16 @@ import { State } from "./coro.cxy"
 
 import "sys/socket.h" as socket
 import "unistd.h" as unistd
-##if (defined MACOS) {
-    import "sys/errno.h" as errno
-    import "sys/fcntl.h" as fcntl
-}
-else ##if (defined __ALPINE__) {
-    import "errno.h" as errno
-    import "fcntl.h" as fcntl
-    import "sys/sendfile.h" as sf
-}
-else {
-    import "fcntl.h" as fcntl
-    import "bits/socket_type.h" as _st
+import "errno.h" as errno
+import "fcntl.h" as fcntl
+
+##if (!defined MACOS) {
     import "sys/sendfile.h" as sf
 }
 
 #if (!defined MACOS) {
     #if (!defined __ALPINE__) {
-        macro SOCK_STREAM _st.__socket_type.SOCK_STREAM
+        macro SOCK_STREAM socket.__socket_type.SOCK_STREAM
     }
 
     @inline

@@ -257,6 +257,10 @@ typedef struct Type {
 
         struct {
             TypeMembersContainer *members;
+            struct {
+                const Type **items;
+                u64 count;
+            } _incs;
             cstring path;
         } module;
 
@@ -515,11 +519,21 @@ static inline const Type *findEnumOptionType(const Type *type, cstring member)
     return found ? type : NULL;
 }
 
-static inline const NamedTypeMember *findModuleMember(const Type *type,
-                                                      cstring member)
+static const NamedTypeMember *findModuleMember(const Type *type, cstring member)
 {
-    return type ? findNamedTypeMemberInContainer(type->module.members, member)
-                : NULL;
+    if (type == NULL)
+        return NULL;
+    const NamedTypeMember *found =
+        findNamedTypeMemberInContainer(type->module.members, member);
+    if (found != NULL || type->module._incs.count == 0)
+        return found;
+
+    for (int i = 0; i < type->module._incs.count; i++) {
+        found = findModuleMember(type->module._incs.items[i], member);
+        if (found != NULL)
+            return found;
+    }
+    return NULL;
 }
 
 static inline const Type *findModuleMemberType(const Type *type, cstring member)
