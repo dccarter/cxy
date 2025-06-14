@@ -236,9 +236,11 @@ AstNode *inheritanceBuildVTableType(AstVisitor *visitor, AstNode *node)
         NULL,
         NULL);
 
-    node->type = checkType(visitor, vTableType);
-    if (typeIs(node->type, Error))
+    const Type *type = checkType(visitor, vTableType);
+    if (typeIs(type, Error)) {
+        node->type = ERROR_TYPE(ctx);
         return NULL;
+    }
     astModifierAdd(&ctx->root, vTableType);
 
     AstNode *vTable = makeVTableVariable(ctx, node, vTableType, init.first);

@@ -117,7 +117,7 @@ pub struct Path {
 
 pub type PathLike = string | __string | String | Path
 
-func cast[T](path: &PathLike): T {
+pub func cast[T](path: &PathLike): T {
     #if (#T == #__string) {
         match (path) {
             case string as s => return __string(s)
@@ -187,7 +187,7 @@ pub func expand(path: PathLike) {
 pub func current() => Path( file! )
 
 @inline
-func withNullTermination[T](s: &const __string, fn: func(p: ^const char) -> T ) {
+pub func withNullTermination[T](s: &const __string, fn: func(p: ^const char) -> T ) {
     if (s.isnt()) {
         var p: [char, 1024] = [];
         s.copyto(p, sizeof!(p))

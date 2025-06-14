@@ -298,12 +298,17 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
             goto checkClassInterfacesError;
     }
 
-    node->classDecl.thisType =
-        node->classDecl.thisType
-            ?: makeThisType(ctx->types, node->classDecl.name, flgNone);
-    const Type *this = node->classDecl.thisType;
+    node->type = makeClassType(ctx->types,
+                               getDeclarationName(node),
+                               NULL,
+                               0,
+                               node,
+                               baseType,
+                               implements,
+                               implementsCount,
+                               node->flags & flgTypeApplicable);
+    node->classDecl.thisType = node->type;
 
-    node->type = this;
     ctx->currentClass = node;
     evalClassMembers(visitor, node);
     ctx->currentClass = NULL;
@@ -338,16 +343,11 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
         membersCount = removeClassOrStructBuiltins(node, members);
     }
 
-    ((Type *)this)->_this.that = makeClassType(ctx->types,
-                                               getDeclarationName(node),
-                                               &members[isVirtual],
-                                               membersCount - isVirtual,
-                                               node,
-                                               baseType,
-                                               implements,
-                                               implementsCount,
-                                               node->flags & flgTypeApplicable);
-    node->type = this;
+    updateClassType(ctx->types,
+                    node->type,
+                    &members[isVirtual],
+                    membersCount - isVirtual,
+                    node->flags & (flgTypeApplicable | flgReferenceMembers));
 
     if (hasMemBuiltins) {
         implementClassOrStructBuiltins(visitor, node);
@@ -382,20 +382,12 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
     }
 
     if (retype) {
-        node->type = replaceClassType(ctx->types,
-                                      this->_this.that,
-                                      members,
-                                      membersCount,
-                                      node,
-                                      baseType,
-                                      implements,
-                                      implementsCount,
-                                      node->flags & flgTypeApplicable);
-        ((Type *)this->_this.that)->retyped = node->type;
-        ((Type *)this)->_this.that = node->type;
-    }
-    else {
-        node->type = this->_this.that;
+        updateClassType(ctx->types,
+                        node->type,
+                        members,
+                        membersCount,
+                        node->flags &
+                            (flgTypeApplicable | flgReferenceMembers));
     }
     ctx->currentClass = NULL;
 
@@ -403,8 +395,7 @@ void checkClassDecl(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
 
 checkClassMembersError:
-    if (members)
-        free(members);
+    free(members);
 
 checkClassInterfacesError:
     if (implements)

@@ -62,7 +62,8 @@ static HashCode hashAstNode(HashCode hash, const AstNode *node)
 static HashCode hashType(HashCode hash, const Type *type)
 {
     hash = hashUint32(hash, type->tag);
-    hash = hashUint64(hash, (type->flags & flgTypeApplicable));
+    if (!isClassOrStructType(type))
+        hash = hashUint64(hash, (type->flags & flgTypeApplicable));
 
     switch (type->tag) {
     case typAuto:
@@ -1115,28 +1116,19 @@ const Type *makeStructType(TypeTable *table,
 {
     GetOrInset ret = {};
     if (flags & flgAnonymous) {
-        NamedTypeMember **sortedMembers = allocFromMemPool(
-            table->memPool, sizeof(NamedTypeMember *) * membersCount);
-        for (u64 i = 0; i < membersCount; i++) {
-            sortedMembers[i] = &members[i];
-        }
-        qsort(sortedMembers,
-              membersCount,
-              sizeof(sortedMembers[0]),
-              sortCompareStructMember);
-        TypeMembersContainer container = {.members = members,
-                                          .sortedMembers = sortedMembers,
-                                          .count = membersCount};
-        ret = getOrInsertType(table,
-                              &(Type){.tag = typStruct,
-                                      .name = name,
-                                      .flags = flags,
-                                      .tStruct = {.members = &container}});
-    }
-    else {
         ret = getOrInsertType(
-            table, &(Type){.tag = typStruct, .name = name, .flags = flags});
+            table,
+            &(Type){.tag = typStruct,
+                    .name = name,
+                    .flags = flags,
+                    .tStruct = {.members = makeTypeMembersContainer(
+                                    table, members, membersCount),
+                                .decl = decl}});
+        return ret.s;
     }
+
+    ret = getOrInsertType(
+        table, &(Type){.tag = typStruct, .name = name, .flags = flags});
 
     if (!ret.f) {
         Type *type = (Type *)ret.s;
@@ -1146,6 +1138,18 @@ const Type *makeStructType(TypeTable *table,
     }
 
     return ret.s;
+}
+
+void updateStructType(TypeTable *table,
+                      const Type *type,
+                      NamedTypeMember *members,
+                      u64 membersCount,
+                      u64 flags)
+{
+    Type *tStruct = (Type *)type;
+    tStruct->tStruct.members =
+        makeTypeMembersContainer(table, members, membersCount);
+    tStruct->flags |= flags;
 }
 
 const Type *makeReplaceStructType(TypeTable *table,
@@ -1227,6 +1231,18 @@ const Type *makeClassType(TypeTable *table,
     }
 
     return ret.s;
+}
+
+void updateClassType(TypeTable *table,
+                     const Type *type,
+                     NamedTypeMember *members,
+                     u64 membersCount,
+                     u64 flags)
+{
+    Type *tClass = (Type *)type;
+    tClass->tClass.members =
+        makeTypeMembersContainer(table, members, membersCount);
+    tClass->flags |= flags;
 }
 
 const Type *replaceStructType(TypeTable *table,

@@ -71,13 +71,13 @@ void compilerStatsRecord(CompilerDriver *driver, CompilerStage stage)
     getMemPoolStats(driver->pool, &stats);
     StatsSnapshot *snapshot = &driver->stats.snapshot;
 
-    driver->stats.stages[stage].duration =
+    driver->stats.stages[stage].duration +=
         timespecToMilliseconds(&ts) - timespecToMilliseconds(&snapshot->at);
-    driver->stats.stages[stage].pool.totalUsed =
+    driver->stats.stages[stage].pool.totalUsed +=
         stats.totalUsed - snapshot->poolStats.totalUsed;
-    driver->stats.stages[stage].pool.numberOfBlocks =
+    driver->stats.stages[stage].pool.numberOfBlocks +=
         stats.numberOfBlocks - snapshot->poolStats.numberOfBlocks;
-    driver->stats.stages[stage].pool.totalAllocated =
+    driver->stats.stages[stage].pool.totalAllocated +=
         stats.totalAllocated - snapshot->poolStats.totalAllocated;
 
     driver->stats.stages[stage].captured = true;

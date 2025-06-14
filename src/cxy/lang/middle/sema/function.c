@@ -375,10 +375,14 @@ const Type *checkFunctionSignature(AstVisitor *visitor, AstNode *node)
 const Type *checkFunctionBody(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *body = node->funcDecl.body;
+    AstNode *body = node->funcDecl.body, *ret = node->funcDecl.signature->ret;
 
     const Type *type = node->type;
     const Type *ret_ = type->func.retType;
+    if (typeIs(ret_, Auto) && ret) {
+        ret_ = checkType(visitor, ret);
+    }
+
     bool currentReturnState = ctx->returnState,
          currentExplicitCatch = ctx->explicitCatch;
     ctx->returnState = false;

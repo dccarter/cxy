@@ -1,0 +1,220 @@
+module sqlite
+
+import { PathLike, withNullTermination, cast } from "stdlib/path.cxy"
+
+import "sqlite3.h" as sqlite3
+
+@__cc:clib "sqlite3"
+
+exception SqliteError(msg: String) => msg == null ? "": msg.str()
+
+func getError(rc: i32) => sqlite3.sqlite3_errstr(rc) !: string
+
+func readColumn[T](stmt: ^sqlite3.sqlite3_stmt, col: i32): T {
+    #if (T.isChar || T.isBoolean) {
+        return <T>sqlite3.sqlite3_column_int(stmt, col)
+    }
+    else #if (T.isEnum) {
+        #const B = base_of!(T);
+        return <T>readColumn[#{B}](col)
+    }
+    else #if (T.isInteger) {
+        #if (#T == #u64 || #T == #i64) {
+            return <T>sqlite3.sqlite3_column_int64(stmt, col)
+        }
+        else {
+            return <T>sqlite3.sqlite3_column_int(stmt, col)
+        }
+    }
+    else #if (T.isFloat) {
+        return <T>sqlite3.sqlite3_column_double(stmt, col)
+    }
+    else #if (T.isString) {
+        #if (#T == #string) {
+            return sqlite3.sqlite3_column_text(stmt, col) !: string
+        }
+        else {
+            var sz = sqlite3.sqlite3_column_bytes(stmt, col)
+            return T(sqlite3.sqlite3_column_text(stmt, col) !: string, sz)
+        }
+    }
+    else #if (T.isOptional) {
+        if (sqlite3.sqlite3_column_type(stmt, col) == SQLITE_NULL!)
+            return None[T]()
+        else
+            return readColumn[T.targetType](col)
+    }
+    else {
+        error!("type {t} unsupported by fetch", #T)
+    }
+}
+
+pub struct Statement {
+    - _stmt: ^sqlite3.sqlite3_stmt = null;
+    - _first = false;
+    - func `init`(stmt: ^sqlite3.sqlite3_stmt) { _stmt = stmt }
+
+    func `deinit`() {
+        if (_stmt != null) {
+            sqlite3.sqlite3_finalize(_stmt)
+            _stmt = null
+        }
+    }
+
+    @static
+    func create(db: ^sqlite3.sqlite3, query: string): !This {
+        var stmt: ^sqlite3.sqlite3_stmt = null
+        var rc = sqlite3.sqlite3_prepare_v2(db, query, -1, ptrof stmt, null)
+        if (rc != SQLITE_OK!) {
+            raise SqliteError(f"sqlite3_prepare_v2('${query}') failed: ${getError(rc)}")
+        }
+        return This(stmt)
+    }
+
+    - func bindImpl[T](i: i32, value: &const T): i32 {
+        #if (T.isChar || T.isBoolean) {
+            return sqlite3.sqlite3_bind_int(_stmt, i, <i32>value)
+        }
+        else #if (T.isEnum) {
+            #const B = base_of!(T);
+            return bindImpl(<#{B}>value)
+        }
+        else #if (T.isInteger) {
+            #if (#T == #i64 || #T == #u64) {
+                return sqlite3.sqlite3_bind_int64(_stmt, i, <i64>value)
+            }
+            else {
+                return sqlite3.sqlite3_bind_int(_stmt, i, <i32>value)
+            }
+        }
+        else #if (T.isFloat) {
+            return sqlite3.sqlite3_bind_double(_stmt, i, value)
+        }
+        else #if (T.isString) {
+            #if (#T == #string) {
+                return sqlite3.sqlite3_bind_text(_stmt, i, value, -1, null)
+            }
+            else {
+                return sqlite3.sqlite3_bind_text(_stmt, i, value.str(), <i32>value.size(), null)
+            }
+        }
+        else #if (T.isOptional) {
+            if (value)
+                return bindImpl(*value)
+            else
+                return sqlite3.sqlite3_bind_null(_stmt, i)
+        }
+        else {
+            error!("type {t} cannot be bound to sqlite", #T)
+        }
+    }
+
+    @inline
+    func bind[T](i: i32, value: &const T): !void {
+        var rc = bindImpl(i, value)
+        if (rc != SQLITE_OK!) {
+            raise SqliteError(f"sqlite3_bind_(${i}) failed: ${getError(rc)}")
+        }
+    }
+
+    func `()`(...args: auto): !void {
+        sqlite3.sqlite3_reset(_stmt)
+        #const i = 1;
+        #for(const arg: args) {
+            bind(#{i}, &#{arg})
+            #{i += 1}
+        }
+        _first = true
+        var rc = sqlite3.sqlite3_step(_stmt);
+        if (rc >= SQLITE_NOTICE! || rc == SQLITE_OK!)
+            return;
+        raise SqliteError(f"sqlite3_step failed: ${getError(rc)}")
+    }
+
+    func next() {
+        if (_first) {
+            _first = false
+            return sqlite3.sqlite3_data_count(_stmt) > 0
+        }
+        return sqlite3.sqlite3_step(_stmt) == SQLITE_ROW!
+    }
+
+    func column[T](index: i32 = 0): !T => readColumn[T](index)
+
+    func read[T](): !T {
+        var count = sqlite3.sqlite3_column_count(_stmt)
+        if (count < 0) {
+            raise SqliteError("query has nothing to fetch")
+        }
+
+        #if (T.isTuple) {
+            assert!(count <= #{T.membersCount})
+            var res: T = null
+            #for (const i: 0..T.membersCount) {
+                #const M = typeat!(#T, i);
+                res.#{i} = readColumn[#{M}](_stmt, #{i})
+            }
+            return &&res
+        }
+        else #if (T.isStruct) {
+            var res = T();
+            #for (const member: T.members) {
+                #if (member.isField) {
+                    #const sqlAttr = member.attributes.[:sql]
+                    #if (sqlAttr) {
+                        #const M = member.Tinfo;
+                        #const id = sqlAttr.[:id];
+                        if(#{id} < count) {
+                            res.#{mk_ident!(member.name)} = readColumn[#{M}](_stmt, #{id})
+                        }
+                    }
+                }
+            }
+            return &&res
+        }
+        else {
+            return readColumn[T](_stmt, 0)
+        }
+    }
+}
+
+pub class Database {
+    type Handle = ^sqlite3.sqlite3;
+    - _db: Handle = null
+
+    - func `init`(db: Handle) { _db = db }
+
+    func `deinit`() {
+        if (_db != null) {
+            sqlite3.sqlite3_close(_db)
+            _db = null
+        }
+    }
+
+    @static
+    func open(path: PathLike): !This {
+        var spath = cast[__string](&path);
+        var res = withNullTermination[(i32, Handle)](
+            &spath,
+            (p: ^const char) =>  {
+                var db: Handle = null
+                return (sqlite3.sqlite3_open(p, ptrof db), db)
+            }
+        )
+
+        if (res.0 != SQLITE_OK!) {
+            raise SqliteError(f"sqlite3_open('${path}') failed: ${getError(res.0)}")
+        }
+
+        return This(res.1)
+    }
+
+    @inline
+    func stmt(query: string): !Statement => Statement.create(_db, query)
+
+    func exec(query: string, ...args: auto): !Statement {
+        var stmt = Statement.create(_db, query);
+        stmt(...&&args)
+        return &&stmt
+    }
+}

@@ -449,10 +449,14 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
     ctx->cls = getDeclarationName(node);
-    node->structDecl.thisType =
-        node->structDecl.thisType
-            ?: makeThisType(ctx->types, node->structDecl.name, flgNone);
-    const Type *this = node->structDecl.thisType;
+    node->type =
+        makeStructType(ctx->types,
+                       getDeclarationName(node),
+                       NULL,
+                       0,
+                       node,
+                       node->flags & (flgTypeApplicable | flgReferenceMembers));
+    node->structDecl.thisType = node->type;
 
     ctx->currentStruct = node;
     evaluateStructMembers(visitor, node);
@@ -471,14 +475,11 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
     if (typeIs(node->type, Error))
         goto checkStructMembersError;
     bool retype = false;
-    ((Type *)this)->_this.that =
-        makeStructType(ctx->types,
-                       getDeclarationName(node),
-                       members,
-                       membersCount,
-                       node,
-                       node->flags & (flgTypeApplicable | flgReferenceMembers));
-    node->type = this;
+    updateStructType(ctx->types,
+                     node->type,
+                     members,
+                     membersCount,
+                     node->flags & (flgTypeApplicable | flgReferenceMembers));
 
     if (hasMemBuiltins) {
         implementClassOrStructBuiltins(visitor, node);
@@ -493,17 +494,13 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
 
     ctx->currentStruct = node;
     if (checkMemberFunctions(visitor, node, members) || retype) {
-        node->type = replaceStructType(
-            ctx->types,
-            this->_this.that,
-            members,
-            membersCount,
-            node,
-            node->flags & (flgReferenceMembers | flgTypeApplicable));
-        ((Type *)this)->_this.that = node->type;
+        updateStructType(ctx->types,
+                         node->type,
+                         members,
+                         membersCount,
+                         node->flags &
+                             (flgTypeApplicable | flgReferenceMembers));
     }
-    else
-        node->type = this->_this.that;
 
     ctx->currentStruct = NULL;
 

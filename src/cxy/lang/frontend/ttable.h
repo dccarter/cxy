@@ -149,6 +149,11 @@ const Type *makeStructType(TypeTable *table,
                            u64 memberCount,
                            AstNode *decl,
                            u64 flags);
+void updateStructType(TypeTable *table,
+                      const Type *type,
+                      NamedTypeMember *members,
+                      u64 memberCount,
+                      u64 flags);
 const Type *makeReplaceStructType(TypeTable *table,
                                   cstring name,
                                   NamedTypeMember *members,
@@ -174,6 +179,11 @@ const Type *makeClassType(TypeTable *table,
                           const Type **interfaces,
                           u64 interfacesCount,
                           u64 flags);
+void updateClassType(TypeTable *table,
+                     const Type *type,
+                     NamedTypeMember *members,
+                     u64 memberCount,
+                     u64 flags);
 
 const Type *replaceStructType(TypeTable *table,
                               const Type *og,

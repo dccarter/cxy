@@ -363,7 +363,7 @@ static AstNode *makeHasMemberNode(AstVisitor *visitor,
     }
 
     const Type *type = evalType(ctx, memberType);
-    if (!hasFlag(memberType, Typeinfo)) {
+    if (!nodeIs(memberType, TypeRef) && !hasFlag(memberType, Typeinfo)) {
         logError(ctx->L,
                  &memberType->loc,
                  "unexpected type {t}, expecting type information",

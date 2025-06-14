@@ -1,6 +1,5 @@
-
-import "stdlib/os.cxy"
+import { Server, Cors } from "stdlib/http.cxy"
 
 func main(): !void {
-    printf("Hello World")
+
 }
