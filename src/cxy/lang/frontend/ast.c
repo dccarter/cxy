@@ -2338,6 +2338,7 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
     case astForStmt:
         CLONE_MANY(forStmt, var);
         CLONE_ONE(forStmt, range);
+        CLONE_ONE(forStmt, cond);
         CLONE_ONE(forStmt, body);
         break;
     case astWhileStmt:

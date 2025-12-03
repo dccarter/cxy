@@ -775,7 +775,12 @@ pub class String : OutputStream {
             while (this._capacity < newSize) {
                 this._capacity <<= 1
             }
-            this._data = <^char> realloc(this._data !: ^void, this._capacity+1)
+            var tmp = realloc(this._data !: ^void, this._capacity+1)
+            if (tmp == null) {
+                panic!("failed to grow string buffer")
+            }
+            this._data = <^char> tmp
+            this._data.[_size] = '\0'`char
         }
     }
 
@@ -807,8 +812,11 @@ pub class String : OutputStream {
         (ptr !: This).op__destructor()
     }
 
-    func head() => _data
-    func tail() => ptroff!( _data + _size )
+    @inline
+    - func head() => _data
+    @inline
+    - func tail() =>
+        ptroff!( _data + _size ) // This is okay since _size is always < _capacity
 
     func reserve(size: u64) {
         grow(size)
@@ -1350,7 +1358,12 @@ struct StackTrace {
                 capacity = 8
             else
                 capacity <<= 1
-            calls = realloc( calls !: ^void, sizeof!(*calls) * capacity ) !: ^CallTrace
+            var newPtr = realloc(calls !: ^void, sizeof!(*calls) * capacity);
+            if (newPtr == null) {
+                // Handle OOM (e.g., panic or return error)
+                panic!("Out of memory")
+            }
+            calls = newPtr !: ^CallTrace
         }
     }
 
@@ -1457,12 +1470,15 @@ pub class MemoryOutputStream : OutputStream {
     }
 
     func append(str: ^const char, size: u64) : Optional[u64] {
-        if (size) {
-            assert!(size < (_capacity - _size))
+        if (size <= (_capacity - _size)) {
             var p = (this._buffer !: ^char) + this._size;
             memmove(p, str, size)
             this._size += size
-            p.[size] = <char>'\0'
+            if (this._size <= this._capacity)
+                p.[size] = <char>'\0'
+        }
+        else {
+            return None[u64]()
         }
         return Some(size)
     }

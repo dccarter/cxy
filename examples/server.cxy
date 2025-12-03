@@ -11,8 +11,7 @@ func handleConnection(sock: TcpSocket) {
             const str = """[{
                 "jsonrpc": "2.0",
                 "result": 200,
-                "error": { "code": -32000, "message": "What the fuck", "data": "1000" },
-                "id": 42
+                "id": 0
             }]""";
             sock.send(str)
         }

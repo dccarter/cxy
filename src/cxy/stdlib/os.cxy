@@ -801,5 +801,5 @@ pub func execute[T](
     raise IOError(f"forking process failed: ${strerr()}")
 }
 
-macro sh(cmd, ...env) os.execute(cmd!, varargs_def!(env!, {}))
+macro sh(cmd, ...env) module.execute(cmd!, varargs_def!(env!, {}))
 

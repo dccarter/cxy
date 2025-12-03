@@ -259,6 +259,7 @@
     case astForStmt:                                                           \
         MODE##Visit(visitor, node->forStmt.var);                               \
         MODE##Visit(visitor, node->forStmt.range);                             \
+        MODE##Visit(visitor, node->forStmt.cond);                             \
         MODE##Visit(visitor, node->forStmt.body);                              \
         break;                                                                 \
     case astWhileStmt:                                                         \

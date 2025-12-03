@@ -160,6 +160,7 @@ set(CXY_MIDDLE_SOURCES
 
         src/cxy/lang/middle/bind/bind.c
         src/cxy/lang/middle/bind/discover.c
+        src/cxy/lang/middle/bind/macro.c
         src/cxy/lang/middle/bind/resolve.c
         src/cxy/lang/middle/bind/scope.c
 

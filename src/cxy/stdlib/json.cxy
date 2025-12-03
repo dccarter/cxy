@@ -128,9 +128,10 @@ pub class JSONParser {
     func expectString(): !__string {
         skipWhitespace();
 
-        if (data.[off] != '"'`char)
+        if (data.[off] != '"'`char) {
+            println(data.substr(off, 10))
             raise JSONParserError(f"${line}:${col} - expecting a string start token '\"'")
-
+        }
         advance()
         var start = off;
         var p = data.str();
@@ -294,23 +295,21 @@ func fieldFromJSON[T](
     key: &__string,
     partialAllowed: bool
 ): !void {
-    #for(const member: T.members) {
-        #if (member.isField) {
-            #const M = member.Tinfo;
-            if (__string(#{member.name}) == key) {
-                #const jsonAttr = member.attributes.["json"]
-                #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-                    require!(M.isClass, "JSON parser supports class string types only")
-                    var jstr = p.expectString()
-                    var str = String();
-                    base64.decode(&str, &jstr)
-                    obj.#{mk_ident!(member.name)} = &&str
-                }
-                else {
-                    obj.#{mk_ident!(member.name)} = parseJSON[M](p)
-                }
-                return
+    #for(const member: T.members, member.isField) {
+        #const M = member.Tinfo;
+        if (__string(#{member.name}) == key) {
+            #const jsonAttr = member.attributes.["json"]
+            #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
+                require!(M.isClass, "JSON parser supports class string types only")
+                var jstr = p.expectString()
+                var str = String();
+                base64.decode(&str, &jstr)
+                obj.#{mk_ident!(member.name)} = &&str
             }
+            else {
+                obj.#{mk_ident!(member.name)} = parseJSON[M](p)
+            }
+            return
         }
     }
 
@@ -545,24 +544,30 @@ class Array: Value {
 
     func fromJSON(p: &JSONParser): !void {
         p.expectChar('['`char)
-        while (p.peekChar() != ']'`char) {
-            if (!elems.empty())
+        if (p.peekChar() != ']') {
+            while {
+                var value: Value = null;
+                switch(p.peekChar()) {
+                    case 'n'`char => value = Value()
+                    case 'f'`char, 't'`char => value = Boolean()
+                    case '-'`char, '0'`char..'9'`char => value = Number() // Missing '-'
+                    case '"'`char => value = JSONString()
+                    case '['`char => value = This()
+                    case '{'`char => value = createObject()
+                    default => raise JSONParserError("")
+                }
+                value.fromJSON(p)
+                elems.push(&&value)
+                if (p.peekChar() == ']'`char)
+                    break
                 p.expectChar(','`char)
-            var value: Value = null;
-            switch(p.peekChar()) {
-                case 'n'`char => value = Value()
-                case 'f'`char, 't'`char => value = Boolean()
-                case '0'`char..'9'`char => value = Number()
-                case '"'`char => value = JSONString()
-                case '['`char => value = This()
-                case '{'`char => value = createObject()
-                default => raise JSONParserError("")
             }
-            value.fromJSON(p)
-            elems.push(&&value)
         }
         p.expectChar(']'`char)
     }
+
+    @inline
+    func size() => elems.size()
 }
 
 class Object: Value {
@@ -594,25 +599,28 @@ class Object: Value {
 
     func fromJSON(p: &JSONParser): !void {
         p.expectChar('{'`char)
-        while (p.peekChar() != '}'`char) {
-            if (!members.empty())
-                p.expectChar(','`char)
-            var name = p.expectKey();
-            p.expectChar(':'`char)
+        if (p.peekChar() != '}') {
+            while {
+                var name = p.expectKey();
+                p.expectChar(':'`char)
 
-            var value: Value = null;
-            switch(p.peekChar()) {
-                case 'n'`char => value = Value()
-                case 'f'`char, 't'`char => value = Boolean()
-                case '-'`char =>
-                case '0'`char..'9'`char => value = Number()
-                case '"'`char => value = JSONString()
-                case '['`char => value = Array()
-                case '{'`char => value = This()
-                default => raise JSONParserError(f"Unexpected character: ${p.peekChar()}")
+                var value: Value = null;
+                switch(p.peekChar()) {
+                    case 'n'`char => value = Value()
+                    case 'f'`char, 't'`char => value = Boolean()
+                    case '-'`char, '0'`char..'9'`char => value = Number() // Merge '-' here
+                    case '"'`char => value = JSONString()
+                    case '['`char => value = Array()
+                    case '{'`char => value = This()
+                    default => raise JSONParserError(f"Unexpected character: ${p.peekChar()}")
+                }
+                value.fromJSON(p)
+                members.[String(name)] = &&value
+
+                if (p.peekChar() == '}')
+                    break
+                p.expectChar(','`char)
             }
-            value.fromJSON(p)
-            members.[String(name)] = &&value
         }
         p.expectChar('}'`char)
     }
@@ -648,7 +656,7 @@ struct ShellObject {
         switch(p.peekChar()) {
             case 'n'`char => value = Value()
             case 'f'`char, 't'`char => value = Boolean()
-            case '0'`char..'9'`char => value = Number()
+            case '-'`char, '0'`char..'9'`char => value = Number()
             case '"'`char => value = JSONString()
             case '['`char => value = Array()
             case '{'`char => value = Object()

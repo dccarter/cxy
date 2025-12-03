@@ -35,6 +35,7 @@ static bool evalIntegerMemberExpr(EvalContext *ctx, AstNode *node)
     }
 
     *node = *getNodeAtIndex(target->tupleExpr.elements, i);
+    node->next = NULL;
     return true;
 }
 

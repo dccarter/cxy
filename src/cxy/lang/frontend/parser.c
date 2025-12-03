@@ -2401,7 +2401,12 @@ static AstNode *forStatement(Parser *P, bool isComptime)
     consume0(P, tokLParen);
     AstNode *var = forVariable(P, isComptime);
     consume0(P, tokColon);
-    AstNode *range = expression(P, true);
+    AstNode *range = expression(P, !isComptime);
+    AstNode *cond = NULL;
+    if (isComptime && match(P, tokComma)) {
+        cond = expression(P, false);
+        cond->flags |= flgComptime;
+    }
     consume0(P, tokRParen);
     if (!match(P, tokSemicolon))
         body = statement(P, false);
@@ -2410,7 +2415,9 @@ static AstNode *forStatement(Parser *P, bool isComptime)
         P,
         &tok,
         &(AstNode){.tag = astForStmt,
-                   .forStmt = {.var = var, .range = range, .body = body}});
+                   .forStmt = {
+            .var = var, .range = range, .body = body, .cond = cond
+        }});
 }
 
 static AstNode *whileStatement(Parser *P)
@@ -3086,6 +3093,11 @@ static AstNode *parseComptimeFor(Parser *P, AstNode *(*parser)(Parser *))
     AstNode *var = variable(P, false, false, true, true);
     consume0(P, tokColon);
     AstNode *range = expression(P, true);
+    AstNode *cond = NULL;
+    if (match(P, tokComma)) {
+        cond = expression(P, false);
+        cond->flags |= flgComptime;
+    }
     consume0(P, tokRParen);
 
     AstNode *body = comptimeBlock(P, parser);
@@ -3095,7 +3107,7 @@ static AstNode *parseComptimeFor(Parser *P, AstNode *(*parser)(Parser *))
         &tok.fileLoc,
         &(AstNode){.tag = astForStmt,
                    .flags = flgComptime,
-                   .forStmt = {.var = var, .range = range, .body = body}});
+                   .forStmt = {.var = var, .range = range, .body = body, .cond = cond}});
 }
 
 static AstNode *parseComptimeVarDecl(Parser *P, AstNode *(*parser)(Parser *))

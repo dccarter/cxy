@@ -181,7 +181,9 @@ void bindPath(AstVisitor *visitor, AstNode *node)
     if (!base->pathElement.isKeyword) {
         AstNode *resolved =
             hasFlag(base, Module)
-                ? findSymbolInRoot(ctx->env, ctx->L, base->_name, &base->loc)
+                ? ( base->pathElement.resolvesTo ?:
+                    findSymbolInRoot(ctx->env, ctx->L, base->_name, &base->loc)
+                   )
                 : resolvePathBaseUpChain(visitor, node);
         if (resolved == NULL)
             return;
@@ -378,6 +380,14 @@ void bindFunctionDecl(AstVisitor *visitor, AstNode *node)
     astVisitManyNodes(visitor, node->funcDecl.signature->params);
     astVisit(visitor, node->funcDecl.body);
 
+    popScope(ctx->env);
+}
+
+static void bindMacroDecl(AstVisitor *visitor, AstNode *node)
+{
+    BindContext *ctx = getAstVisitorContext(visitor);
+    pushScope(ctx->env, node);
+    bindAstMacroDecl(ctx, node);
     popScope(ctx->env);
 }
 
@@ -678,6 +688,7 @@ void bindForStmt(AstVisitor *visitor, AstNode *node)
 
     astVisit(visitor, node->forStmt.range);
     astVisitManyNodes(visitor, node->forStmt.var);
+    astVisit(visitor, node->forStmt.cond);
     astVisit(visitor, node->forStmt.body);
 
     popScope(ctx->env);
@@ -833,7 +844,7 @@ void bindAstPhase2(CompilerDriver *driver, Env *env, AstNode *node)
         [astPath] = bindPath,
         [astFuncType] = bindFuncType,
         [astFuncDecl] = bindFunctionDecl,
-        [astMacroDecl] = astVisitSkip,
+        [astMacroDecl] = bindMacroDecl,
         [astFuncParamDecl] = bindFuncParam,
         [astVarDecl] = bindVarDecl,
         [astVarAlias] = bindVarAlias,

@@ -9,6 +9,10 @@ import { Vector } from "./vector.cxy"
 
 import plugin "jsonrpc" as jsonrpc
 
+#if (!defined MAX_PAYLOAD_SIZE) {
+macro MAX_PAYLOAD_SIZE 1048576`u32
+}
+
 macro CXY_JSON_RPC_VERSION             "2.0"
 macro CXY_JSON_RPC_API_ERROR           -32000
 macro CXY_JSON_RPC_PARSE_ERROR         -32700
@@ -87,7 +91,7 @@ pub class JSONRPCClient[T] {
             if (count < sizeof!(buf))
                 break;
         }
-
+        println(s)
         var obj = json.fromString[json.ShellObject](&s);
         if (!obj&.isArray())
             raise JsonRpcError( CXY_JSON_RPC_INTERNAL_ERROR!,
@@ -179,21 +183,19 @@ pub class JSONRPCServer[T] {
     func handle(method: __string, params: &const json.Value): RpcError | json.Value {
         var id = hash(&method)
         switch(id) {
-            #for(const member: T.members) {
-                #if (member.isFunction && member.attributes.["api"]) {
-                    case #{hash!(member.name)} =>
-                        if (method == __string(#{member.name})) {
-                            var result = this.#{mk_ident!(member.name)}(params) catch {
-                                if (var err = (ex!) as JsonRpcError) {
-                                    return RpcError(err.code, err.msg)
-                                }
-                                else {
-                                    return RpcError(CXY_JSON_RPC_INTERNAL_ERROR!, ex!.what())
-                                }
+            #for(const member: T.members, member.isFunction && member.attributes.["api"]) {
+                case #{hash!(member.name)} =>
+                    if (method == __string(#{member.name})) {
+                        var result = this.#{mk_ident!(member.name)}(params) catch {
+                            if (var err = (ex!) as JsonRpcError) {
+                                return RpcError(err.code, err.msg)
                             }
-                            return json.toJSONValue(result)
+                            else {
+                                return RpcError(CXY_JSON_RPC_INTERNAL_ERROR!, ex!.what())
+                            }
                         }
-                }
+                        return json.toJSONValue(result)
+                    }
             }
             default =>
         }
@@ -203,16 +205,30 @@ pub class JSONRPCServer[T] {
 
 
     @[static, inline]
-    func param[T](params: &const json.Value, name: String): !T {
-        var tmp = (<&const json.Object>params).[name]
-        if (!tmp) {
-            raise JsonRpcError(
-                CXY_JSON_RPC_INVALID_PARAMS!,
-                f"Missing required argument: '${name}'"
-            )
+    func param[T](params: &const json.Value, name: String, idx: i32 = 0): !T {
+        if (params.isArray()) {
+            var arr = (<&const json.Array>params)
+            if (idx >= arr.size()) {
+                raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, "Invalid params index")
+            }
+            return json.cast[T](arr.[idx]) catch {
+                raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
+            }
         }
-        return json.cast[T](*tmp) catch {
-            raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
+        else if (params.isObject()) {
+            var tmp = (<&const json.Object>params).[name]
+            if (!tmp) {
+                raise JsonRpcError(
+                    CXY_JSON_RPC_INVALID_PARAMS!,
+                    f"Missing required argument: '${name}'"
+                )
+            }
+            return json.cast[T](*tmp) catch {
+                raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
+            }
+        }
+        else {
+             raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, "Invalid params type, expected Array or Object")
         }
     }
 
@@ -252,6 +268,12 @@ pub class JSONRPCServer[T] {
                 return
             }
             s << __string(buffer !: string, *len)
+            if (s.size() > MAX_PAYLOAD_SIZE!) {
+                sock.close()
+                WRN!("receiving from connection " << sock.address() << " failed: payload too large" )
+                return
+            }
+
             if (*len < sizeof!(buffer))
                 break
         }

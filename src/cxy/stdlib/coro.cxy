@@ -317,22 +317,27 @@ class CoroutineScheduler {
 @[thread, linkage("External")]
 var __cxy_coro_scheduler: CoroutineScheduler = null;
 
-@[inline, __override_builtin("__scheduler")]
+@[inline]
 func __get_scheduler() {
     @unlikely if (__cxy_coro_scheduler == null) __cxy_coro_scheduler = CoroutineScheduler()
     return &__cxy_coro_scheduler
 }
 
-macro coroSuspend() __scheduler().suspend()
-macro coroResume(CO, RES) __scheduler().resume(CO!, RES!)
-macro coroYield() __scheduler().yld()
-macro coroRunning() __scheduler().running
-macro coroId() coroRunning!.id
-macro coroSetName(NAME) { (__scheduler().running).name = NAME! }
+@inline
+pub func suspend() => __get_scheduler().suspend()
+@inline
+pub func resume(co:  ^Coroutine, res: i32) { __get_scheduler().resume(co, res) }
+@inline
+pub func yld() { __get_scheduler().yld() }
+@inline
+pub func running() => __get_scheduler().running
+
+@inline
+pub func id() => __get_scheduler().running
 
 macro __async(CALL, NAME) {
     // Only create the scheduler when it's needed
-    var sched = __scheduler();
+    var sched = module.__get_scheduler();
     if (__cxy_coro_setjmp!(ptrof sched.running.ctx) == 0) {
         var cr = sched.prologue(NAME!, file!, line!);
         __cxy_coro_setsp!(cr !: ^void)
@@ -345,13 +350,13 @@ macro __async(CALL, NAME) {
 func __now() => ae.aeOsTime()
 
 @[inline, __override_builtin("fdWaitRead")]
-func __fdWaitRead(fd: i32, timeout: u64 = 0) => __scheduler().fdWaitRead(fd, timeout)
+func __fdWaitRead(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitRead(fd, timeout)
 
 @[inline, __override_builtin("fdWaitWrite")]
-func __fdWaitWrite(fd: i32, timeout: u64 = 0) => __scheduler().fdWaitWrite(fd, timeout)
+func __fdWaitWrite(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitWrite(fd, timeout)
 
 @[inline, __override_builtin("sleepAsync")]
-func __sleep(ms: i64) { __scheduler().sleep(ms) }
+func __sleep(ms: i64) { __get_scheduler().sleep(ms) }
 
 pub struct Mutex {
     waiting = List[Coroutine]{};
@@ -361,16 +366,16 @@ pub struct Mutex {
 
     func lock() {
         if (holder == null) {
-            holder = coroRunning!
+            holder = running()
             return
         }
-        waiting.push(coroRunning!)
-        coroSuspend!()
+        waiting.push(running())
+        suspend()
     }
 
     func tryLock() {
         if (holder == null) {
-            holder = coroRunning!
+            holder = running()
             return true
         }
         return false
@@ -382,7 +387,7 @@ pub struct Mutex {
             return
         }
         holder = next
-        coroResume!(next, 0)
+        resume(next, 0)
     }
 }
 

@@ -20,6 +20,7 @@ static bool evalAstNodeAtIndex(EvalContext *ctx,
         return false;
     }
     *node = *atIndex;
+    node->next = NULL;
     return true;
 }
 

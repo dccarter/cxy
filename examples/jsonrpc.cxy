@@ -1,0 +1,21 @@
+import { server, connect } from "stdlib/jsonrpc.cxy"
+import { Address } from "stdlib/net.cxy"
+
+pub class Calculator {
+    func `init`() {}
+    @api
+    func add(a: u32, b: u32) => a + b
+}
+
+func main(): !void {
+    var addr = Address("127.0.0.1", 8080)
+    #if (defined SERVER_MODE) {
+        var calc = Calculator()
+        var app = server(addr, calc);
+        app.start()
+    }
+    else {
+        var client = connect[Calculator](addr);
+        println(client.add(1, 2))
+    }
+}

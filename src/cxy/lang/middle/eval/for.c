@@ -24,11 +24,21 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
 
     AstNode *it = nodeIs(range, ComptimeOnly) ? range->next : range;
     while (it) {
-        AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         variable->varDecl.init = it;
         it = it->next;
-        body->parentScope = node->parentScope;
+        if (node->forStmt.cond) {
+            AstNode *cond = deepCloneAstNode(ctx->pool, node->forStmt.cond);
+            cond->parentScope = node->parentScope;
+            if (!evaluate(visitor, cond) || !evalBooleanCast(ctx, cond)) {
+                node->tag = astError;
+                return false;
+            }
+            if (!cond->boolLiteral.value)
+                continue;
+        }
 
+        AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
+        body->parentScope = node->parentScope;
         const Type *type = evalType(ctx, body);
         if (type == NULL || typeIs(type, Error)) {
             node->tag = astError;

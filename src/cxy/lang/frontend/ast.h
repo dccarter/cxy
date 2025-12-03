@@ -765,6 +765,7 @@ struct AstNode {
         struct {
             AstNode *var;
             AstNode *range;
+            AstNode *cond;
             AstNode *body;
         } forStmt;
 

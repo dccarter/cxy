@@ -252,8 +252,8 @@ static AstNode *serverRpcMethodWrapper(CxyPluginContext *ctx,
     AstNode *param = node->funcDecl.signature->params;
     if (param && param->_name == S_this)
         param = param->next;
-    for (; param; param = param->next) {
-        // var <param.name> = paramFunc(params, "param.name")
+    for (u64 i = 0; param; param = param->next, i++) {
+        // var <param.name> = paramFunc(params, "param.name", i)
         AstNode *var = makeVarDecl(
             ctx->pool,
             loc,
@@ -277,7 +277,9 @@ static AstNode *serverRpcMethodWrapper(CxyPluginContext *ctx,
                     params->_name,
                     flgNone,
                     params,
-                    makeStringLiteral(ctx->pool, loc, param->_name, NULL, NULL),
+                    makeStringLiteral(ctx->pool, loc, param->_name,
+                        makeIntegerLiteral(
+                            ctx->pool, loc, i, NULL, NULL), NULL),
                     NULL),
                 flgNone,
                 NULL,

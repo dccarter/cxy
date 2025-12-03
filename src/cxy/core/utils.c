@@ -95,6 +95,9 @@ size_t convertEscapeSeq(const char *ptr, size_t n, u32 *res)
         case 'b':
             *res = '\b';
             return 2;
+        case 'f':
+            *res = '\f';
+            return 2;
         case '$':
             *res = '$';
             return 2;

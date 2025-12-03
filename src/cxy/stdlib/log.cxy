@@ -62,12 +62,12 @@ class Logger {
 
 pub var __L = Logger();
 
-macro __LOG(LVL, MSG) { if (LVL! >= logger.__L.level()) lshift!(logger.__L.log(LVL!, LOG_TAG), MSG!) << '\n' }
-macro TRC(MSG) =( __LOG!(logger.Level.TRACE, MSG!) )
-macro DBG(MSG) =( __LOG!(logger.Level.DEBUG, MSG!) )
-macro INF(MSG) =( __LOG!(logger.Level.INFO, MSG!) )
-macro WRN(MSG) =( __LOG!(logger.Level.WARNING, MSG!) )
-macro ERR(MSG) =( __LOG!(logger.Level.ERROR, MSG!) )
+macro __LOG(LVL, MSG) { if (LVL! >= module.__L.level()) lshift!(module.__L.log(LVL!, LOG_TAG), MSG!) << '\n' }
+macro TRC(MSG) =( __LOG!(module.Level.TRACE, MSG!) )
+macro DBG(MSG) =( __LOG!(module.Level.DEBUG, MSG!) )
+macro INF(MSG) =( __LOG!(module.Level.INFO, MSG!) )
+macro WRN(MSG) =( __LOG!(module.Level.WARNING, MSG!) )
+macro ERR(MSG) =( __LOG!(module.Level.ERROR, MSG!) )
 
 #if (defined CXY_TRACE_LEVEL) {
     #if (CXY_TRACE_LEVEL! == 3) {
