@@ -1,0 +1,840 @@
+// ============================================================================
+// CXY Language Grammar Definition
+// ============================================================================
+// This file documents and defines the grammar constructs of the CXY programming
+// language based on the stdlib implementation files.
+// ============================================================================
+
+module language
+
+// ============================================================================
+// 1. MODULES AND IMPORTS
+// ============================================================================
+// Modules are declared at the top of each file using the `module` keyword.
+// Imports bring in external modules or specific symbols.
+//
+// Syntax:
+//   module <name>
+//   import "<path>"
+//   import "<path>" as <alias>
+//   import { <symbol>, ... } from "<path>"
+//
+// Examples:
+//   module mymodule
+//   import "stdlib/vector.cxy"
+//   import "stdlib.h" as stdlib
+//   import { Vector } from "stdlib/vector.cxy"
+//   import { HashMap, HashSet } from "stdlib/hash.cxy"
+
+// ============================================================================
+// 2. KEYWORDS
+// ============================================================================
+// Reserved words in the CXY language:
+//
+// Declaration Keywords:
+//   module      - Declare a module
+//   import      - Import external modules/symbols
+//   pub         - Public visibility modifier
+//   class       - Declare a class type
+//   struct      - Declare a struct type
+//   func        - Declare a function
+//   const       - Constant declaration/qualifier
+//   var         - Variable declaration
+//   macro       - Macro definition
+//   type        - Type alias declaration
+//   enum        - Enumeration declaration
+//   test        - Test block declaration
+//   exception   - Exception type declaration
+//   virtual     - Virtual method marker
+//   async       - Asynchronous function marker
+//
+// Control Flow Keywords:
+//   if          - Conditional branch
+//   else        - Alternative branch
+//   for         - Loop construct
+//   while       - While loop
+//   switch      - Switch statement
+//   match       - Pattern matching
+//   case        - Case in switch/match
+//   default     - Default case
+//   break       - Break from loop
+//   continue    - Continue to next iteration
+//   return      - Return from function
+//   defer       - Deferred execution
+//
+// Error Handling Keywords:
+//   raise       - Raise an exception
+//   catch       - Catch exceptions
+//   discard     - Discard exception result
+//
+// Object Keywords:
+//   this        - Current instance reference
+//   super       - Parent class reference
+//   null        - Null value
+//   true        - Boolean true
+//   false       - Boolean false
+//
+// Memory Keywords:
+//   ptrof       - Get pointer of value
+//   ptroff!     - Get pointer with offset
+//   sizeof!     - Size of type
+//   typeof!     - Type of expression
+//   delete      - Delete/destruct object
+//   free        - Free memory
+//   alloca!     - Stack allocation
+//   zero!       - Zero memory
+
+// ============================================================================
+// 3. MODIFIERS AND ATTRIBUTES
+// ============================================================================
+// Attributes modify the behavior of declarations and are prefixed with @.
+//
+// Function Attributes:
+//   @inline         - Inline function hint
+//   @noinline       - Prevent inlining
+//   @static         - Static method
+//   @override       - Override virtual method
+//   @prop           - Property accessor
+//   @unused         - Mark parameter as unused
+//
+// Type Attributes:
+//   @poco           - Plain Old C Object (no destructor calls)
+//   @json           - JSON serialization support
+//   @align(n)       - Memory alignment
+//
+// Field/Variable Attributes:
+//   @str            - String representation for enum values
+//   @volatile       - Volatile qualifier
+//   @thread         - Thread-local storage
+//   @consistent     - Consistent behavior marker
+//   @linkage        - Linkage specification
+//
+// Compilation Attributes:
+//   @__cc           - Include C source file
+//   @__override_builtin - Override built-in function
+//
+// Compound Attributes:
+//   @[inline, static]       - Multiple attributes
+//   @[prop, inline]         - Property with inline
+
+// ============================================================================
+// 4. CONTROL STRUCTURES
+// ============================================================================
+
+// 4.1 If-Else Statement
+// Syntax:
+//   if (<condition>) { ... }
+//   if (<condition>) { ... } else { ... }
+//   if (<condition>) { ... } else if (<condition>) { ... }
+//
+// Example:
+//   if (x > 0) {
+//       return true
+//   } else if (x < 0) {
+//       return false
+//   } else {
+//       return null
+//   }
+
+// 4.2 For Loop
+// Syntax:
+//   for (const <var>: <range>) { ... }
+//   for (var <var>: <range>) { ... }
+//   for (const <var>, <index>: <collection>) { ... }
+//
+// Range syntax: <start>..<end>
+//
+// Example:
+//   for (const i: 0..10) { ... }
+//   for (var item, idx: collection) { ... }
+
+// 4.3 While Loop
+// Syntax:
+//   while (<condition>) { ... }
+//   while { ... }  // Infinite loop, use break to exit
+//
+// Example:
+//   while (i < 10) { i++ }
+//   while { if (done) break }
+
+// 4.4 Switch Statement
+// Syntax:
+//   switch (<expr>) {
+//       case <value> => { ... }
+//       case <value1>, <value2> => { ... }
+//       case <start>..<end> => { ... }
+//       default => { ... }
+//   }
+//
+// Example:
+//   switch (c) {
+//       case 'a'`char => return 1
+//       case 'b'`char, 'c'`char => return 2
+//       case '0'`char..'9'`char => return 3
+//       default => return 0
+//   }
+
+// 4.5 Match Statement (Pattern Matching)
+// Syntax:
+//   match (<expr>) {
+//       case <Type> as <var> => { ... }
+//       case <Type> as <var> { ... }
+//   }
+//
+// Example:
+//   match (value) {
+//       case string as s => print(s)
+//       case i32 as n => print(n)
+//       case String as s { s.clear() }
+//   }
+
+// 4.6 Compile-Time Conditionals
+// Syntax:
+//   #if (<condition>) { ... }
+//   #if (<condition>) { ... } else { ... }
+//   ##if (defined <macro>) { ... }
+//
+// Example:
+//   #if (T.isClass) { ... }
+//   ##if (defined MACOS) { ... }
+//   #for (const member: T.members) { ... }
+
+// ============================================================================
+// 5. DATA TYPES
+// ============================================================================
+
+// 5.1 Primitive Types
+//   Signed Integers:   i8, i16, i32, i64
+//   Unsigned Integers: u8, u16, u32, u64
+//   Floating Point:    f32, f64
+//   Boolean:           bool
+//   Characters:        char, wchar
+//   Void:              void
+//   Auto:              auto (type inference)
+
+// 5.2 String Types
+//   string    - C-style null-terminated string (^const char)
+//   __string  - Stack-allocated string view (struct)
+//   String    - Heap-allocated dynamic string (class)
+
+// 5.3 Optional Types
+// Syntax:
+//   <Type>?           - Optional type
+//   Optional[<Type>]  - Explicit optional
+//   Some[<Type>]      - Some value constructor
+//   None[<Type>]      - None value constructor
+//
+// Example:
+//   var x: i32? = 10
+//   var y: Optional[String] = null
+//   return Some[i32](42)
+//   return None[String]()
+
+// 5.4 Generic Types
+// Syntax:
+//   <Type>[<TypeParams>]
+//
+// Built-in Generic Types:
+//   Vector[T]           - Dynamic array
+//   HashMap[K, V]       - Hash map
+//   HashSet[K]          - Hash set
+//   Slice[T]            - Array slice
+//   Lambda[FnType]      - Function wrapper
+//
+// Example:
+//   var vec = Vector[i32]();
+//   var map = HashMap[String, i32]();
+
+// 5.5 Tuple Types
+// Syntax:
+//   (<Type1>, <Type2>, ...)
+//
+// Example:
+//   var pair: (i32, String) = (42, "hello")
+//   var triple = (1, true, "test")
+
+// 5.6 Union Types
+// Syntax:
+//   <Type1> | <Type2> | ...
+//
+// Example:
+//   type Result = i32 | String | Error
+//   func process(input: string | __string | String) { ... }
+
+// 5.7 Array Types
+// Syntax:
+//   [<Type>, <size>]           - Fixed-size array
+//   [<Type>]                   - Array/slice
+//
+// Example:
+//   var arr: [i32, 10] = []
+//   var data: [char, 256] = []
+
+// 5.8 Pointer Types
+// Syntax:
+//   ^<Type>           - Pointer to type
+//   ^const <Type>     - Pointer to const type
+//   ^void             - Void pointer
+//
+// Example:
+//   var ptr: ^i32 = null
+//   var cptr: ^const char = "hello"
+
+// 5.9 Reference Types
+// Syntax:
+//   &<Type>           - Reference to type
+//   &const <Type>     - Reference to const type
+//
+// Example:
+//   func process(data: &Vector[i32]) { ... }
+//   const func size(): &const This { ... }
+
+// 5.10 Function Types
+// Syntax:
+//   func(<params>) -> <RetType>
+//
+// Example:
+//   type Handler = func(req: &Request, res: &Response) -> void
+//   var callback: func(i32) -> bool = null
+
+// ============================================================================
+// 6. STRUCT AND CLASS DECLARATIONS
+// ============================================================================
+
+// 6.1 Struct Declaration
+// Syntax:
+//   struct <Name> { <members> }
+//   struct <Name>[<TypeParams>] { <members> }
+//   pub struct <Name> { ... }
+//
+// Example:
+struct ExampleStruct {
+    field1: i32 = 0;
+    field2: String = null;
+    - privateField: bool = false;   // Private field (prefixed with -)
+
+    func `init`() {
+        // Constructor
+    }
+
+    func `deinit`() {
+        // Destructor
+    }
+
+    @inline
+    const func getValue() => field1
+}
+
+// 6.2 Class Declaration
+// Syntax:
+//   class <Name> { <members> }
+//   class <Name>[<TypeParams>] { <members> }
+//   class <Name>: <BaseClass> { ... }
+//   pub class <Name> { ... }
+//
+// Example:
+pub class ExampleClass {
+    - _value: i32 = 0;
+
+    func `init`(value: i32 = 0) {
+        _value = value
+    }
+
+    virtual func process(): void {
+        // Virtual method
+    }
+
+    @override
+    func toString(): String {
+        return String("ExampleClass")
+    }
+}
+
+// 6.3 Generic Struct/Class
+// Example:
+struct GenericContainer[T] {
+    data: T
+    size: u64 = 0;
+
+    func `init`(data: T) {
+        this.data = &&data
+    }
+}
+
+// ============================================================================
+// 7. ENUM DECLARATIONS
+// ============================================================================
+
+// Syntax:
+//   enum <Name> { <variants> }
+//   enum <Name> : <BaseType> { <variants> }
+//   pub enum <Name> { ... }
+//
+// Variant syntax:
+//   <Name>
+//   <Name> = <value>
+//   @str("<string>") <Name>
+//
+// Example:
+pub enum Status : i32 {
+    @str("Success")
+    Success = 0,
+    @str("Error")
+    Error = 1,
+    @str("Pending")
+    Pending = 2
+}
+
+pub enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// ============================================================================
+// 8. FUNCTION DECLARATIONS
+// ============================================================================
+
+// 8.1 Regular Functions
+// Syntax:
+//   func <name>(<params>): <RetType> { ... }
+//   pub func <name>(<params>): <RetType> { ... }
+//   const func <name>(<params>): <RetType> { ... }
+//
+// Example:
+pub func add(a: i32, b: i32): i32 {
+    return a + b
+}
+
+// 8.2 Expression Functions (implicit return)
+// Syntax:
+//   func <name>(<params>) => <expr>
+//
+// Example:
+func multiply(a: i32, b: i32) => a * b
+
+// 8.3 Generic Functions
+// Syntax:
+//   func <name>[<TypeParams>](<params>): <RetType> { ... }
+//
+// Example:
+func swap[T](a: &T, b: &T) {
+    var tmp = &&a;
+    a = &&b
+    b = &&tmp
+}
+
+// 8.4 Async Functions
+// Syntax:
+//   async func <name>(<params>): <RetType> { ... }
+//   pub async func <name>(<params>): <RetType> { ... }
+
+// 8.5 Variadic Functions
+// Syntax:
+//   func <name>(...<param>: <Type>): <RetType> { ... }
+//   func <name>(...<param>: auto): <RetType> { ... }
+//
+// Example:
+func printAll(...args: auto) {
+    #for (const arg: args) {
+        println(#{arg})
+    }
+}
+
+// 8.6 Functions with Error Return
+// Syntax:
+//   func <name>(<params>): !<RetType> { ... }
+//
+// The ! indicates the function can raise exceptions
+//
+// Example:
+func divide(a: i32, b: i32): !i32 {
+    if (b == 0)
+        raise DivisionError("division by zero")
+    return a / b
+}
+
+// ============================================================================
+// 9. OPERATOR OVERLOADING
+// ============================================================================
+
+// Operators are overloaded using backtick-quoted names:
+//
+// Comparison Operators:
+//   `==`    - Equality
+//   `!=`    - Inequality
+//   `<`     - Less than
+//   `>`     - Greater than
+//   `<=`    - Less than or equal
+//   `>=`    - Greater than or equal
+//
+// Arithmetic Operators:
+//   `+`     - Addition
+//   `-`     - Subtraction
+//   `*`     - Multiplication
+//   `/`     - Division
+//   `%`     - Modulo
+//
+// Unary Operators:
+//   `!!`    - Boolean conversion (truthiness)
+//   `~`     - Bitwise not
+//   `-`     - Negation (unary)
+//
+// Index Operators:
+//   `[]`    - Index get
+//   `[]=`   - Index set
+//
+// Other Operators:
+//   `..`    - Range/iterator
+//   `()`    - Call operator
+//   `str`   - String conversion
+//   `hash`  - Hash function
+//   `deref` - Dereference
+//   `&.`    - Reference dereference
+//
+// Special Methods:
+//   `init`  - Constructor
+//   `deinit`- Destructor
+//
+// Example:
+struct Point {
+    x: i32 = 0;
+    y: i32 = 0;
+
+    func `init`(x: i32, y: i32) {
+        this.x = x
+        this.y = y
+    }
+
+    const func `==`(other: &const This) => x == other.x && y == other.y
+
+    const func `+`(other: &const This) => Point(x + other.x, y + other.y)
+
+    const func `str`(os: &OutputStream) {
+        os << "(" << x << ", " << y << ")"
+    }
+
+    const func `hash`() => x * 31 + y
+}
+
+// ============================================================================
+// 10. EXCEPTION HANDLING
+// ============================================================================
+
+// 10.1 Exception Declaration
+// Syntax:
+//   exception <Name>(<params>) => <message_expr>
+//   pub exception <Name>(<params>) => <message_expr>
+//
+// Example:
+pub exception ParseError(msg: String) => msg != null ? msg.str() : ""
+pub exception IOError(msg: String) => msg != null ? msg.str() : ""
+pub exception ValueError(value: i32) => f"invalid value: ${value}"
+
+// 10.2 Raising Exceptions
+// Syntax:
+//   raise <ExceptionType>(<args>)
+//
+// Example:
+//   raise ParseError("unexpected token")
+//   raise IOError(f"file not found: ${path}")
+
+// 10.3 Catching Exceptions
+// Syntax:
+//   <expr> catch { ... }
+//   <expr> catch discard
+//   <expr> catch <value>
+//
+// Example:
+//   var result = parseNumber(s) catch { return null }
+//   var value = getValue() catch discard
+//   var x = compute() catch 0
+
+// ============================================================================
+// 11. MACRO DEFINITIONS
+// ============================================================================
+
+// Syntax:
+//   macro <NAME> <value>
+//   macro <NAME> = <value>
+//   macro <NAME>(<params>) <body>
+//   macro <NAME>(<params>) = <expr>
+//
+// Example:
+macro DEFAULT_SIZE = 16`u64
+macro MAX_VALUE = 1000`i32
+macro SQUARE(x) = (x! * x!)
+macro DEBUG_LOG(msg) = println(msg!)
+
+// ============================================================================
+// 12. TYPE ALIASES
+// ============================================================================
+
+// Syntax:
+//   type <Name> = <Type>
+//   pub type <Name> = <Type>
+//
+// Example:
+type IntVector = Vector[i32]
+type StringMap = HashMap[String, String]
+type Handler = func(req: &Request) -> Response
+pub type Callback = func(i32) -> void
+
+// ============================================================================
+// 13. TEST BLOCKS
+// ============================================================================
+
+// Syntax:
+//   test { <code> }
+//   test "<name>" { <code> }
+//
+// Test Assertions:
+//   ok!(<expr>)       - Assert expression is true
+//   assert!(<expr>)   - Assert with abort
+//
+// Example:
+test "addition" {
+    ok!(1 + 1 == 2)
+    ok!(add(2, 3) == 5)
+}
+
+test {
+    // Anonymous test block
+    var v = Vector[i32]();
+    v.push(1)
+    ok!(v.size() == 1)
+}
+
+// ============================================================================
+// 14. LITERALS
+// ============================================================================
+
+// Integer Literals:
+//   10          - Decimal
+//   0x1F        - Hexadecimal
+//   0o77        - Octal
+//   0b1010      - Binary
+//   10`i32      - Typed integer (i32)
+//   10`u64      - Typed integer (u64)
+
+// Float Literals:
+//   3.14        - Float
+//   3.14`f32    - Typed float
+//   1e10        - Scientific notation
+
+// Character Literals:
+//   'a'         - Character
+//   'a'`char    - Typed character
+//   '\n'`char   - Escape sequence
+
+// String Literals:
+//   "hello"     - String literal
+//   "hello".s   - __string literal
+//   f"x = ${x}" - Formatted string
+
+// Boolean Literals:
+//   true
+//   false
+
+// Null Literal:
+//   null
+
+// ============================================================================
+// 15. TYPE INTROSPECTION
+// ============================================================================
+
+// Compile-time type inspection:
+//   T.isClass       - Check if T is a class
+//   T.isStruct      - Check if T is a struct
+//   T.isNumber      - Check if T is numeric
+//   T.isInteger     - Check if T is integer
+//   T.isFloat       - Check if T is floating point
+//   T.isBoolean     - Check if T is boolean
+//   T.isChar        - Check if T is character
+//   T.isString      - Check if T is string type
+//   T.isOptional    - Check if T is optional
+//   T.isTuple       - Check if T is tuple
+//   T.isArray       - Check if T is array
+//   T.isSlice       - Check if T is slice
+//   T.isUnion       - Check if T is union
+//   T.isDestructible - Check if T has destructor
+//   T.members       - Iterate struct/class members
+//   T.membersCount  - Number of members
+//   T.name          - Type name as string
+//   T.elementType   - Element type for containers
+//   T.targetType    - Target type for optional
+//   T.attributes    - Type attributes
+//   T.annotations   - Type annotations
+
+// Built-in introspection macros:
+//   sizeof!(#T)         - Size of type
+//   typeof!(<expr>)     - Type of expression
+//   has_member!(#T, name, #FnType) - Check if type has member
+//   has_type!(#T, :Name)           - Check if type has nested type
+//   is_base_of!(#Base, #Derived)   - Check inheritance
+//   indexof!(#Tuple, #T)           - Index of type in tuple
+//   typeat!(#Tuple, idx)           - Type at index in tuple
+//   mk_ident!(<name>)              - Make identifier
+//   len!(<array>)                  - Array/string length
+//   require!(<cond>, msg, ...)     - Compile-time requirement
+//   error!(msg, ...)               - Compile-time error
+//   warn!(msg, ...)                - Compile-time warning
+
+// ============================================================================
+// 16. COMPILE-TIME PROGRAMMING
+// ============================================================================
+
+// Compile-time constants:
+//   #const <name> = <value>
+//
+// Compile-time conditionals:
+//   #if (<condition>) { ... }
+//   #if (<condition>) { ... } else { ... }
+//
+// Compile-time loops:
+//   #for (const <var>: <collection>) { ... }
+//
+// Compile-time expansion:
+//   #{<expr>}     - Expand compile-time expression
+//
+// Example:
+func compileTimeExample[T]() {
+    #const isNumeric = T.isNumber;
+    #if (isNumeric) {
+        return 0
+    }
+    else {
+        return null
+    }
+}
+
+// ============================================================================
+// 17. MEMORY MANAGEMENT
+// ============================================================================
+
+// Allocation:
+//   __calloc(<size>)              - Allocate zeroed memory
+//   alloca!(#Type, ...)           - Stack allocation
+//   stackAlloc!(#Type, ...)       - Stack allocation
+//
+// Deallocation:
+//   free(<ptr>)                   - Free heap memory
+//   delete <obj>                  - Call destructor
+//
+// Move semantics:
+//   &&<expr>                      - Move value
+//   <var>.move()                  - Explicit move
+//
+// Pointer operations:
+//   ptrof <expr>                  - Address of
+//   ptroff!(<ptr> + <offset>)     - Pointer offset
+//   <ptr>.[<index>]               - Pointer indexing
+//
+// Type casting:
+//   <expr> !: <Type>              - Unsafe cast
+//   <Type>(<expr>)                - Safe cast/conversion
+//   <expr> as <Type>              - Pattern cast
+//   <Type>expr                    - C-style cast
+
+// ============================================================================
+// 18. LAMBDA AND CLOSURES
+// ============================================================================
+
+// Lambda syntax:
+//   (<params>): <RetType> => <expr>
+//   (<params>) => <expr>
+//   (<params>): <RetType> => { ... }
+//
+// Example:
+//   var add = (a: i32, b: i32): i32 => a + b
+//   var square = (x: i32) => x * x
+//   var printer = (msg: string) => { println(msg) }
+//
+// Lambda type:
+//   Lambda[func(<params>) -> <RetType>]
+//   lambda_of!(#FnType)
+
+// ============================================================================
+// 19. DEFERRED EXECUTION
+// ============================================================================
+
+// Syntax:
+//   defer <statement>
+//   defer <expr>
+//
+// Deferred statements are executed when leaving the current scope
+//
+// Example:
+//   var file = open("test.txt")
+//   defer file.close()
+//   // ... use file
+//   // file.close() is called automatically
+
+// ============================================================================
+// 20. ASYNC/AWAIT AND COROUTINES
+// ============================================================================
+
+// Async function declaration:
+//   async func <name>(<params>) { ... }
+//   pub async func <name>(<params>) { ... }
+//
+// Launching coroutines:
+//   async <function_call>
+//   launch <method_call>
+//
+// Coroutine primitives:
+//   suspend()         - Suspend current coroutine
+//   resume(<co>, <result>) - Resume coroutine
+//   yld()            - Yield execution
+//
+// I/O waiting:
+//   fdWaitRead(<fd>)  - Wait for readable
+//   fdWaitWrite(<fd>) - Wait for writable
+
+// ============================================================================
+// 21. ATTRIBUTES ON TYPES
+// ============================================================================
+
+// Type annotations (backtick-prefixed):
+//   `noComparator = true   - Disable default comparison
+//   `isVector = true       - Mark as vector type
+//
+// Example:
+//   pub class Vector[T] {
+//       `noComparator = true;
+//       `isVector = true;
+//       type elementType = T;
+//       ...
+//   }
+
+// ============================================================================
+// 22. VISIBILITY MODIFIERS
+// ============================================================================
+
+// Public visibility:
+//   pub struct <Name> { ... }
+//   pub class <Name> { ... }
+//   pub func <name>() { ... }
+//   pub type <Name> = ...
+//   pub exception <Name>(...) => ...
+//   pub enum <Name> { ... }
+//
+// Private members (struct/class):
+//   - <field>: <Type>     // Private field (dash prefix)
+//   - func <name>() { }   // Private method
+
+// ============================================================================
+// 23. INLINE ASSEMBLY
+// ============================================================================
+
+// Syntax:
+//   @volatile asm("""<assembly>""" : <outputs> : <inputs> : <clobbers>)
+//
+// Example:
+//   @volatile asm("""
+//       movq %rsp, 48($0)
+//       """ :: "r"(ctx) : "memory")
+
+// ============================================================================
+// END OF GRAMMAR DEFINITION
+// ============================================================================
