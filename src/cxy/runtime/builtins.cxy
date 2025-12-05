@@ -109,7 +109,7 @@ pub func __bswap64(x: u64) => (
     | ((x & 0x00000000000000ff`u64) << 56)
 )
 
-type sptr = ^void
+pub type sptr = ^void
 
 struct __mem {
     @atomic
@@ -447,6 +447,12 @@ pub struct __string {
     @inline const func `<=`(other: &This) => compare(other) <= 0
     @inline const func `>`(other: &This) => compare(other) > 0
     @inline const func `>=`(other: &This) => compare(other) >= 0
+    @inline const func `==`(other: This) => compare(&other) == 0
+    @inline const func `!=`(other: This) => compare(&other) != 0
+    @inline const func `<`(other: This) => compare(&other) < 0
+    @inline const func `<=`(other: This) => compare(&other) <= 0
+    @inline const func `>`(other: This) => compare(&other) > 0
+    @inline const func `>=`(other: This) => compare(&other) >= 0
     @inline const func `[]`(idx: u64) => s.[idx]
     @inline const func `hash`() => hash_fnv1a_n_string(#{FNV_32_INIT}, this.s, _size)
     @inline const func `copy`() { return This(s, _size) }
@@ -1133,10 +1139,9 @@ pub struct Slice[T] {
     }
 }
 
-pub func ref[T](ptr: T) {
-    __smart_ptr_get(ptr !: sptr)
-    return ptr
-}
+macro ref(ptr) __smart_ptr_get((ptr!) !: sptr)
+
+macro deref(ptr) __smart_ptr_drop((ptr!) !: sptr)
 
 @[linkage("External")]
 func __tuple_dctor[T](tup: &T) {

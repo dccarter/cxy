@@ -434,8 +434,8 @@ bool parseCommandLineOptions(
             Help("Adds a compiler definition, e.g -DDISABLE_ASSERT, "
                  "-DAPP_VERSION=\\\"0.0.1\\\""),
             Def("[]")),
-        Opt(Name("with-mm"),
-            Help("Compile program with builtin (RC) memory manager")),
+        Opt(Name("without-mm"),
+            Help("Compile program without builtin (RC) memory manager")),
         Use(cmdArrayArgument,
             Name("c-define"),
             Help("Adds a compiler definition that will be parsed to the C "
@@ -537,7 +537,7 @@ bool parseCommandLineOptions(
     options->noPIE = getGlobalOption(cmd, 6);
     options->optimizationLevel = getGlobalInt(cmd, 7);
     moveListOptions(&options->defines, &getGlobalArray(cmd, 8));
-    options->withMemoryManager = getGlobalBool(cmd, 9);
+    options->withMemoryManager = !getGlobalBool(cmd, 9);
     moveListOptions(&options->cDefines, &getGlobalArray(cmd, 10));
     moveListOptions(&options->importSearchPaths, &getGlobalArray(cmd, 11));
     moveListOptions(&options->librarySearchPaths, &getGlobalArray(cmd, 12));
@@ -551,8 +551,14 @@ bool parseCommandLineOptions(
     options->libDir = getGlobalString(cmd, 20);
     options->pluginsDir = getGlobalString(cmd, 21);
 
-    if (options->libDir == NULL)
+    if (options->libDir == NULL) {
         options->libDir = makeString(strings, getenv("CXY_STDLIB_DIR"));
+    }
+    cstring cxyRoot = getenv("CXY_ROOT");
+    if (options->libDir == NULL && cxyRoot != NULL) {
+        options->libDir = makeStringConcat(strings, cxyRoot, "/lib/cxy/std");
+    }
+
     if (options->pluginsDir == NULL) {
         if (options->buildDir) {
             options->pluginsDir =

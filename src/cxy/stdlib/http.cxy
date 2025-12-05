@@ -667,7 +667,7 @@ class Router {
     - func add(methods: u32, path: string, idx: i64, fn: HandlerFn) {
         assert!(path.[idx] == '/'`char)
         var i = idx;
-        while (path.[i] !=  '\0'as char && path.[i] != '{'`char) {
+        while (path.[i] !=  '\0'`char && path.[i] != '{'`char) {
             i++
         }
 
@@ -765,7 +765,7 @@ class Router {
             idx++
             assert!(path.[idx++] == '{'`char)
             var i = idx;
-            while (path.[i] !=  '\0'as char && path.[i] != '}'`char)
+            while (path.[i] != '\0'`char && path.[i] != '}'`char)
                 i++
             assert!(path.[i] == '}'`char)
             var name = __string(ptroff!(s + idx) !: string, i - idx);
@@ -790,7 +790,7 @@ class Router {
             req.param(<__string>params.[<i32>i], value)
         }
 
-        if (p.[idx] !=  '\0'as char && p.[idx] != '?'`char) {
+        if (p.[idx] !=  '\0'`char && p.[idx] != '?'`char) {
             TRC!("bad request: too many path params: " << path)
             return Status.BadRequest
         }
@@ -1016,7 +1016,7 @@ pub class Server[Middlewares] {
                     require!(has_type!(#Dep, :Context), "Middle {t} dependency {t} must have a Context type",
                              #M, #Dep)
                     #const idx = indexof!(#Middlewares, #Dep);
-                    require!(idx >= 0, "Dependency {t} is not in the list of middlewares `{t}",
+                    require!(idx >= 0, "Dependency {t} is not in the list of middlewares `{t}`",
                              #Dep, #Middlewares)
                     require!(idx < i, "Dependency {t} must come before current middleware", #Dep)
                 }
@@ -1024,31 +1024,31 @@ pub class Server[Middlewares] {
                 #if (has_type!(#M, :Context)) {
                     #const Func = #func(_: &const Request, _: &Response, _: &M.Context, _: DepsCtxs) -> void;
                     require!(has_member!(#M, "before", #Func),
-                             "middle {t} must implement `before` handler of type {t}", #M, #Func)
+                             "middleware {t} must implement `before` handler of type {t}", #M, #Func)
                     require!(has_member!(#M, "after", #Func),
-                             "middle {t} must implement `after` handler of type {t}", #M, #Func)
+                             "middleware {t} must implement `after` handler of type {t}", #M, #Func)
                 }
                 else {
                     #const Func = #func(_: &const Request, _: &Response, _: &DepsCtxs) -> void;
                     require!(has_member!(#M, "before", #Func),
-                             "middle {t} must implement `before` handler of type {t}", #M, #Func)
+                             "middleware {t} must implement `before` handler of type {t}", #M, #Func)
                     require!(has_member!(#M, "after", #Func),
-                             "middle {t} must implement `after` handler of type {t}", #M, #Func)
+                             "middleware {t} must implement `after` handler of type {t}", #M, #Func)
                 }
             }
             else #if (has_type!(#M, :Context)) {
                 #const Func = #func(_: &const Request, _: &Response, _: &M.Context) -> void;
                 require!(has_member!(#M, "before", #Func),
-                      "middle {t} must implement `before` handler of type {t}", #M, #Func)
+                      "middleware {t} must implement `before` handler of type {t}", #M, #Func)
                 require!(has_member!(#M, "after", #Func),
-                      "middle {t} must implement `after` handler of type {t}", #M, #Func)
+                      "middleware {t} must implement `after` handler of type {t}", #M, #Func)
             }
             else {
                 #const Func = #func(_: &const Request, _: &Response) -> void;
                 require!(has_member!(#M, "before", #Func),
-                      "middle {t} must implement `before` handler of type {t}", #M, #Func)
+                      "middleware {t} must implement `before` handler of type {t}", #M, #Func)
                 require!(has_member!(#M, "after", #Func),
-                      "middle {t} must implement `after` handler of type {t}", #M, #Func)
+                      "middleware {t} must implement `after` handler of type {t}", #M, #Func)
             }
             mws.#{i} = #{M}()
         }

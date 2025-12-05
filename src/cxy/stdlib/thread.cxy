@@ -60,8 +60,9 @@ pub struct Thread {
 func __launch(fn: func() -> i32): !Thread {
     var handle: tinyThread.thrd_t = DEFAULT_TID!;
     // This take advantage of the fact that fn will be a callable tuple
-    var status = tinyThread.thrd_create(ptrof handle, fn.1, fn.0)
+    var status = tinyThread.thrd_create(ptrof handle, fn.1, ref!(fn.0))
     if (status != thrd_success!) {
+        deref!(fn.0)
         raise ThreadError(f"creating thread failed: ${status}")
     }
     return Thread(handle)

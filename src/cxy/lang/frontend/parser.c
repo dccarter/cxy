@@ -981,6 +981,10 @@ static AstNode *functionParam(Parser *P)
 
     u64 flags = match(P, tokElipsis) ? flgVariadic : flgNone;
     const char *name = getTokenString(P, consume0(P, tokIdent), false);
+    if (name == S_underscore) {
+        name = makeAnonymousVariable(P->strPool, name);
+        attrs = makeAttribute(P->memPool, &tok.fileLoc, S_unused, NULL, attrs);
+    }
     consume0(P, tokColon);
     bool isConst = match(P, tokConst);
     AstNode *type = parseType(P), *def = NULL;

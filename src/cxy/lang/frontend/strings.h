@@ -134,7 +134,8 @@ extern "C" {
     ff(sptr_get_trace,      "__smart_ptr_get_trace")   \
     ff(copy,                "__copy")            \
     ff(AsmInputPrefix,      "\"r\"")             \
-    ff(AsmOutputPrefix,     "\"=r\"")
+    ff(AsmOutputPrefix,     "\"=r\"")            \
+    ff(underscore,          "_")
 
 #define OVERRIDABLE_BUILTINS(f)    \
     f(__scheduler)                 \

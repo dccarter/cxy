@@ -45,7 +45,7 @@ struct Response {
 
     func `init`() {}
 
-    const func `==`(@unused other: &This) => false
+    const func `==`(_: &This) => false
 }
 
 @json

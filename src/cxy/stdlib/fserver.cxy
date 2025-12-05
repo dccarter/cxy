@@ -51,7 +51,7 @@ struct CachedFile {
 
     func `init`() {}
 
-    const func `str`(@unused os: &OutputStream) {}
+    const func `str`(_: &OutputStream) {}
 
     func clear() {
         if (data != null) {
@@ -95,7 +95,7 @@ struct MimeType {
         this.mime = &&mime
     }
 
-    const func `str`(@unused os: &OutputStream) {}
+    const func `str`(_: &OutputStream) {}
 }
 
 type MimeTypes = HashMap[String, MimeType, HashCase, EqualsCase]
@@ -397,7 +397,7 @@ pub class FileServer {
     }
 
     func cacheControl(
-        @unused req: &const Request,
+        _: &const Request,
         resp: &Response, cf: &CachedFile,
         mm: &const MimeType
     ) : void {

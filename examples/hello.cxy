@@ -1,60 +1,12 @@
-import { Database } from "stdlib/sqlite.cxy"
-import { Vector } from "stdlib/vector.cxy"
 
-struct Account {
-    `TableName = "accounts"
-    `PrimaryKey = "id"
-    `ForeignKeys = (("ownerId", "users", "id"),)
-
-    func `init`(){}
-
-    @sql(id: 0, autoincrement: true)
-    id: i32
-    @sql(id: 1)
-    ownerId: i32
-    @sql(id: 2)
-    name: String
-    @sql(id: 3)
-    balance: f64
+func say(fn: func(name: string, age: i32) -> string) {
+    println(fn("World", 10), "World")
 }
 
-struct Transaction {
-    `TableName = "transactions"
-    `PrimaryKey = "id"
-    `ForeignKeys = (("accountId", "accounts", "id"),)
-
-    func `init`(){}
-
-    @sql(id: 1, autoincrement: true)
-    id: i32
-    @sql(id: 2)
-    accountId: i32
-    @sql(id: 3)
-    amount: f64
-    @sql(id: 4)
-    timestamp: u64
-    @sql(id: 5)
-    notes: String? = null
-}
-
-struct User {
-    `TableName = "users"
-    `PrimaryKey = "id"
-
-    func `init`(){}
-
-    @sql(id: 0, autoincrement: true)
-    id: i32
-    @sql(id: 1)
-    name: String
-}
-
-func main(): !void {
-    #const fks = Account.annotations.[:ForeignKeys]
-    var ss = String()
-    #for (const i : 0..fks.membersCount) {
-        #const fk = fks.[i];
-        ss << "FOREIGN KEY (" << #{fk.0} << ") REFERENCES " << #{fk.1} << "(" << #{fk.2} << ")"
-    }
-    println(ss)
+func main() {
+    say(
+        (_: string, _: i32) => {
+            return "Hello"
+        }
+    )
 }
