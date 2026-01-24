@@ -12,9 +12,9 @@ static void castIntegerLiteral(const Type *to, AstNode *expr)
 {
 #define CAST_INTEGER(TYP)                                                      \
     if (expr->intLiteral.isNegative)                                           \
-        expr->intLiteral.value = (i64)(TYP)expr->intLiteral.value;             \
+        expr->intLiteral.value = (i128)(TYP)expr->intLiteral.value;             \
     else                                                                       \
-        expr->intLiteral.uValue = (u64)(TYP)expr->intLiteral.uValue;
+        expr->intLiteral.uValue = (u128)(TYP)expr->intLiteral.uValue;
 
     switch (to->primitive.id) {
     case prtU8:
@@ -57,7 +57,7 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
                 expr->tag = astIntegerLit;
                 if (expr->floatLiteral.value < 0) {
                     expr->intLiteral.isNegative = true;
-                    expr->intLiteral.value = (i64)expr->floatLiteral.value;
+                    expr->intLiteral.value = (i128)expr->floatLiteral.value;
                 }
                 else {
                     expr->intLiteral.isNegative = false;

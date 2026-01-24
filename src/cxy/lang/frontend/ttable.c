@@ -4,6 +4,7 @@
 
 #include "ttable.h"
 #include "ast.h"
+#include "core/utils.h"
 #include "flag.h"
 #include "strings.h"
 
@@ -35,7 +36,7 @@ static HashCode hashAstNode(HashCode hash, const AstNode *node)
     csAssert0(isLiteralExpr(node));
     switch (node->tag) {
     case astIntegerLit:
-        return hashUint64(hash, node->intLiteral.uValue);
+        return hashUint128(hash, node->intLiteral.uValue);
     case astBoolLit:
         return hashUint8(hash, node->boolLiteral.value);
     case astCharLit:
@@ -1463,7 +1464,7 @@ const Type *expectInType(TypeTable *table,
     return found;
 }
 
-const Type *getIntegerTypeForLiteral(TypeTable *table, i64 literal)
+const Type *getIntegerTypeForLiteral(TypeTable *table, i128 literal)
 {
     if (literal >= INT8_MIN && literal <= INT8_MAX)
         return getPrimitiveType(table, prtI8);
@@ -1471,18 +1472,20 @@ const Type *getIntegerTypeForLiteral(TypeTable *table, i64 literal)
         return getPrimitiveType(table, prtI16);
     else if (literal >= INT32_MIN && literal <= INT32_MAX)
         return getPrimitiveType(table, prtI32);
+    else if (literal >= INT128_MIN && literal <= INT128_MAX)
+        return getPrimitiveType(table, prtI128);
     else
         return getPrimitiveType(table, prtI64);
 }
 
-bool isIntegerTypeInRange(const Type *type, i64 min, i64 max)
+bool isIntegerTypeInRange(const Type *type, i128 min, i128 max)
 {
     csAssert0(min <= max);
     const IntMinMax minMax = getIntegerTypeMinMax(type);
     if (isSignedType(type))
-        return min <= (i64)minMax.s && max >= minMax.f;
+        return min <= (i128)minMax.s && max >= minMax.f;
     else
-        return (u64)min <= minMax.s && max >= minMax.f;
+        return (u128)min <= minMax.s && max >= minMax.f;
 }
 
 int findTypeInArray(const Type **types, u64 count, const Type *type)

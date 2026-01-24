@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdlib.h>
 
@@ -32,6 +33,154 @@ static size_t convertStrToCharOrd(const char *ptr, int base, u32 *res)
     unsigned int ord = strtoul(ptr, &next, base);
     *res = ord;
     return ord <= 255 && !errno ? next - ptr : 0;
+}
+
+__uint128_t strtou128(const char *str, char **endptr, int base)
+{
+    if (str == NULL || base < 2 || base > 36) {
+        if (endptr) *endptr = (char *)str;
+        errno = EINVAL;
+        return 0;
+    }
+
+    // Skip whitespace
+    while (isspace((unsigned char)*str)) str++;
+
+    // Handle empty string
+    if (*str == '\0') {
+        if (endptr) *endptr = (char *)str;
+        return 0;
+    }
+
+    // Handle sign (128-bit unsigned, so no negative)
+    if (*str == '+') str++;
+    else if (*str == '-') {
+        if (endptr) *endptr = (char *)str;
+        errno = ERANGE;
+        return 0;
+    }
+
+    // Auto-detect base if base is 0
+    if (base == 0) {
+        if (*str == '0') {
+            if (str[1] == 'x' || str[1] == 'X') {
+                base = 16;
+                str += 2;
+            } else if (str[1] == 'b' || str[1] == 'B') {
+                base = 2;
+                str += 2;
+            } else {
+                base = 8;
+                str += 1;
+            }
+        } else {
+            base = 10;
+        }
+    } else if (base == 16 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
+        str += 2;
+    } else if (base == 2 && str[0] == '0' && (str[1] == 'b' || str[1] == 'B')) {
+        str += 2;
+    }
+
+    __uint128_t result = 0;
+    __uint128_t max_val = (__uint128_t)-1;
+    __uint128_t cutoff = max_val / base;
+    int cutlim = max_val % base;
+    bool overflow = false;
+    const char *start = str;
+
+    while (*str) {
+        int digit;
+        char c = *str;
+
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'a' && c <= 'z') {
+            digit = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'Z') {
+            digit = c - 'A' + 10;
+        } else {
+            break; // Invalid character, stop parsing
+        }
+
+        if (digit >= base) {
+            break; // Invalid digit for this base
+        }
+
+        // Check for overflow
+        if (result > cutoff || (result == cutoff && digit > cutlim)) {
+            overflow = true;
+            break;
+        }
+
+        result = result * base + digit;
+        str++;
+    }
+
+    if (endptr) {
+        *endptr = (char *)(str == start ? start : str);
+    }
+
+    if (overflow) {
+        errno = ERANGE;
+        return (__uint128_t)-1;
+    }
+
+    return result;
+}
+
+static void pu64_to_buffer(__uint64_t u, char **buf, size_t *remaining) {
+    int written = snprintf(*buf, *remaining, "%"PRIu64, u);
+    if (written > 0 && (size_t)written <= *remaining) {
+        *buf += written;
+        *remaining -= written;
+    }
+}
+
+static void pu640_to_buffer(__uint64_t u, char **buf, size_t *remaining) {
+    int written = snprintf(*buf, *remaining, "%019"PRIu64, u);
+    if (written > 0 && (size_t)written <= *remaining) {
+        *buf += written;
+        *remaining -= written;
+    }
+}
+
+#define D19_ UINT64_C(10000000000000000000)
+const __uint128_t d19_ = D19_;
+const __uint128_t d38_ = (UINT128_C(D19_)*D19_);
+
+i64 formatu128(__uint128_t u, char *buffer, size_t buffer_size) {
+    if (buffer_size == 0) return 0;
+
+    char *buf = buffer;
+    size_t remaining = buffer_size;
+
+    if (u < d19_)      { pu64_to_buffer(u, &buf, &remaining); }
+    else if (u < d38_) { pu64_to_buffer(u/d19_, &buf, &remaining); pu640_to_buffer(u%d19_, &buf, &remaining); }
+    else               { pu64_to_buffer(u/d38_, &buf, &remaining); u%=d38_; pu640_to_buffer(u/d19_, &buf, &remaining); pu640_to_buffer(u%d19_, &buf, &remaining); }
+    return buffer_size - remaining;
+}
+
+i64 formati128(__int128_t i, char *buffer, size_t buffer_size) {
+    if (buffer_size == 0) return 0;
+
+    if (i < 0) {
+        if (buffer_size < 2) {
+            buffer[0] = '\0';
+            return 0;
+        }
+        buffer[0] = '-';
+
+        // Handle the edge case: most negative i128 value cannot be negated
+        if (i == (__int128_t)((__uint128_t)1 << 127)) {
+            // This is -2^127, the most negative value
+            return formatu128((__uint128_t)1 << 127, buffer + 1, buffer_size - 1) + 1;
+        } else {
+            return formatu128((__uint128_t)(-i), buffer + 1, buffer_size - 1) + 1;
+        }
+    } else {
+        return formatu128((__uint128_t)i, buffer, buffer_size);
+    }
 }
 
 static u32 inline countLeadingZeros(char c)
@@ -67,6 +216,35 @@ static u32_u32_pair convertStrToUtf32(const char *s, size_t count)
     }
 
     unreachable("");
+}
+
+// Helper function to parse Unicode escape sequences
+// Returns the number of characters consumed, or 0 on error
+static size_t parseUnicodeEscape(const char *ptr, size_t n, int digits, u32 *res)
+{
+    if (n < digits + 2) // Need at least \u or \U plus the hex digits
+        return 0;
+
+    *res = 0;
+    for (int i = 0; i < digits; i++) {
+        char c = ptr[2 + i];
+        if (!isxdigit(c))
+            return 0;
+
+        *res <<= 4;
+        if (c >= '0' && c <= '9')
+            *res += c - '0';
+        else if (c >= 'a' && c <= 'f')
+            *res += c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F')
+            *res += c - 'A' + 10;
+    }
+
+    // Check if it's a valid Unicode code point
+    if (*res > 0x10FFFF || (*res >= 0xD800 && *res <= 0xDFFF))
+        return 0; // Invalid code point
+
+    return 2 + digits; // \u/\U + hex digits
 }
 
 size_t convertEscapeSeq(const char *ptr, size_t n, u32 *res)
@@ -120,6 +298,14 @@ size_t convertEscapeSeq(const char *ptr, size_t n, u32 *res)
                 return 2;
             }
             return 1 + convertStrToCharOrd(ptr + 1, 8, res);
+        case 'u':
+            if (n < 6) // Need \uXXXX (6 chars total)
+                return 0;
+            return parseUnicodeEscape(ptr, n, 4, res);
+        case 'U':
+            if (n < 10) // Need \UXXXXXXXX (10 chars total)
+                return 0;
+            return parseUnicodeEscape(ptr, n, 8, res);
         default:
             if (isdigit(ptr[1]))
                 return 1 + convertStrToCharOrd(ptr + 1, 8, res);

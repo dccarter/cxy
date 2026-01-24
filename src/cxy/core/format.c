@@ -1,5 +1,6 @@
 #include "core/format.h"
 #include "core/alloc.h"
+#include "core/utils.h"
 #include "lang/frontend/types.h"
 
 #include <assert.h>
@@ -86,6 +87,12 @@ static const char *formatArg(FormatState *state,
             n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%" PRIu8, arg->u8);
             break;
         case '1':
+            if (ptr[1] == '2') {
+                assert(ptr[2] == '8');
+                ptr += 3;
+                n = formatu128(arg->u128, bufPtr, MAX_FORMAT_CHARS);
+                break;
+            }
             assert(ptr[1] == '6');
             ptr += 2;
             n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%" PRIu16, arg->u16);
@@ -112,6 +119,12 @@ static const char *formatArg(FormatState *state,
             n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%" PRIi8, arg->i8);
             break;
         case '1':
+            if (ptr[1] == '2') {
+                assert(ptr[2] == '8');
+                ptr += 3;
+                n = formati128(arg->i128, bufPtr, MAX_FORMAT_CHARS);
+                break;
+            }
             assert(ptr[1] == '6');
             ptr += 2;
             n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%" PRIi16, arg->i16);
@@ -136,12 +149,12 @@ static const char *formatArg(FormatState *state,
         case '3':
             assert(*ptr == '2');
             ptr++;
-            n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%e", arg->f32);
+            n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%g", arg->f32);
             break;
         case '6':
             assert(*ptr == '4');
             ptr++;
-            n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%e", arg->f64);
+            n = snprintf(bufPtr, MAX_FORMAT_CHARS, "%.15g", arg->f64);
             break;
         default:
             assert(false && "invalid floating-point format string");

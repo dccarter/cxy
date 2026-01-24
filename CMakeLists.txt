@@ -44,6 +44,7 @@ if (CMAKE_BUILD_TYPE MATCHES "asan")
 endif ()
 
 option(ENABLE_TESTS "Enable CMake tests" ON)
+option(ENABLE_UNIT_TESTS "Enable unit tests with Unity" ON)
 
 include(CxyUtils)
 include(FetchContent)
@@ -74,6 +75,16 @@ CxyAmalgamate(builtins
         OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
         FILES
         src/cxy/runtime/builtins.cxy)
+
+CxyAmalgamate(prologue
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/prologue.h)
+
+CxyAmalgamate(epilogue
+        OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/generated
+        FILES
+        src/cxy/runtime/epilogue.h)
 
 set(CXY_CORE_SOURCES
         src/cxy/core/args.c
@@ -166,6 +177,7 @@ set(CXY_MIDDLE_SOURCES
 
         src/cxy/lang/middle/dump/json.c
         src/cxy/lang/middle/dump/yaml.c
+        src/cxy/lang/middle/dump/sexp.c
         src/cxy/lang/middle/dump/cxy.c
 
         src/cxy/lang/middle/shake/closure.c
@@ -255,16 +267,21 @@ set(CXY_PLUGIN_LIB_HEADERS
         src/cxy/plugin/plugin.h
 )
 
-add_executable(cxy
-        src/cxy/driver/main.c
-        src/cxy/plugin/shared.c
-        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
+# Create static library with all core Cxy sources
+add_library(cxy-core STATIC
         ${CXY_3RD_PARTY_SOURCES}
         ${CXY_CORE_SOURCES}
         ${CXY_FRONTEND_SOURCES}
         ${CXY_MIDDLE_SOURCES}
         ${CXY_LANG_BACKEND_SOURCES}
-        ${CXY_DRIVER_SOURCES})
+        ${CXY_DRIVER_SOURCES}
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/prologue.c
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/epilogue.c)
+
+add_executable(cxy
+        src/cxy/driver/main.c
+        src/cxy/plugin/shared.c)
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/include/cxy/core)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
@@ -300,10 +317,16 @@ if (ENABLE_LLVM_BACKEND)
             Passes
             Support
     )
-    target_link_libraries(cxy msgpack-c yaml ${llvm_libs} ${CLANG_LIBS})
+    target_link_libraries(cxy-core msgpack-c yaml ${llvm_libs} ${CLANG_LIBS})
+    target_link_libraries(cxy cxy-core)
 else ()
-    target_link_libraries(cxy msgpack-c yaml ${CLANG_LIBS})
+    target_link_libraries(cxy-core msgpack-c yaml ${CLANG_LIBS})
+    target_link_libraries(cxy cxy-core)
 endif()
+
+target_compile_definitions(cxy-core PRIVATE
+        -DCXY_VERSION="${CXY_VERSION}"
+        -DCXY_BUILD_ID="${CXY_BUILD_ID}")
 
 target_compile_definitions(cxy PRIVATE
         -DCXY_VERSION="${CXY_VERSION}"
@@ -407,6 +430,43 @@ install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugins DESTINATION lib/cxy)
 
 include(CTest)
 enable_testing()
+
+# Add doctest C++ testing framework
+if(ENABLE_UNIT_TESTS)
+    # Create unit test executable
+    add_executable(cxy_unit_tests
+        tests/utils/test_ast.cpp
+        tests/utils/ast.cpp
+        tests/lang/parser/test_literals.cpp
+        tests/lang/parser/test_primitive_types.cpp
+        tests/lang/parser/parser_utils.cpp
+        tests/unit/test_utils.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
+        src/cxy/plugin/shared.c
+    )
+
+    target_link_libraries(cxy_unit_tests
+        cxy-core
+    )
+
+    target_include_directories(cxy_unit_tests PRIVATE
+        src/cxy
+        src/3rdParty
+        tests/utils
+        tests
+    )
+
+    target_compile_definitions(cxy_unit_tests PRIVATE
+        -DCXY_VERSION="${CXY_VERSION}"
+        -DCXY_BUILD_ID="${CXY_BUILD_ID}"
+    )
+
+    # Add unit test to CTest
+    add_test(NAME unit_tests COMMAND cxy_unit_tests)
+endif()
+
+
+
 
 # Add stdlib test cases
 foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})

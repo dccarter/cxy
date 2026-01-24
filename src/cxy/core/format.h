@@ -59,6 +59,8 @@ typedef union {
     int16_t i16;
     int32_t i32;
     int64_t i64;
+    __int128_t i128;
+    __uint128_t u128;
     intmax_t i;
     float f32;
     double f64;

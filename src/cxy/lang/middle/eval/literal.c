@@ -61,9 +61,9 @@ void nodeSetNumericLiteral(AstNode *node, AstNode *lhs, AstNode *rhs, f64 value)
             node->tag = astIntegerLit;
             node->intLiteral.isNegative = value < 0;
             if (node->intLiteral.isNegative)
-                node->intLiteral.value = (i64)value;
+                node->intLiteral.value = (i128)value;
             else
-                node->intLiteral.uValue = (u64)value;
+                node->intLiteral.uValue = (u128)value;
         }
         else {
             node->tag = astFloatLit;
@@ -79,9 +79,9 @@ void nodeSetNumericLiteral(AstNode *node, AstNode *lhs, AstNode *rhs, f64 value)
             node->tag = astIntegerLit;
             node->intLiteral.isNegative = value < 0;
             if (node->intLiteral.isNegative)
-                node->intLiteral.value = (i64)value;
+                node->intLiteral.value = (i128)value;
             else
-                node->intLiteral.uValue = (u64)value;
+                node->intLiteral.uValue = (u128)value;
         }
         else {
             node->tag = astFloatLit;
@@ -95,11 +95,11 @@ void nodeSetNumericLiteral(AstNode *node, AstNode *lhs, AstNode *rhs, f64 value)
         }
         else {
             node->tag = astIntegerLit;
-            node->intLiteral.value = (i64)value;
+            node->intLiteral.value = (i128)value;
             if (node->intLiteral.isNegative)
-                node->intLiteral.value = (i64)value;
+                node->intLiteral.value = (i128)value;
             else
-                node->intLiteral.uValue = (u64)value;
+                node->intLiteral.uValue = (u128)value;
         }
         break;
     case astFloatLit:

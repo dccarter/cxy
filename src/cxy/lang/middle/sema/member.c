@@ -157,10 +157,10 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
             logError(ctx->L,
                      &member->loc,
                      "tuple {t} member access out of range, expecting "
-                     "'0-{u64}', got '{i64}",
+                     "'0-{u64}', got '{i128}",
                      (FormatArg[]){{.t = target_},
                                    {.u64 = target_->tuple.count - 1},
-                                   {.i64 = member->intLiteral.value}});
+                                   {.i128 = member->intLiteral.value}});
             node->type = ERROR_TYPE(ctx);
             return;
         }

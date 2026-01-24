@@ -49,6 +49,18 @@ extern "C" {
 #define CXY_FILENAME ((strrchr(__FILE__, '/') ?: __FILE__ - 1) + 1)
 #endif
 
+// 128-bit integer constants
+#define UINT128_C(u)     ((__uint128_t)u)
+#define UINT128(h, l)    (UINT128_C(h)<<64 | l)
+
+#define UINT128_MIN      UINT128_C(0)
+#define UINT128_MAX      UINT128(UINT64_MAX, UINT64_MAX)
+#define INT128_MIN       ((__int128_t)(UINT128_C(1) << 127))
+#define INT128_MAX       ((__int128_t)(UINT128_MAX >> 1))
+
+#define UINT128_HIGH(val) ((__uint64_t)(((__uint128_t)(val)) >> 64))
+#define UINT128_LOW(val)  ((__uint64_t)((__uint128_t)(val)))
+
 #define sizeof__(A) (sizeof(A) / sizeof(*(A)))
 
 #ifndef BIT
@@ -157,6 +169,8 @@ typedef uint32_t u32;
 typedef int32_t i32;
 typedef uint64_t u64;
 typedef int64_t i64;
+typedef __uint128_t u128;
+typedef __int128_t i128;
 typedef float f32;
 typedef double f64;
 typedef uintptr_t uptr;
@@ -264,6 +278,9 @@ int exec(const char *command, struct FormatState *output);
 size_t convertEscapeSeq(const char *str, size_t n, u32 *res);
 size_t escapeString(const char *str, size_t n, char *dst, size_t size);
 size_t readChar(cstring str, size_t len, u32 *res);
+__uint128_t strtou128(const char *str, char **endptr, int base);
+i64 formati128(__int128_t value, char *buffer, size_t buffer_size);
+i64 formatu128(__uint128_t value, char *buffer, size_t buffer_size);
 
 bool isColorSupported(FILE *);
 char *readFile(const char *fileName, size_t *file_size);

@@ -259,9 +259,9 @@ const Type *expectInType(TypeTable *table,
 
 void buildModuleType(TypeTable *types, AstNode *node, bool isBuiltinModule);
 
-const Type *getIntegerTypeForLiteral(TypeTable *table, i64 literal);
+const Type *getIntegerTypeForLiteral(TypeTable *table, i128 literal);
 
-bool isIntegerTypeInRange(const Type *type, i64 min, i64 max);
+bool isIntegerTypeInRange(const Type *type, i128 min, i128 max);
 
 int findTypeInArray(const Type **types, u64 count, const Type *type);
 

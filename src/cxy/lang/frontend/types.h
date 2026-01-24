@@ -26,12 +26,14 @@ extern "C" {
     f(U16,  "u16", 2)        \
     f(U32,  "u32", 4)        \
     f(U64,  "u64", 8)        \
+    f(U128, "u128", 16)      \
 
 #define SIGNED_INTEGER_TYPE_LIST(f) \
     f(I8,   "i8", 1)         \
     f(I16,  "i16", 2)        \
     f(I32,  "i32", 4)        \
     f(I64,  "i64", 8)        \
+    f(I128, "i128", 16)      \
 
 #define INTEGER_TYPE_LIST(f)        \
     UNSIGNED_INTEGER_TYPE_LIST(f)   \
@@ -315,7 +317,7 @@ typedef struct Type {
     };
 } Type;
 
-typedef CxyPair(i64, u64) IntMinMax;
+typedef CxyPair(i128, u128) IntMinMax;
 
 #define CYX_TYPE_BODY_SIZE (sizeof(Type) - sizeof(((Type *)0)->_head))
 
@@ -398,7 +400,9 @@ bool hasReferenceMembers(const Type *type);
 
 bool isDestructible(const Type *type);
 
-static inline bool isClassOrStructType(const Type *type)
+bool hasPrimitiveType(const Type *type, PrtId id);
+
+    static inline bool isClassOrStructType(const Type *type)
 {
     return isClassType(type) || isStructType(type);
 }

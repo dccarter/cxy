@@ -1,4 +1,6 @@
 #include "core/hash.h"
+#include "core/utils.h"
+#include <stdint.h>
 
 /*
  * Note: This is an implementation of the FNV-1a hashing function.
@@ -28,6 +30,11 @@ HashCode hashUint32(HashCode h, HashCode x)
 HashCode hashUint64(HashCode h, uint64_t x)
 {
     return hashUint32(hashUint32(h, x), x >> 32);
+}
+
+HashCode hashUint128(HashCode h, u128 x)
+{
+    return hashUint64(hashUint64(h, x & UINT64_MAX), x >> 64);
 }
 
 HashCode hashStr(HashCode h, const char *str)

@@ -9,6 +9,7 @@
  */
 
 #include "lang/middle/macro.h"
+#include "core/hash.h"
 #include "lang/middle/eval/eval.h"
 
 #include "lang/middle/builtins.h"
@@ -97,9 +98,9 @@ static void staticLog(AstVisitor *visitor,
             break;
         case astIntegerLit:
             if (it->intLiteral.isNegative)
-                params[i] = (FormatArg){.i64 = it->intLiteral.value};
+                params[i] = (FormatArg){.i128 = it->intLiteral.value};
             else
-                params[i] = (FormatArg){.u64 = it->intLiteral.uValue};
+                params[i] = (FormatArg){.u128 = it->intLiteral.uValue};
             break;
         case astFloatLit:
             params[i] = (FormatArg){.f64 = it->floatLiteral.value};
@@ -450,7 +451,7 @@ static AstNode *makeHashAstNode(AstVisitor *visitor,
         hash = hashUint32(hash, args->charLiteral.value);
         break;
     case astIntegerLit:
-        hash = hashUint64(hash, args->intLiteral.value);
+        hash = hashUint128(hash, args->intLiteral.value);
         break;
     case astFloatLit:
         hash = hashUint64(hash, args->floatLiteral._bits);
@@ -1092,7 +1093,7 @@ static AstNode *makeBackendCallNode(AstVisitor *visitor,
         return NULL;
     }
 
-    i64 id = args->intLiteral.value;
+    i128 id = args->intLiteral.value;
     AstNode *arg = args->next;
     for (; arg; arg = arg->next) {
         const Type *type = arg->type ?: evalType(ctx, arg);

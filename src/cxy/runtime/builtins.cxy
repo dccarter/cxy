@@ -1,6 +1,7 @@
 
 pub extern func strlen(s: string) : u64
 pub extern func sprintf(s: ^char, fmt: string, ...args: auto) : i64
+pub extern func snprintf(s: ^char, len : u64, fmt: string, ...args: auto) : i64
 pub extern func strcmp(s1: const string, s2: const string): i32
 pub extern func strncmp(s1: const string, s2: const string, len: u64): i32
 pub extern func strcasecmp(s1: const string, s2: const string): i32
@@ -277,6 +278,9 @@ pub func hash_fnv1a_uint32(h: HashCode, x: u32) =>
 pub func hash_fnv1a_uint64(h: HashCode, x: u64) =>
     hash_fnv1a_uint32(hash_fnv1a_uint32(h, <u32>(x & 0xffffffff)), <u32>(x >> 32))
 
+pub func hash_fnv1a_uint128(h: HashCode, x: u128) =>
+    hash_fnv1a_uint64(hash_fnv1a_uint64(h, <u64>(x & 0xffffffffffffffff as u64)), <u64>(x >> 64))
+
 pub func hash_fnv1a_ptr(h: HashCode, ptr: ^const void) =>
     hash_fnv1a_uint64(h, ptr !: u64)
 
@@ -350,6 +354,9 @@ pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashC
     else #if (T.isFloat || #T == #i64 || #T == #u64) {
         return hash_fnv1a_uint64(init, <u64>val)
     }
+    else #if (#T == #i128 || #T == #u128) {
+        return hash_fnv1a_uint128(init, <u128>val)
+    }
     else #if (T.isEnum) {
         return hash_fnv1a_uint64(init, <u64>val)
     }
@@ -386,6 +393,52 @@ pub func hash[T](val: &const T, @unused init: HashCode = #{FNV_32_INIT}) : HashC
             "type '{t}' must implement `hash` operator", #T
         )
         return val.op__hash()
+    }
+}
+
+// Constants for chunked formatting
+const D19 = 10000000000000000000 as u64;  // 10^19
+// Calculate D38 = D19 * D19 (10^38)
+const D38 = (D19 !: u128) * (D19 !: u128);
+
+func sputu128(value: u128, buf: ^char, size: u64) {
+    var pos = 0`u64;
+
+    if (value < D19) {
+        // Single chunk: direct formatting
+        pos = sprintf(buf, "%llu", value !: u64) !: u64;
+    } else {
+        if (value < D38) {
+            // Two chunks: high and low
+            const high = (value / (D19 !: u128)) !: u64;
+            const low = (value % (D19 !: u128)) !: u64;
+            pos += sprintf(buf + pos, "%llu", high) !: u64;
+            pos += sprintf(buf + pos, "%019llu", low) !: u64;  // Zero-padded
+        } else {
+            // Three chunks: high, mid, low
+            const high = (value / D38) !: u64;
+            const remaining = value % D38;
+            const mid = (remaining / (D19 !: u128)) !: u64;
+            const low = (remaining % (D19 !: u128)) !: u64;
+
+            pos += sprintf(buf + pos, "%llu", high) !: u64;
+            pos += sprintf(buf + pos, "%019llu", mid) !: u64;
+            pos += sprintf(buf + pos, "%019llu", low) !: u64;
+        }
+    }
+
+    return pos;
+}
+
+func sputi128(value: i128, buf: ^char, size: u64) {
+    if (value < 0) {
+        if (size > 1) {
+            buf.[0] = '-';
+            return 1 + sputu128((-value) !: u128, buf + 1, size - 1);
+        }
+        return 0;
+    } else {
+        return sputu128(value !: u128, buf, size);
     }
 }
 
@@ -582,15 +635,15 @@ pub class OutputStream {
         append(s.s !: ^const void, s.size())
     }
 
-    func appendSignedInt(num: i64) {
+    func appendSignedInt(num: i128) {
         var buf: [char, 64];
-        const len = sprintf(buf, "%lld", num);
+        const len = sputi128(num, buf, 64);
         append(buf !: ^const void, len)
     }
 
-    func appendUnSignedInt(num: u64) {
-        var buf: [char, 32];
-        const len = sprintf(buf, "%llu", num);
+    func appendUnSignedInt(num: u128) {
+        var buf: [char, 64];
+        const len = sputu128(num, buf, 64);
         append(buf !: ^const void, len)
     }
 
@@ -657,7 +710,7 @@ pub class OutputStream {
             else
                 appendString(val)
         else #if (U.isInteger)
-            appendSignedInt(<i64>val)
+            appendSignedInt(<i128>val)
         else #if (U.isFloat)
             appendFloat(val)
         else #if (U.isBoolean)

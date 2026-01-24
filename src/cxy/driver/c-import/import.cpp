@@ -373,7 +373,7 @@ static AstNode *toCxy(IncludeContext &ctx, const clang::FieldDecl &decl)
                                 nullptr,
                                 nullptr);
     if (decl.isBitField())
-        node->structField.bits = decl.getBitWidthValue(ctx.Ci.getASTContext());
+        node->structField.bits = decl.getBitWidthValue();
 
     node->type = type;
     return node;
@@ -887,7 +887,7 @@ AstNode *importCHeader(CompilerDriver *driver, const AstNode *node)
     cstring headerName = node->stringLiteral.value;
     auto &options = driver->options;
     clang::CompilerInstance ci;
-    ci.createDiagnostics();
+    ci.createDiagnostics(ci.getFileManager().getVirtualFileSystem());
     auto args =
         map<cstring, cstring>(options.cflags, [](auto cflag) { return cflag; });
     clang::CompilerInvocation::CreateFromArgs(
@@ -897,7 +897,7 @@ AstNode *importCHeader(CompilerDriver *driver, const AstNode *node)
         std::make_shared<clang::TargetOptions>();
     pto->Triple = llvm::sys::getDefaultTargetTriple();
     auto targetInfo =
-        clang::TargetInfo::CreateTargetInfo(ci.getDiagnostics(), pto);
+        clang::TargetInfo::CreateTargetInfo(ci.getDiagnostics(), *pto);
     ci.setTarget(targetInfo);
 
     ci.createFileManager();

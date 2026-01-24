@@ -16,6 +16,7 @@ typedef struct cJSON cJSON;
 AstNode *shakeAstNode(CompilerDriver *driver, AstNode *node);
 AstNode *dumpAstJson(CompilerDriver *driver, AstNode *node, FILE *file);
 AstNode *dumpAstToYaml(CompilerDriver *driver, AstNode *node, FILE *file);
+AstNode *dumpAstToSexp(CompilerDriver *driver, AstNode *node, FILE *file);
 AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file);
 AstNode *preprocessAst(CompilerDriver *driver, AstNode *node);
 AstNode *bindAst(CompilerDriver *driver, AstNode *node);

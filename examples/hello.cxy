@@ -4,9 +4,6 @@ func say(fn: func(name: string, age: i32) -> string) {
 }
 
 func main() {
-    say(
-        (_: string, _: i32) => {
-            return "Hello"
-        }
-    )
+    var x: i128 = -12345678901234567890;
+    println( x )
 }

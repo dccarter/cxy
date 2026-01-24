@@ -72,7 +72,8 @@ void evalPathEpilogue(AstVisitor *visitor,
     }
 
     if (hasFlag(node, Typeinfo)) {
-        if (symbol->type == NULL) {
+        if (symbol == NULL || symbol->type == NULL) {
+            logError(ctx->L, &node->loc, "typeinfo node missing a type", NULL);
             node->tag = astError;
             return;
         }

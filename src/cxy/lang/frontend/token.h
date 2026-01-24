@@ -168,8 +168,8 @@ typedef enum {
 typedef struct {
     TokenTag tag;
     union {
-        uintmax_t iVal;
-        intmax_t uVal;
+        __uint128_t iVal;
+        __int128_t uVal;
         double fVal;
         u32 cVal;
     };

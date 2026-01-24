@@ -5,6 +5,7 @@
 #include "core/format.h"
 #include "core/log.h"
 #include "core/mempool.h"
+#include "core/utils.h"
 #include "operator.h"
 #include "token.h"
 
@@ -381,8 +382,8 @@ struct AstNode {
 
         struct {
             union {
-                i64 value;
-                u64 uValue;
+                __int128_t value;
+                __uint128_t uValue;
             };
             bool isNegative;
         } intLiteral;
@@ -864,7 +865,7 @@ struct AstNode {
     };
 };
 
-#define CXY_AST_NODE_BODY_SIZE (sizeof(AstNode) - sizeof(((AstNode *)0)->_head))
+#define CXY_AST_NODE_BODY_SIZE (sizeof(AstNode) - offsetof(AstNode, _body))
 
 void clearAstBody(AstNode *node);
 
@@ -878,7 +879,7 @@ AstNode *makeVoidAstNode(MemPool *pool,
 
 AstNode *makeIntegerLiteral(MemPool *pool,
                             const FileLoc *loc,
-                            i64 value,
+                            __int128_t value,
                             AstNode *next,
                             const Type *type);
 
@@ -889,7 +890,7 @@ AstNode *makeEmptyAst(MemPool *pool,
 
 AstNode *makeUnsignedIntegerLiteral(MemPool *pool,
                                     const FileLoc *loc,
-                                    u64 value,
+                                    __uint128_t value,
                                     AstNode *next,
                                     const Type *type);
 
@@ -1630,17 +1631,17 @@ AstNode *getBaseClassAtLevel(AstNode *node, u64 level);
 
 AstNode *getBaseClassByName(AstNode *node, cstring name);
 
-attr(always_inline) static i64 integerLiteralValue(const AstNode *node)
+attr(always_inline) static i128 integerLiteralValue(const AstNode *node)
 {
     csAssert0(nodeIs(node, IntegerLit));
     return node->intLiteral.isNegative ? node->intLiteral.value
-                                       : (i64)node->intLiteral.uValue;
+                                       : (i128)node->intLiteral.uValue;
 }
 
-attr(always_inline) static u64 unsignedIntegerLiteralValue(const AstNode *node)
+attr(always_inline) static u128 unsignedIntegerLiteralValue(const AstNode *node)
 {
     csAssert0(nodeIs(node, IntegerLit));
-    return node->intLiteral.isNegative ? (u64)node->intLiteral.value
+    return node->intLiteral.isNegative ? (u128)node->intLiteral.value
                                        : node->intLiteral.uValue;
 }
 

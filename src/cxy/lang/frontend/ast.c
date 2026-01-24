@@ -188,7 +188,7 @@ AstNode *makeAstNode(MemPool *pool, const FileLoc *loc, const AstNode *init)
 
 AstNode *makeIntegerLiteral(MemPool *pool,
                             const FileLoc *loc,
-                            i64 value,
+                            __int128_t value,
                             AstNode *next,
                             const Type *type)
 {
@@ -204,7 +204,7 @@ AstNode *makeIntegerLiteral(MemPool *pool,
 
 AstNode *makeUnsignedIntegerLiteral(MemPool *pool,
                                     const FileLoc *loc,
-                                    u64 value,
+                                    __uint128_t value,
                                     AstNode *next,
                                     const Type *type)
 {

@@ -4,6 +4,7 @@
 #include "core/utils.h"
 #include "token.h"
 
+#include <stdio.h>
 #include <ctype.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -147,8 +148,8 @@ static inline bool isSpaceOrPunctuation(char c)
 
 static void skipUntilSpaceOrPunctuation(Lexer *lexer)
 {
-    while (!isSpaceOrPunctuation(getCurChar(lexer)))
-        advanceLexer(lexer);
+    while (!isEofReached(lexer) && !isSpaceOrPunctuation(getCurChar(lexer)))
+        skipChar(lexer);
 }
 
 static bool acceptChar(Lexer *lexer, char c)
@@ -216,7 +217,7 @@ static inline Token makeToken_(Lexer *lexer,
                    .buffer = buffer};
 }
 
-static Token makeIntLiteral(Lexer *lexer, const FilePos *begin, uintmax_t iVal)
+static Token makeIntLiteral(Lexer *lexer, const FilePos *begin, __uint128_t iVal)
 {
     Token token = makeToken(lexer, begin, tokIntLiteral);
     token.iVal = iVal;
@@ -575,7 +576,8 @@ Token advanceLexer(Lexer *lexer)
                     ptr = getCurPtr(lexer);
                     while (getCurChar(lexer) == '0' || getCurChar(lexer) == '1')
                         skipChar(lexer);
-                    if (!isSpaceOrPunctuation(getCurChar(lexer))) {
+
+                    if (!isEofReached(lexer) && !isSpaceOrPunctuation(getCurChar(lexer))) {
                         skipUntilSpaceOrPunctuation(lexer);
                         return makeInvalidToken(
                             lexer,
@@ -584,7 +586,7 @@ Token advanceLexer(Lexer *lexer)
                     }
 
                     return makeIntLiteral(
-                        lexer, &begin, strtoumax(ptr, NULL, 2));
+                        lexer, &begin, strtou128(ptr, NULL, 2));
                 }
                 else if (acceptChar(lexer, 'x')) {
                     // Hexadecimal literal
@@ -592,7 +594,7 @@ Token advanceLexer(Lexer *lexer)
                     while (isxdigit(getCurChar(lexer)))
                         skipChar(lexer);
 
-                    if (!isSpaceOrPunctuation(getCurChar(lexer))) {
+                    if (!isEofReached(lexer) && !isSpaceOrPunctuation(getCurChar(lexer))) {
                         skipUntilSpaceOrPunctuation(lexer);
                         return makeInvalidToken(
                             lexer,
@@ -601,14 +603,14 @@ Token advanceLexer(Lexer *lexer)
                     }
 
                     return makeIntLiteral(
-                        lexer, &begin, strtoumax(ptr, NULL, 16));
+                        lexer, &begin, strtou128(ptr, NULL, 16));
                 }
                 else if (acceptChar(lexer, 'o')) {
                     // Octal literal
                     ptr = getCurPtr(lexer);
                     while (getCurChar(lexer) >= '0' && getCurChar(lexer) <= '7')
                         skipChar(lexer);
-                    if (!isSpaceOrPunctuation(getCurChar(lexer))) {
+                    if (!isEofReached(lexer) && !isSpaceOrPunctuation(getCurChar(lexer))) {
                         skipUntilSpaceOrPunctuation(lexer);
                         return makeInvalidToken(
                             lexer,
@@ -616,7 +618,7 @@ Token advanceLexer(Lexer *lexer)
                             "octal digit contains invalid characters");
                     }
                     return makeIntLiteral(
-                        lexer, &begin, strtoumax(ptr, NULL, 8));
+                        lexer, &begin, strtou128(ptr, NULL, 8));
                 }
             }
 
@@ -645,7 +647,7 @@ Token advanceLexer(Lexer *lexer)
 
             return hasDot ? makeFloatLiteral(lexer, &begin, strtod(ptr, NULL))
                           : makeIntLiteral(
-                                lexer, &begin, strtoumax(ptr, NULL, 10));
+                                lexer, &begin, strtou128(ptr, NULL, 10));
         }
 
         skipChar(lexer);

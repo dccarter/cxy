@@ -101,6 +101,8 @@ static AstNode *executeDumpAst(CompilerDriver *driver, AstNode *node)
         return dumpAstJson(driver, node->metadata.node, file);
     else if (driver->options.dev.dumpMode == dmpYAML)
         return dumpAstToYaml(driver, node, file);
+    else if (driver->options.dev.dumpMode == dmpSEXP)
+        return dumpAstToSexp(driver, node, file);
     else
         return dumpCxySource(driver, node, file);
 }

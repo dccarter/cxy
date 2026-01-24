@@ -11,6 +11,7 @@
 #include "sb.h"
 
 #include "alloc.h"
+#include "core/utils.h"
 
 #include <inttypes.h>
 
@@ -81,17 +82,17 @@ void stringBuilderAppendCstr0(StringBuilder *sb, const char *cstr, u64 len)
     sb->data[sb->size] = '\0';
 }
 
-void stringBuilderAppendInt(StringBuilder *sb, i64 num)
+void stringBuilderAppendInt(StringBuilder *sb, i128 num)
 {
-    char data[32];
-    i64 len = sprintf(data, "%" PRId64, num);
+    char data[64];
+    i64 len = formati128(num, data, sizeof(data));
     stringBuilderAppendCstr0(sb, data, len);
 }
 
-void stringBuilderAppendUInt(StringBuilder *sb, u64 num)
+void stringBuilderAppendUInt(StringBuilder *sb, u128 num)
 {
-    char data[32];
-    i64 len = sprintf(data, "%" PRIu64, num);
+    char data[64];
+    i64 len = formatu128(num, data, sizeof(data));
     stringBuilderAppendCstr0(sb, data, len);
 }
 

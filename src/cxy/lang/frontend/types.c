@@ -104,12 +104,12 @@ static void printLiteralType(FormatState *state, const AstNode *value, u64 idx)
     case astIntegerLit:
         if (value->intLiteral.isNegative)
             format(state,
-                   "Int(-{i64})",
-                   (FormatArg[]){{.i64 = value->intLiteral.value}});
+                   "Int(-{i128})",
+                   (FormatArg[]){{.i128 = value->intLiteral.value}});
         else
             format(state,
-                   "Int({u64})",
-                   (FormatArg[]){{.u64 = value->intLiteral.uValue}});
+                   "Int({u128})",
+                   (FormatArg[]){{.u128 = value->intLiteral.uValue}});
         break;
     case astFloatLit:
         format(state,
@@ -825,6 +825,12 @@ bool isVoidResultType(const Type *type)
     return typeIs(type, Struct) && type->name == S_Void && type->ns == NULL;
 }
 
+bool hasPrimitiveType(const Type *type, PrtId id)
+{
+    type = resolveUnThisUnwrapType(type);
+    return typeIs(type, Primitive) && type->primitive.id == id;
+}
+
 bool typeIsBaseOf(const Type *base, const Type *type)
 {
     const Type *it = resolveAndUnThisType(type);
@@ -1083,6 +1089,8 @@ IntMinMax getIntegerTypeMinMax(const Type *type)
         [prtU32] = {.f = 0, .s = UINT32_MAX},
         [prtI64] = {.f = INT64_MIN, .s = INT64_MAX},
         [prtU64] = {.f = 0, .s = UINT64_MAX},
+        [prtI128] = {.f = INT128_MIN, .s = INT128_MAX},
+        [prtU128] = {.f = 0, .s = UINT128_MAX},
     };
 
     csAssert0(isIntegralType(type));

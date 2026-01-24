@@ -11,6 +11,8 @@
 #include "lang/frontend/types.h"
 #include "lang/frontend/visitor.h"
 #include "lang/middle/builtins.h"
+#include "src/prologue.h"
+#include "src/epilogue.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -114,8 +116,8 @@ static void generateStructAttributes(CodegenContext *ctx, const Type *type)
         const AstNode *value = getAttributeArgument(NULL, NULL, aligned, 0);
         if (value)
             format(typeState(ctx),
-                   " __attribute__((aligned({u64})))",
-                   (FormatArg[]){{.u64 = value->intLiteral.uValue}});
+                   " __attribute__((aligned({u128})))",
+                   (FormatArg[]){{.u128 = value->intLiteral.uValue}});
     }
     format(typeState(ctx), " ", NULL);
 }
@@ -528,6 +530,12 @@ static void generateTypeName(CodegenContext *ctx,
         case prtU64:
             format(state, "uint64_t", NULL);
             break;
+        case prtI128:
+            format(state, "int128_t", NULL);
+            break;
+        case prtU128:
+            format(state, "uint128_t", NULL);
+            break;
         case prtF32:
             format(state, "float", NULL);
             break;
@@ -796,18 +804,63 @@ static void visitCharLit(ConstAstVisitor *visitor, const AstNode *node)
 static void visitIntegerLit(ConstAstVisitor *visitor, const AstNode *node)
 {
     CodegenContext *ctx = getConstAstVisitorContext(visitor);
-    if (node->intLiteral.isNegative)
+    if (node->intLiteral.isNegative) {
+        if (node->intLiteral.value <= INT64_MAX && node->intLiteral.value >= INT64_MIN) {
+            format(getState(ctx),
+               "{i128}",
+               (FormatArg[]){{.i128 = node->intLiteral.value}});
+        }
+        else {
+            format(getState(ctx),
+               "INT128({u64}llu, {u64}llu)",
+               (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
+                   {.u64 = UINT128_LOW(node->intLiteral.value)}});
+        }
+    }
+    else if (hasPrimitiveType(node->type, prtI128)) {
+        if (node->intLiteral.value <= INT64_MAX && node->intLiteral.value >= INT64_MIN) {
+            format(getState(ctx),
+               "{i128}",
+               (FormatArg[]){{.i128 = node->intLiteral.value}});
+        }
+        else {
+            format(getState(ctx),
+               "INT128({u64}llu, {u64}llu)",
+               (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
+                   {.u64 = UINT128_LOW(node->intLiteral.value)}});
+        }
+    }
+    else if (hasPrimitiveType(node->type, prtU128)) {
+        if (node->intLiteral.value <= UINT64_MAX) {
+            format(getState(ctx),
+               "{i128}",
+               (FormatArg[]){{.i128 = node->intLiteral.value}});
+        }
+        else {
+            format(getState(ctx),
+               "UINT128({u64}, {u64})",
+               (FormatArg[]){{.u64 = UINT128_HIGH(node->intLiteral.value)},
+                   {.u64 = UINT128_LOW(node->intLiteral.value)}});
+        }
+    }
+    else if (hasPrimitiveType(node->type, prtI64)) {
         format(getState(ctx),
-               "{i64}",
-               (FormatArg[]){{.i64 = node->intLiteral.value}});
+               "{i128}ll",
+               (FormatArg[]){{.i128 = node->intLiteral.value}});
+    }
+    else if (hasPrimitiveType(node->type, prtU64)) {
+        format(getState(ctx),
+               "{i128}llu",
+               (FormatArg[]){{.i128 = node->intLiteral.value}});
+    }
     else if (isUnsignedType(node->type))
         format(getState(ctx),
-               "{u64}u",
-               (FormatArg[]){{.u64 = node->intLiteral.uValue}});
+               "{u128}u",
+               (FormatArg[]){{.u128 = node->intLiteral.uValue}});
     else
         format(getState(ctx),
-               "{u64}",
-               (FormatArg[]){{.u64 = node->intLiteral.uValue}});
+               "{u128}",
+               (FormatArg[]){{.u128 = node->intLiteral.uValue}});
 }
 
 static void visitFloatLit(ConstAstVisitor *visitor, const AstNode *node)
@@ -1034,8 +1087,8 @@ static void visitMemberExpr(ConstAstVisitor *visitor, const AstNode *node)
         }
         else {
             format(getState(ctx),
-                   "_{u64}",
-                   (FormatArg[]){{.u64 = member->intLiteral.uValue}});
+                   "_{u128}",
+                   (FormatArg[]){{.u128 = member->intLiteral.uValue}});
         }
     }
     else {
@@ -1743,7 +1796,7 @@ static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
             const AstNode *value = getAttributeArgument(NULL, NULL, opt, 0);
             format(getState(ctx),
                    " __attribute__((optnone))",
-                   (FormatArg[]){{.u64 = value->intLiteral.uValue}});
+                   (FormatArg[]){{.u128 = value->intLiteral.uValue}});
         }
         format(getState(ctx), "\nstatic ", NULL);
     }
@@ -1944,7 +1997,11 @@ static void generatedCodePrologue(FILE *f)
         "#define __CXY_BLOCK_CLEANUP(FLAGS, LABEL) \\\n"
         "   if ((FLAGS) == 1) goto LABEL; \\\n"
         "\n"
-        "#define __CXY_DROP_WITH_FLAGS(FLAGS, ...) if (FLAGS) __VA_ARGS__\n");
+        "#define __CXY_DROP_WITH_FLAGS(FLAGS, ...) if (FLAGS) __VA_ARGS__\n"
+        "#define INT128_C(u)      ((__int128_t)u)\n"
+        "#define UINT128_C(u)     ((__uint128_t)u)\n"
+        "#define INT128(h, l)     ((__int128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))\n"
+        "#define UINT128(h, l)    (UINT128_C(h)<<64 | l)\n");
     appendCode(f, "\n");
 }
 
@@ -2026,23 +2083,7 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
     backend->output = f;
     backend->filename = filename;
     backend->testMode = options->cmd == cmdTest;
-
-    appendCode(f, "#define nullptr ((void *)0)\n");
-    appendCode(f, "#define true  1\n");
-    appendCode(f, "#define false  0\n");
-    appendCode(f, "\n");
-    appendCode(f, "typedef int bool;\n");
-    appendCode(f, "typedef unsigned int wchar_t;\n");
-    appendCode(f, "typedef signed char int8_t;\n");
-    appendCode(f, "typedef unsigned char uint8_t;\n");
-    appendCode(f, "typedef signed short int16_t;\n");
-    appendCode(f, "typedef unsigned short uint16_t;\n");
-    appendCode(f, "typedef signed int int32_t;\n");
-    appendCode(f, "typedef unsigned int uint32_t;\n");
-    appendCode(f, "typedef signed long long int64_t;\n");
-    appendCode(f, "typedef unsigned long long uint64_t;\n");
-    appendCode(f, "\n");
-    generatedCodePrologue(f);
+    fwrite(CXY_PROLOGUE_SOURCE, 1, CXY_PROLOGUE_SOURCE_SIZE - 1, f);
     return backend;
 }
 
@@ -2053,7 +2094,7 @@ void deinitCompilerBackend(CompilerDriver *driver)
     CBackend *backend = (CBackend *)driver->backend;
     driver->backend = NULL;
     if (backend->output) {
-        generateCodeEpilogue(backend->output);
+        fwrite(CXY_EPILOGUE_SOURCE, 1, CXY_EPILOGUE_SOURCE_SIZE, backend->output);
         fclose(backend->output);
     }
 }

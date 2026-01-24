@@ -7,6 +7,7 @@
 #include "../eval/eval.h"
 
 #include "core/alloc.h"
+#include "lang/frontend/types.h"
 
 static int compareEnumOptionsByValue(const void *lhs, const void *rhs)
 {
@@ -52,6 +53,15 @@ void checkEnumDecl(AstVisitor *visitor, AstNode *node)
                      (FormatArg[]){{.t = type}, {.t = base}});
             node->type = ERROR_TYPE(ctx);
         }
+        IntMinMax minMax = getIntegerTypeMinMax(base);
+        if (option->enumOption.value->intLiteral.value > minMax.s) {
+            logError(ctx->L,
+                     &option->loc,
+                     "enum value '{i}' is too large for base type '{t}'",
+                     (FormatArg[]){{.i = option->enumOption.value->intLiteral.value}, {.t = base}});
+            node->type = ERROR_TYPE(ctx);
+        }
+
         options[i] = (EnumOptionDecl){
             .value = option->enumOption.value->intLiteral.value,
             .name = option->enumOption.name,

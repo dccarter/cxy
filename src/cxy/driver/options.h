@@ -17,6 +17,7 @@ typedef enum { cmdDev, cmdBuild, cmdTest, cmdRun } Command;
     ff(NONE)                \
     ff(JSON)                \
     ff(YAML)                \
+    ff(SEXP)                \
     ff(CXY)
 
 typedef enum {

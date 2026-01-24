@@ -64,8 +64,8 @@ static attr(always_inline) void stringBuilderAppendChar(StringBuilder *sb,
     stringBuilderAppendCstr0(sb, s.str, s.str[5]);
 }
 
-void stringBuilderAppendInt(StringBuilder *sb, i64 num);
-void stringBuilderAppendUInt(StringBuilder *sb, u64 num);
+void stringBuilderAppendInt(StringBuilder *sb, i128 num);
+void stringBuilderAppendUInt(StringBuilder *sb, u128 num);
 void stringBuilderAppendFloat(StringBuilder *sb, f64 num);
 void stringBuilderAppendBool(StringBuilder *sb, bool v);
 char *stringBuilderRelease(StringBuilder *sb);

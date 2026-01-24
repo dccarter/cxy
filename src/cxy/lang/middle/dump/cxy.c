@@ -386,15 +386,15 @@ static void dumpIntegerLit(ConstAstVisitor *visitor, const AstNode *node)
     DumpContext *ctx = getConstAstVisitorContext(visitor);
     if (node->intLiteral.isNegative)
         format(ctx->state,
-               "{$}{i64}{$}",
+               "{$}{i128}{$}",
                (FormatArg[]){{.style = literalStyle},
-                             {.u64 = node->intLiteral.value},
+                             {.i128 = node->intLiteral.value},
                              {.style = resetStyle}});
     else
         format(ctx->state,
-               "{$}{u64}{$}",
+               "{$}{u128}{$}",
                (FormatArg[]){{.style = literalStyle},
-                             {.u64 = node->intLiteral.uValue},
+                             {.u128 = node->intLiteral.uValue},
                              {.style = resetStyle}});
 }
 

@@ -3,6 +3,7 @@
 //
 
 #include "lang/frontend/lexer.h"
+#include "core/utils.h"
 
 #include <filesystem>
 #include <fstream>
@@ -58,7 +59,7 @@ int main(int argc, char *argv[])
             std::cout << "(\"" << getRangeValue(token.fileLoc) << "\")";
             break;
         case tokIntLiteral:
-            std::cout << '(' << token.iVal << ')';
+            std::cout << '(' << i64(token.iVal) << ')';
             break;
         case tokFloatLiteral:
             std::cout << '(' << token.fVal << ')';

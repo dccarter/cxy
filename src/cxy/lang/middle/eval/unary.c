@@ -52,9 +52,9 @@ static void evalPrefixMinusOperation(EvalContext *ctx, AstNode *node)
         node->tag = astIntegerLit;
         node->intLiteral.isNegative = value < 0;
         if (node->intLiteral.isNegative)
-            node->intLiteral.value = (i64)value;
+            node->intLiteral.value = (i128)value;
         else
-            node->intLiteral.uValue = (u64)value;
+            node->intLiteral.uValue = (u128)value;
     }
 }
 
@@ -73,9 +73,9 @@ static void evalPrefixPlusOperation(EvalContext *ctx, AstNode *node)
         node->tag = astIntegerLit;
         node->intLiteral.isNegative = value < 0;
         if (node->intLiteral.isNegative)
-            node->intLiteral.value = (i64)value;
+            node->intLiteral.value = (i128)value;
         else
-            node->intLiteral.uValue = (u64)value;
+            node->intLiteral.uValue = (u128)value;
     }
 }
 

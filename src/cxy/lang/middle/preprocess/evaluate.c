@@ -2,6 +2,7 @@
 // Created by Carter Mbotho on 2024-01-09.
 //
 
+#include "core/utils.h"
 #include "preprocessor.h"
 
 #include "lang/frontend/ast.h"
@@ -277,9 +278,9 @@ static void evalPrefixMinusOperation(PreprocessorContext *ctx, AstNode *node)
         node->tag = astIntegerLit;
         node->intLiteral.isNegative = value < 0;
         if (node->intLiteral.isNegative)
-            node->intLiteral.value = (i64)value;
+            node->intLiteral.value = (i128)value;
         else
-            node->intLiteral.uValue = (u64)value;
+            node->intLiteral.uValue = (u128)value;
     }
 }
 
@@ -295,9 +296,9 @@ static void evalPrefixPlusOperation(PreprocessorContext *ctx, AstNode *node)
         node->tag = astIntegerLit;
         node->intLiteral.isNegative = value < 0;
         if (node->intLiteral.isNegative)
-            node->intLiteral.value = (i64)value;
+            node->intLiteral.value = (i128)value;
         else
-            node->intLiteral.uValue = (u64)value;
+            node->intLiteral.uValue = (u128)value;
     }
 }
 
