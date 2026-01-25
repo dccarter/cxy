@@ -552,6 +552,23 @@ static void visitBinaryExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitAssignExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    emitSymbol(ctx, getAssignOpString(node->assignExpr.op));
+    emitMetadata(visitor, node);
+
+    if (node->assignExpr.lhs) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->assignExpr.lhs);
+    }
+
+    if (node->assignExpr.rhs) {
+        emitNewline(ctx);
+        astConstVisit(visitor, node->assignExpr.rhs);
+    }
+}
+
 static void visitUnaryExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -790,6 +807,7 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *
         [astIndexExpr] = visitIndexExpr,
         [astCallExpr] = visitCallExpr,
         [astBinaryExpr] = visitBinaryExpr,
+        [astAssignExpr] = visitAssignExpr,
         [astUnaryExpr] = visitUnaryExpr,
         [astFuncDecl] = visitFuncDecl,
         [astFuncParamDecl] = visitFuncParamDecl,

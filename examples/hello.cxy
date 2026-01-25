@@ -1,17 +1,11 @@
 func get() => 100
 
-func demo() {
-    if condition {
-      for (const i: iterable) {
-        while flag {
-          switch getValue() {
-            case 1 => continue
-            default => break
-          }
-        }
-      }
-    }
-}
+func demo() { #for i in 0..10 { println(i); } }
 
 func main() {
+    match get() {
+        i32 as b => println("One")
+        i8, u8 => println("2")
+        ... => println("Default")
+    }
 }

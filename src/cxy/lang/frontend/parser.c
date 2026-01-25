@@ -4,6 +4,7 @@
 
 #include "parser.h"
 #include "ast.h"
+#include "core/hash.h"
 #include "defines.h"
 #include "flag.h"
 #include "lang/frontend/token.h"
@@ -21,7 +22,6 @@
 #include "../operations.h"
 #include "lang/middle/builtins.h"
 
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -400,6 +400,24 @@ static AstNode *parseAtLeastOne(Parser *P,
                                 AstNode *(with)(Parser *P))
 {
     AstNode *nodes = parseMany(P, stop, start, with);
+    if (nodes == NULL) {
+        parserError(P,
+                    &current(P)->fileLoc,
+                    "expecting at least 1 {s}",
+                    (FormatArg[]){{.s = msg}});
+    }
+
+    return nodes;
+}
+
+static AstNode *parseAtLeastOne2(Parser *P,
+                                cstring msg,
+                                TokenTag stop,
+                                TokenTag stop2,
+                                TokenTag start,
+                                AstNode *(with)(Parser *P))
+{
+    AstNode *nodes = parseMany2(P, stop, stop2, start, with);
     if (nodes == NULL) {
         parserError(P,
                     &current(P)->fileLoc,
@@ -2035,21 +2053,25 @@ static AstNode *variable(
 static AstNode *forVariable(Parser *P, bool isComptime)
 {
     Token tok = *current(P);
-    uint64_t flags = tok.tag == tokConst ? flgConst : flgNone;
+    uint64_t flags = flgNone;
 
-    if (isComptime && !check(P, tokConst))
-        reportUnexpectedToken(P,
-                              "unexpect token, comptime `for` variable can "
-                              "only be declared as `const`");
-
-    if (!match(P, tokConst, tokVar))
-        reportUnexpectedToken(P, "var/const to start variable declaration");
+    if (match(P, tokConst, tokVar)) {
+        if (isComptime && previous(P)->tag != tokConst) {
+            reportUnexpectedToken(P,
+                                  "unexpect token, comptime `for` variable can "
+                                  "only be declared as `const`");
+        }
+        flags =tok.tag == tokConst ? flgConst : flgNone;
+    }
+    else {
+        flags = isComptime ? flgConst : flgNone;
+    }
 
     AstNode *names = NULL, *type = NULL, *init = NULL;
     names = isComptime
                 ? parseIdentifier(P)
-                : parseAtLeastOne(
-                      P, "variable names", tokColon, tokComma, parseIdentifier);
+                : parseAtLeastOne2(
+                      P, "variable names", tokColon, tokIn, tokComma, parseIdentifier);
 
     return newAstNode(
         P,
@@ -2422,7 +2444,12 @@ static AstNode *forStatement(Parser *P, bool isComptime)
 
     bool hasLparen = match(P, tokLParen);
     AstNode *var = forVariable(P, isComptime);
-    consume0(P, tokColon);
+    if (!match(P, tokColon, tokIn)) {
+        parserError(P, &peek(P, 1)->fileLoc,
+            "for statement requires colon/in after variable declaration",
+            NULL);
+    }
+
     AstNode *range = expression(P, false);
     AstNode *cond = NULL;
     if (isComptime && match(P, tokComma)) {
@@ -2494,15 +2521,21 @@ static AstNode *caseStatement(Parser *P)
     u64 flags = flgNone;
     Token tok = *current(P);
     AstNode *match = NULL, *body = NULL;
-    if (match(P, tokCase) || previous(P)->tag == tokComma) {
+    bool isMulti = previous(P)->tag == tokComma;
+    if (match(P, tokDefault, tokElipsis)) {
+        if (isMulti) {
+            parserError(P,
+                &previous(P)->fileLoc,
+                "default case cannot be part of a multi-case statement",
+                NULL);
+        }
+        flags |= flgDefault;
+    }
+    else {
+        match(P, tokCase);
         P->inCase = true;
         match = expression(P, false);
         P->inCase = false;
-    }
-    else {
-        consume(
-            P, tokDefault, "expecting a 'default' or a 'case' statement", NULL);
-        flags |= flgDefault;
     }
 
     if (!match(P, tokComma)) {
@@ -2535,6 +2568,13 @@ static AstNode *switchStatement(Parser *P)
     }
     consume0(P, tokRBrace);
 
+    if (cases.first == NULL) {
+        parserError(P,
+            &tok.fileLoc,
+            "switch statement must have at least one case",
+            NULL);
+    }
+
     return newAstNode(
         P,
         &tok,
@@ -2549,7 +2589,18 @@ static AstNode *matchCaseStatement(Parser *P)
     AstNode *match = NULL, *body = NULL;
     AstNode *variable = NULL;
     bool isMulti = previous(P)->tag == tokComma;
-    if (match(P, tokCase) || isMulti) {
+
+    if (match(P, tokDefault, tokElipsis)) {
+        if (isMulti) {
+            parserError(P,
+                &previous(P)->fileLoc,
+                "default case cannot be part of a multi-case statement",
+                NULL);
+        }
+        flags |= flgDefault;
+    }
+    else {
+        match(P, tokCase);
         P->inCase = true;
         match = parseType(P);
         P->inCase = false;
@@ -2565,10 +2616,6 @@ static AstNode *matchCaseStatement(Parser *P)
                                                   .names = variable}});
             variable->flags |= (isReference ? flgReference : flgNone);
         }
-    }
-    else {
-        consume(P, tokElse, "expecting an 'else' or a 'case' statement", NULL);
-        flags |= flgDefault;
     }
 
     if (!match(P, tokComma)) {
@@ -2604,6 +2651,13 @@ static AstNode *matchStatement(Parser *P)
         listAddAstNode(&cases, comptime(P, matchCaseStatement));
     }
     consume0(P, tokRBrace);
+
+    if (cases.first == NULL) {
+        parserError(P,
+            &tok.fileLoc,
+            "match statement must have at least one case",
+            NULL);
+    }
 
     return newAstNode(
         P,
