@@ -1,3 +1,4 @@
+warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 func main(args: [string]) {
   asm(
     "nop" ::::
@@ -16,13 +17,13 @@ func main(args: [string]) {
   asm(
     "nop" :
     "=r"(y) :
-    "r"(1.000000e+01) :
+    "r"(10) :
     "eax", "memory" :
   )
   asm(
     "nop" :
     "=r"(y) :
-    "r"(1.000000e+01) :
+    "r"(10) :
     "eax", "memory" :
     "noinline"
   )

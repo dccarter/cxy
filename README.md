@@ -40,6 +40,9 @@ mkdir build-dir
 cd build-dir
 cmake ..
 make
-
 ```
 
+#### Installation Script
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/dccarter/cxy/refs/heads/main/src/tools/download-cxy.sh)"
+```

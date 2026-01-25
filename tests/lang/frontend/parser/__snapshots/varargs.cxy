@@ -1,3 +1,4 @@
+warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 func varargs(...args: auto) { }
 
 
@@ -14,8 +15,8 @@ func many(x: i32, ...rest: f32) {
 }
 
 func main(args: [string]) {
-  varargs(10, "Hello", 'c', 2.000600e+03)
-  many(10, 1.000000e+01, 1.006000e+02)
+  varargs(10, "Hello", 'c', 2000.6)
+  many(10, 10, 100.6)
 }
 
 [1;32m✓[1;37m Compilation success

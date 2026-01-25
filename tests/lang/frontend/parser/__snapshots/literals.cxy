@@ -1,3 +1,4 @@
+warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 func main(args: [string]) {
   null
   true
@@ -21,10 +22,10 @@ func main(args: [string]) {
   10
   255
   16777215
-  1.100000e+00
-  1.000000e+00
-  1.000000e+06
-  1.900000e-05
+  1.1
+  1
+  1000000
+  1.9e-05
   ""
   "Hello World"
   "Hello 世界"

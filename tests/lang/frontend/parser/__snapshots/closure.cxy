@@ -1,3 +1,4 @@
+warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 func closureArg0(fn: func() -> void) {
   fn()
 }
@@ -14,13 +15,13 @@ func main(args: [string]) {
   const one = () => 1
   one()
   ((name: string) => {
-    return "Hello ${name}"
+    return "Hello ${name}}"
   })("User")
   var x = 100
   var b = "Hello"
-  (() => "${b} -> ${x}")()
+  (() => "${b}} -> ${x}}")()
   const f = () => {
-    const g = () => "${b} -> ${x}"
+    const g = () => "${b}} -> ${x}}"
   }
   closureArg0(() => { }
   )

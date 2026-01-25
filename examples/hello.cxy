@@ -5,7 +5,13 @@ func demo() {
     sleepAsync(3000)
     println("After")
 }
+
+
+func hello(fn: func() -> void) {
+    fn()
+}
+
 func main() {
-    async demo()
+    hello(() => { demo() })
     sleepAsync(5000)
 }

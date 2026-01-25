@@ -468,10 +468,14 @@ if(ENABLE_UNIT_TESTS)
     add_test(NAME unit_tests COMMAND cxy_unit_tests)
 endif()
 
-
-
-
 # Add stdlib test cases
+set(CXY_OPEN_SSL_OPTIONS "")
+if (OPENSSL_ROOT_DIR)
+    find_package(OpenSSL REQUIRED)
+    set(CXY_OPEN_SSL_OPTIONS --c-header-dir ${OPENSSL_INCLUDE_DIR} --c-lib-dir ${OPENSSL_ROOT_DIR}/lib)
+    message(STATUS "OpenSSL options needed for tests: ${CXY_OPEN_SSL_OPTIONS}")
+endif ()
+
 foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
     if (IS_DIRECTORY "${CXY_SRC}")
         continue()
@@ -480,7 +484,7 @@ foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
     get_filename_component(_FILE ${CXY_SRC} NAME)
     message(STATUS "Adding stdlib test case ${CXY_SRC}")
     add_test(NAME "stdlib/${_FILE}"
-             COMMAND cxy test --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
+             COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
 endforeach ()
 
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/plugins)

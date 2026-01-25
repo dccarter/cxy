@@ -81,3 +81,6 @@ generated.dSYM
 # IDE files
 .idea
 ./hello.cxy
+
+# AI files
+./PROMPT.md

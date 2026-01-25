@@ -2595,7 +2595,7 @@ static AstNode *matchCaseStatement(Parser *P)
     AstNode *variable = NULL;
     bool isMulti = previous(P)->tag == tokComma;
 
-    if (match(P, tokDefault, tokElipsis)) {
+    if (match(P, tokElse, tokElipsis)) {
         if (isMulti) {
             parserError(P,
                 &previous(P)->fileLoc,

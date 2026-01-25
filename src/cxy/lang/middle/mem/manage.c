@@ -618,7 +618,7 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
         }
 
         if (!isLiteralExpr(expr)) {
-            AstNode *var = ctx->returnVariable;
+            var = ctx->returnVariable;
             AstNode *assign =
                 makeExprStmt(ctx->pool,
                              builtinLoc(),

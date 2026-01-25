@@ -205,9 +205,15 @@ fi
 }
 
 echo -e "${Bgreen}3. Build downloaded compiler...${reset}"
-cmake -S ${WORKING_DIR}/compiler -B ${WORKING_DIR}/build -DCMAKE_BUILD_TYPE=Debug \
-  -DLLVM_ROOT_DIR=$(llvm-config --prefix) -DCMAKE_C_COMPILER=$(which clang) -DCMAKE_CXX_COMPILER=$(which clang++) \
-  -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR} -DCXY_VERSION=${CXY_VERSION} -DCXY_BUILD_ID=${CXY_BUILD_ID} 2>&1 >> ${LOG_FILE}
+if [[ "${OSTYPE}" =~ "darwin" ]]; then
+    cmake -S ${WORKING_DIR}/compiler -B ${WORKING_DIR}/build -DCMAKE_BUILD_TYPE=Debug \
+        -DLLVM_ROOT_DIR=$(llvm-config --prefix) -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR} \
+        -DCXY_VERSION=${CXY_VERSION} -DCXY_BUILD_ID=${CXY_BUILD_ID} 2>&1 >> ${LOG_FILE}
+else
+    cmake -S ${WORKING_DIR}/compiler -B ${WORKING_DIR}/build -DCMAKE_BUILD_TYPE=Debug \
+        -DLLVM_ROOT_DIR=$(llvm-config --prefix) -DCMAKE_C_COMPILER=$(which clang) -DCMAKE_CXX_COMPILER=$(which clang++) \
+        -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR} -DCXY_VERSION=${CXY_VERSION} -DCXY_BUILD_ID=${CXY_BUILD_ID} 2>&1 >> ${LOG_FILE}
+fi
 cmake --build ${WORKING_DIR}/build --config Debug --parallel `getconf _NPROCESSORS_ONLN` 2>&1 >> ${LOG_FILE}
 result=$?
 if [[ "${result}" -ne 0 ]] ; then
@@ -229,4 +235,3 @@ echo    " # Cxy configuration "
 echo    " export CXY_ROOT=${INSTALL_DIR} "
 echo    " export PATH=\"\${CXY_ROOT}/bin:\$PATH\""
 echo    " "
-

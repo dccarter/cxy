@@ -1,3 +1,4 @@
+warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 extern func hello(): void
 
 extern func hello(x: i32): void
