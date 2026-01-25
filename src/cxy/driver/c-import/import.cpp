@@ -54,6 +54,8 @@ static const Type *getIntegerTypeFromBitWidth(TypeTable *types,
         return getPrimitiveType(types, isSigned ? prtI32 : prtU32);
     case 64:
         return getPrimitiveType(types, isSigned ? prtI64 : prtU64);
+    case 128:
+        return getPrimitiveType(types, isSigned ? prtI128 : prtU128);
     default:
         unreachable("invalid integer bit width");
     }
@@ -100,6 +102,10 @@ static const Type *toCxy(IncludeContext &ctx, const clang::BuiltinType &type)
     case clang::BuiltinType::ULongLong:
         return getIntegerTypeFromBitWidth(
             ctx.types, ctx.target.getLongLongWidth(), false);
+    case clang::BuiltinType::Int128:
+        return getPrimitiveType(ctx.types, prtI128);
+    case clang::BuiltinType::UInt128:
+        return getPrimitiveType(ctx.types, prtU128);
     case clang::BuiltinType::Float16:
     case clang::BuiltinType::Float:
         return getPrimitiveType(ctx.types, prtF32);
@@ -887,6 +893,7 @@ AstNode *importCHeader(CompilerDriver *driver, const AstNode *node)
     cstring headerName = node->stringLiteral.value;
     auto &options = driver->options;
     clang::CompilerInstance ci;
+    ci.createFileManager();
     ci.createDiagnostics(ci.getFileManager().getVirtualFileSystem());
     auto args =
         map<cstring, cstring>(options.cflags, [](auto cflag) { return cflag; });
@@ -899,8 +906,6 @@ AstNode *importCHeader(CompilerDriver *driver, const AstNode *node)
     auto targetInfo =
         clang::TargetInfo::CreateTargetInfo(ci.getDiagnostics(), *pto);
     ci.setTarget(targetInfo);
-
-    ci.createFileManager();
     ci.createSourceManager(ci.getFileManager());
     ci.getHeaderSearchOpts().AddPath(llvm::sys::path::parent_path(importerPath),
                                      clang::frontend::Quoted,

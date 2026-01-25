@@ -157,9 +157,10 @@ typedef enum {
 typedef enum {
     vtsUninitialized = 0,
     vtsAssigned = 1,
-    vtsMaybeAssigned = 2,
-    vtsMoved = 3,
-    vtsDropped = 4,
+    vtsNullified = 2,
+    vtsMaybeAssigned = 3,
+    vtsMoved = 4,
+    vtsDropped = 5,
 } VariableState;
 
 struct Scope;

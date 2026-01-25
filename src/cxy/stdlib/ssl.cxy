@@ -114,14 +114,14 @@ pub class SslSocket: Socket {
         var bio = SSL.BIO_new_ssl(ctx, (ctx == sslClientCtx)? 1 : 0)
         if (bio == null) {
             unistd.close(fd)
-            raise SslError(f"BIO_new_ssl failed: ${getSslError()}")
+            raise SslError(f"BIO_new_ssl failed: {getSslError()}")
         }
 
         BIO_get_ssl!(bio, ptrof ssl)
         if (ssl == null) {
             BIO.BIO_free(bio)
             unistd.close(fd)
-            raise SslError(f"BIO_get_ssl failed: ${getSslError()}")
+            raise SslError(f"BIO_get_ssl failed: {getSslError()}")
         }
 
         SSL_set_mode!(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE!|SSL_MODE_AUTO_RETRY!)
@@ -129,7 +129,7 @@ pub class SslSocket: Socket {
         if (cbio == null) {
             BIO.BIO_free(bio)
             unistd.close(fd)
-            raise SslError( f"BIO_new_socket failed: ${getSslError()}")
+            raise SslError( f"BIO_new_socket failed: {getSslError()}")
         }
 
         BIO.BIO_push(bio, cbio)
@@ -149,7 +149,7 @@ pub class SslSocket: Socket {
 
                 BIO.BIO_free_all(bio)
                 unistd.close(fd)
-                raise SslError( f"BIO_new_socket failed(${err}): ${getSslError()}")
+                raise SslError( f"BIO_new_socket failed({err}): {getSslError()}")
             }
             TRC3!("SSL handshake done")
             break

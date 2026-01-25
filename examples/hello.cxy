@@ -1,11 +1,11 @@
-func get() => 100
+import "stdlib/coro.cxy"
 
-func demo() { #for i in 0..10 { println(i); } }
-
+func demo() {
+    println("Before")
+    sleepAsync(3000)
+    println("After")
+}
 func main() {
-    match get() {
-        i32 as b => println("One")
-        i8, u8 => println("2")
-        ... => println("Default")
-    }
+    async demo()
+    sleepAsync(5000)
 }

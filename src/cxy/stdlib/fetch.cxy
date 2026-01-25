@@ -140,7 +140,7 @@ pub class Form {
             var fd = item.open()
             var sent =  os.sendFile(fd.fd, 0, fd.size())
             if (!sent)
-                raise HttpError(f"uploading file '${item.path()}' failed: ${strerr()}")
+                raise HttpError(f"uploading file '{item.path()}' failed: {strerr()}")
             os << CRLF!
         }
 
@@ -464,10 +464,10 @@ pub class Response {
         while (!_isComplete) {
             var count = sock.receive(buffer, sizeof!(buffer), timeout);
             if (!count)
-                raise HttpError(f"Receiving fetch response failed: ${strerr()}")
+                raise HttpError(f"Receiving fetch response failed: {strerr()}")
             if (!feed(buffer, *count)) {
                 const err = parser.llhttp_get_error_reason(_parser) !: string
-                raise HttpError(f"Parsing fetch response failed: ${err}")
+                raise HttpError(f"Parsing fetch response failed: {err}")
             }
         }
     }
@@ -606,7 +606,7 @@ class Session {
 
         if (!resp.ok())
             raise HttpError(
-                f".Connect to server '${_addr}' failed (status: ${resp.statusCode()}"
+                f".Connect to server '{_addr}' failed (status: {resp.statusCode()}"
             )
         _req.cleanup()
     }

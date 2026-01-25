@@ -1801,6 +1801,8 @@ static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
         format(getState(ctx), "\nstatic ", NULL);
     }
     else {
+        if (findAttribute(node, S_hint))
+            return;
         format(getState(ctx), "extern ", NULL);
     }
     generateTypeName(ctx, getState(ctx), node->type->func.retType);

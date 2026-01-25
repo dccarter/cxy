@@ -63,7 +63,7 @@ func __launch(fn: func() -> i32): !Thread {
     var status = tinyThread.thrd_create(ptrof handle, fn.1, ref!(fn.0))
     if (status != thrd_success!) {
         deref!(fn.0)
-        raise ThreadError(f"creating thread failed: ${status}")
+        raise ThreadError(f"creating thread failed: {status}")
     }
     return Thread(handle)
 }

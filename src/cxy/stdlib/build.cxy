@@ -49,13 +49,13 @@ pub class Context {
 
     @inline func setOption(name: __string, value: __string) : !void{
         if (!(_options.[name] = value))
-            raise BuildError(f"build option '${name}' already defined")
+            raise BuildError(f"build option '{name}' already defined")
     }
 
     func option(name: __string): !&__string {
         var value = _options.[name]
         if (!value)
-            raise BuildError(f"option with name '${name}' does not exist")
+            raise BuildError(f"option with name '{name}' does not exist")
         return *value
     }
 
@@ -105,10 +105,10 @@ pub class Builder {
                 continue
             const idx = arg.indexOf('='`char)
             if (idx)
-                raise BuildError(f"invalid build option '${arg}', expect -DOPTION=VALUE")
+                raise BuildError(f"invalid build option '{arg}', expect -DOPTION=VALUE")
             var name = arg.substr(0, <i64>*idx)
             if (!_options.contains(name))
-                raise BuildError(f"unknown build option '${name}'")
+                raise BuildError(f"unknown build option '{name}'")
 
             var value = arg.substr(*idx + 1);
             _context.setOption(name, value)
@@ -119,13 +119,13 @@ pub class Builder {
 
     func addTask(name: __string, task: TaskFn): !void {
         if (_tasks.contains(name))
-            raise BuildError(f"task with name '${name}' already exist")
+            raise BuildError(f"task with name '{name}' already exist")
         _tasks.[name] = Task(name, &&task)
     }
 
     func addOption(name: __string, desc: __string, def: __string): !void {
         if (_options.contains(name))
-            raise BuildError(f"duplicate option with name '${name}'")
+            raise BuildError(f"duplicate option with name '{name}'")
         _options.[name] = OptionDesc{name: name, desc: desc, def: def}
     }
 

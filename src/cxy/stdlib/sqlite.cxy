@@ -81,7 +81,7 @@ pub struct Statement {
         var stmt: ^sqlite3.sqlite3_stmt = null
         var rc = sqlite3.sqlite3_prepare_v2(db, query, -1, ptrof stmt, null)
         if (rc != SQLITE_OK!) {
-            raise SqliteError(f"sqlite3_prepare_v2('${query}') failed: ${getError(rc)}")
+            raise SqliteError(f"sqlite3_prepare_v2('{query}') failed: {getError(rc)}")
         }
         return This(stmt)
     }
@@ -128,7 +128,7 @@ pub struct Statement {
     func bind[T](i: i32, value: &const T): !void {
         var rc = bindImpl(i, value)
         if (rc != SQLITE_OK!) {
-            raise SqliteError(f"sqlite3_bind_(${i}) failed: ${getError(rc)}")
+            raise SqliteError(f"sqlite3_bind_({i}) failed: {getError(rc)}")
         }
     }
 
@@ -143,7 +143,7 @@ pub struct Statement {
         var rc = sqlite3.sqlite3_step(_stmt);
         if (rc >= SQLITE_NOTICE! || rc == SQLITE_OK!)
             return;
-        raise SqliteError(f"sqlite3_step failed: ${getError(rc)}")
+        raise SqliteError(f"sqlite3_step failed: {getError(rc)}")
     }
 
     func next() {
@@ -223,7 +223,7 @@ pub class Database {
         )
 
         if (res.0 != SQLITE_OK!) {
-            raise SqliteError(f"sqlite3_open('${path}') failed: ${getError(res.0)}")
+            raise SqliteError(f"sqlite3_open('{path}') failed: {getError(res.0)}")
         }
 
         return This(res.1)

@@ -291,7 +291,7 @@ pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
     const status = withNullTermination[i32](
         &spath, (p: ^const char) => sysstat.mkdir(p, mode))
     if (status != 0)
-        raise IOError(f"creating directory ${spath} failed: ${strerr()}")
+        raise IOError(f"creating directory {spath} failed: {strerr()}")
 }
 
 pub func mkdirs(path: PathLike, mode: u16 = 0o777): !void {
@@ -313,7 +313,7 @@ pub func ls(
     var spath = cast[__string](&path)
     var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char) => dirent.opendir(p))
     if (d == null)
-        raise IOError(f"opendir('${path}') failed: ${strerr()}")
+        raise IOError(f"opendir('{path}') failed: {strerr()}")
     defer dirent.closedir(d)
 
     var base = cast[Path](&path)
@@ -345,7 +345,7 @@ pub func isDirEmpty(path: PathLike): !bool {
     var spath = cast[__string](&path);
     var d = withNullTermination[^dirent.DIR](&spath, (p: ^const char) => dirent.opendir(p))
     if (d == null)
-        raise IOError(f"opendir('${spath}') failed: ${strerr()}")
+        raise IOError(f"opendir('{spath}') failed: {strerr()}")
     defer dirent.closedir(d)
 
     var n = 0
@@ -364,7 +364,7 @@ pub func remove(path: PathLike, recursive: bool = false): !void {
     if (isdir(spath)) {
         if (!isDirEmpty(spath)) {
             if (!recursive)
-                raise IOError(f"attempt to delete a non empty directory ${spath}")
+                raise IOError(f"attempt to delete a non empty directory {spath}")
 
             // Recursive delete all directories
             ls(path, (path: PathLike): bool => {
@@ -374,7 +374,7 @@ pub func remove(path: PathLike, recursive: bool = false): !void {
         }
         var status = withNullTermination[i32](&spath, (p: ^const char) => unistd.rmdir(p))
         if (status != 0)
-            raise IOError(f"deleting directory '${spath}' failed: ${strerr()}")
+            raise IOError(f"deleting directory '{spath}' failed: ${strerr()}")
     }
     else if (exists(path)) {
         var status = withNullTermination[i32](&spath, (p: ^const char) => unistd.unlink(p))

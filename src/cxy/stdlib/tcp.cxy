@@ -239,19 +239,19 @@ pub func tcpConnect(addr: Address, timeout: u64 = 0): !i32 {
     /* Open a socket. */
     var fd = socket.socket(addr.family(), <i32>SOCK_STREAM!, 0);
     if (fd == -1)
-        raise TcpError(f"socket.socket(${addr}) failed: ${strerr()}")
+        raise TcpError(f"socket.socket({addr}) failed: {strerr()}")
 
     /* Connect to the remote endpoint. */
     var rc = socket.connect(fd, addr.nativeAddr(), <i32>addr.len());
     if (rc != 0) {
         assert!(rc == -1)
         if (errno! != EINPROGRESS!)
-            raise TcpError(f"socket.connect(${addr}) failed: ${strerr()}")
+            raise TcpError(f"socket.connect({addr}) failed: {strerr()}")
 
         rc = fdWaitWrite(fd, timeout)
         if (rc != State.AE_WRITABLE) {
             errno! = ETIMEDOUT!
-            raise TcpError(f"Waiting for socket(${addr}) to be writable failed")
+            raise TcpError(f"Waiting for socket({addr}) to be writable failed")
         }
 
         var err: i32 = 0;
@@ -261,13 +261,13 @@ pub func tcpConnect(addr: Address, timeout: u64 = 0): !i32 {
             err = errno!
             unistd.close(fd)
             errno! = err
-            raise TcpError(f"socket.getsockopt(${addr}) failed: ${strerr()}")
+            raise TcpError(f"socket.getsockopt({addr}) failed: {strerr()}")
         }
 
         if (err != 0) {
             unistd.close(fd)
             errno! = err
-            raise TcpError(f"socket(${addr}) error: ${strerr()}")
+            raise TcpError(f"socket({addr}) error: {strerr()}")
         }
     }
 

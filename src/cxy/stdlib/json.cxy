@@ -130,7 +130,7 @@ pub class JSONParser {
 
         if (data.[off] != '"'`char) {
             println(data.substr(off, 10))
-            raise JSONParserError(f"${line}:${col} - expecting a string start token '\"'")
+            raise JSONParserError(f"{line}:{col} - expecting a string start token '\"'")
         }
         advance()
         var start = off;
@@ -146,7 +146,7 @@ pub class JSONParser {
             advance()
         }
         if (p.[off] != '\"'`char)
-            raise JSONParserError(f"${line}:${col} - expecting a '\"' to terminate the string")
+            raise JSONParserError(f"{line}:{col} - expecting a '\"' to terminate the string")
         var str = data.substr(start, off-start);
         advance()
         return str
@@ -170,7 +170,7 @@ pub class JSONParser {
         if (str == __string("false"))
             return false
 
-        raise JSONParserError(f"${l}:${c} - expecting a boolean value (true|false) got '${str}'")
+        raise JSONParserError(f"{l}:{c} - expecting a boolean value (true|false) got '{str}'")
     }
 
     func expectFloat[T](): !T {
@@ -199,14 +199,14 @@ pub class JSONParser {
         }
 
         if (start == off)
-            raise JSONParserError(f"${l}:${c} - expecting a number")
+            raise JSONParserError(f"{l}:{c} - expecting a number")
 
         const str = data.substr(start, off - start);
         var ep: ^const char = null;
         var s = str.str() !: ^const char ;
         var num = strtod(s , ptrof ep);
         if ((ep - s) != (off - start))
-            raise JSONParserError(f"${l}:${c} - string '${str}' does not form a valid number");
+            raise JSONParserError(f"{l}:{c} - string '{str}' does not form a valid number");
         return <T>num
     }
 
@@ -225,7 +225,7 @@ pub class JSONParser {
     func expectChar(c: char): !void {
         skipWhitespace()
         if (done() || data.[off] != c)
-            raise JSONParserError(f"${line}:${col} - expected character '${c}' not found")
+            raise JSONParserError(f"{line}:${col} - expected character '${c}' not found")
         advance()
     }
 

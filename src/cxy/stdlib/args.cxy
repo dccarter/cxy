@@ -57,9 +57,9 @@ struct ParamContainer {
 
     func addParam(param: Param): !void {
         if (params.[param.name])
-            raise ParserError(f"argument '${param.name}' already exists")
+            raise ParserError(f"argument '{param.name}' already exists")
         if (param.sf != NOSF! && !!findParamByFlag(param.sf))
-            raise ParserError(f"argument with short format '${param.sf}' already exists")
+            raise ParserError(f"argument with short format '{param.sf}' already exists")
 
         params.[param.name] = &&param
     }
@@ -113,30 +113,30 @@ pub class Command {
                         populateRest(args, i + 1)
                         break
                     }
-                    raise ParserError(f"invalid command line argument '${full}'")
+                    raise ParserError(f"invalid command line argument '{full}'")
                 }
                 paramOpt = params.findByName(arg)
             }
             else {
                 arg = arg.substr(1)
                 if (arg.empty())
-                    raise ParserError(f"invalid command line argument '${full}'")
+                    raise ParserError(f"invalid command line argument '{full}'")
                 if (arg.size() > 1)
                     parseMultipleOptions(arg)
                 paramOpt = params.findParamByFlag(arg.[<i64>(arg.size() - 1)])
             }
 
             if (!paramOpt)
-                raise ParserError(f"option '${full}' is not supported by command '${name}'")
+                raise ParserError(f"option '{full}' is not supported by command '{name}'")
 
             const param = *paramOpt;
             if (param.option) {
                 if (!val.empty())
-                    raise ParserError(f"value given to an option argument '${name}'")
+                    raise ParserError(f"value given to an option argument '{name}'")
             }
             else if (val.empty()) {
                 if (i >= args.size() || args.[i].[0] == '-'`char)
-                    raise ParserError(f"argument '${arg}' is missing a value")
+                    raise ParserError(f"argument '{arg}' is missing a value")
                 val = __string(args.[i++])
             }
             addParsed(param.name, val)
@@ -194,7 +194,7 @@ pub class Command {
                 continue
             if (!parsed.[param.name]) {
                 if (param.def.empty())
-                    raise ParserError(f"missing required argument '${param.name}'")
+                    raise ParserError(f"missing required argument '{param.name}'")
                 else
                     parsed.[param.name] = param.def
             }
@@ -206,12 +206,12 @@ pub class Command {
             var paramOpt = params.findParamByFlag(opts.[i]);
             if (!paramOpt)
                 raise ParserError(
-                    f"option '${opts.[i]}' specified in '${opts}' not supported by command '${name}'"
+                    f"option '{opts.[i]}' specified in '{opts}' not supported by command '{name}'"
                 )
             const param = *paramOpt;
             if (!param.option)
                 raise ParserError(
-                    f"argument '${name}' passed in multi short options '${opts}' requires a value"
+                    f"argument '{name}' passed in multi short options '{opts}' requires a value"
                 )
             addParsed(param.name, __string())
         }
@@ -227,7 +227,7 @@ pub class Command {
     @inline
     - func addParsed(arg: __string, val: __string): !void {
         if (parsed.[arg])
-            raise ParserError(f"duplicate argument '${arg}' specified")
+            raise ParserError(f"duplicate argument '{arg}' specified")
         parsed.[arg] = val
     }
 }
@@ -304,7 +304,7 @@ pub class App {
                     // an error occurred with the help command
                     var cmdOpt = commands.[name];
                     if (!cmdOpt) {
-                        var msg = f"command '${name}' passed to help does not exist";
+                        var msg = f"command '{name}' passed to help does not exist";
                         this.showCommandHelp(&stderr, *commands.["help"], msg.str())
                         return -1
                     }
@@ -356,7 +356,7 @@ pub class App {
 
     func addCommand(cmd: Command): !void {
         if (commands.[cmd.name])
-            raise ParserError("command with name '${cmd.name}' already added")
+            raise ParserError("command with name '{cmd.name}' already added")
         longestCmd = max(longestCmd, cmd.name.size())
         for (const _, param: params.params) {
             cmd.addParam(param)
@@ -374,7 +374,7 @@ pub class App {
             args = args.view(1)
 
         if (!commands.[name]) {
-            showHelp(&stderr, f"specified default command '${defaultCmd}' is not a valid command" )
+            showHelp(&stderr, f"specified default command '{defaultCmd}' is not a valid command" )
             return -1
         }
 

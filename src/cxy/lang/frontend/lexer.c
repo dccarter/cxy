@@ -495,9 +495,8 @@ Token advanceLexer(Lexer *lexer)
 
                 if (!parsingStringLiteral &&
                     (lexer->flags & lxContinueStringExpr)) {
-                    if (getCurChar(lexer) == '$' &&
-                        peekNextChar(lexer) == '{') {
-                        skipChar(lexer); // skip $
+                    if (getCurChar(lexer) == '{' &&
+                        peekNextChar(lexer) != '{') {
                         Token tok =
                             makeToken_(lexer, buffer, &begin, tokStringLiteral);
                         lexer->flags |= lxReturnLStrFmt;

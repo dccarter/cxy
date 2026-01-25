@@ -1076,7 +1076,7 @@ pub class Server[Middlewares] {
     func listen(): !void {
         DBG!( "listening at " << config.address )
         if (!listener.listen(1024)) {
-            raise HttpError(f"listening failed: ${strerr()}" )
+            raise HttpError(f"listening failed: {strerr()}" )
         }
     }
 

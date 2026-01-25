@@ -75,7 +75,7 @@ pub func getenv(name: string, def: string = null): !__string {
     var value = stdlib.getenv(name !: ^const char) !: string
     if (value == null) {
         if (def == null)
-            raise OSError(f"environment variable ${name} does not exist")
+            raise OSError(f"environment variable {name} does not exist")
         value = def
     }
     return __string(value)
@@ -84,13 +84,13 @@ pub func getenv(name: string, def: string = null): !__string {
 @inline
 pub func setenv(name: string, value: string, overwrite: bool = false): !void {
     if (stdlib.setenv(name !: ^const char, value !: ^const char, <u8>overwrite) != 0)
-        raise OSError(f"setenv ${name}=${value} failed: ${strerr()}")
+        raise OSError(f"setenv {name}={value} failed: {strerr()}")
 }
 
 @inline
 pub func unsetenv(name: string): !void {
     if (stdlib.unsetenv(name !: ^const char) != 0)
-        raise OSError(f"unsetenv ${name} failed: ${strerr()}")
+        raise OSError(f"unsetenv {name} failed: {strerr()}")
 }
 
 #if (defined __ALPINE__) {
@@ -145,7 +145,7 @@ pub struct FileDescriptor {
     func size(): !u64 {
         var st = Stat{}
         if (nos.fs_fstat(fd, ptrof st) != 0)
-            raise IOError(f"fstat(${fd}) failed: ${strerr()}")
+            raise IOError(f"fstat({fd}) failed: {strerr()}")
         return <u64>st.st_size
     }
 
@@ -168,7 +168,7 @@ pub func open(
 
     var fd = fcntl.open(spath !: ^const char, flags, mode);
     if (fd < 0)
-        raise IOError(f"opening file '${path}' failed: ${strerr()}")
+        raise IOError(f"opening file '{path}' failed: {strerr()}")
     if (nonBlocking)
         setNonblocking(fd)
     return FileDescriptor(fd, true)
@@ -201,7 +201,7 @@ pub struct TempFile {
     func size(): !u64 {
         var st = Stat{}
         if (nos.fs_fstat(fd, ptrof st) != 0)
-            raise IOError(f"fstat(${fd}) failed: ${strerr()}")
+            raise IOError(f"fstat({fd}) failed: {strerr()}")
         return <u64>st.st_size
     }
 
@@ -225,7 +225,7 @@ pub func mkstemp(
     }
 
     if (fd < 0)
-        raise IOError(f"creating temp file ${path} failed: ${strerr()}")
+        raise IOError(f"creating temp file {path} failed: {strerr()}")
     if (nonBlocking)
         setNonblocking(fd)
     return TempFile(fd, &&path)
@@ -249,7 +249,7 @@ pub func copy[Src, Dest](dst: &const Dest, src: &const Src): !void {
     #if (defined MACOS) {
          var status = copyfile.fcopyfile(srcFd.fd, dstFd.fd, null, COPYFILE_ALL!)
          if (status < 0) {
-            raise IOError(f"copy file ${srcFd.fd}->${dstFd.fd} failed: ${strerr()}")
+            raise IOError(f"copy file {srcFd.fd}->${dstFd.fd} failed: ${strerr()}")
          }
     }
     else #if (defined UNIX) {

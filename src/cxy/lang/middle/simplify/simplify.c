@@ -1425,6 +1425,9 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
         return;
     }
 
+    if (init == NULL)
+        return;
+
     if (!isStaticExpr(init)) {
         if (typeIs(init->type, Class)) {
             node->varDecl.init =

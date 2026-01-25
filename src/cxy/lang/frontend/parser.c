@@ -104,8 +104,13 @@ static inline const char *getTokenString(Parser *P, const Token *tok, bool trim)
 
 static inline const char *getStringLiteral(Parser *P, const Token *tok)
 {
-    size_t start = tok->fileLoc.begin.byteOffset + 1;
-    size_t size = tok->fileLoc.end.byteOffset - start - 1;
+    size_t start = tok->fileLoc.begin.byteOffset;
+    if (tok->buffer->fileData[start] == '"')
+        start++;
+    size_t size = tok->fileLoc.end.byteOffset - start;
+    if (size > 0)
+        size--;
+
     char *str = mallocOrDie(size + 1), *p = str;
     size = escapeString(&tok->buffer->fileData[start], size, str, size);
 
@@ -1010,7 +1015,7 @@ static AstNode *functionParam(Parser *P)
     type->flags |= (isConst ? flgConst : flgNone);
 
     if (match(P, tokAssign)) {
-        def = expression(P, false);
+        def = expression(P, true);
     }
 
     return newAstNode(
@@ -2412,7 +2417,7 @@ static AstNode *ifStatement(Parser *P)
         cond = variable(P, false, false, true, false);
     }
     else {
-        cond = expression(P, false);
+        cond = expression(P, hasLparen);
     }
     if (hasLparen)
         consume0(P, tokRParen);
@@ -2453,7 +2458,7 @@ static AstNode *forStatement(Parser *P, bool isComptime)
     AstNode *range = expression(P, false);
     AstNode *cond = NULL;
     if (isComptime && match(P, tokComma)) {
-        cond = expression(P, false);
+        cond = expression(P, hasLparen);
         cond->flags |= flgComptime;
     }
     if (hasLparen)
@@ -2493,7 +2498,7 @@ static AstNode *whileStatement(Parser *P)
             cond = variable(P, false, false, true, false);
         }
         else {
-            cond = expression(P, false);
+            cond = expression(P, hasLparen);
         }
         if (!hasLparen) {
             if (!check(P, tokSemicolon, tokLBrace)) {
@@ -2558,7 +2563,7 @@ static AstNode *switchStatement(Parser *P)
     Token tok = *consume0(P, tokSwitch);
 
     bool hasLParen = match(P, tokLParen);
-    AstNode *cond = expression(P, false);
+    AstNode *cond = expression(P, hasLParen);
     if (hasLParen)
         consume0(P, tokRParen);
 
@@ -3014,7 +3019,7 @@ static AstNode *parseStructField(Parser *P, bool isPrivate)
 
     if (type == NULL || check(P, tokAssign)) {
         consume0(P, tokAssign);
-        value = expression(P, false);
+        value = expression(P, true);
     }
     // consume optional semicolon
     match(P, tokSemicolon);

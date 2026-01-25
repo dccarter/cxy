@@ -1,6 +1,7 @@
 import { Server, Request, Response, Config, SendFile } from "stdlib/http.cxy"
 import { Address } from "stdlib/net.cxy"
 import { Thread } from "stdlib/thread.cxy"
+import { running } from "stdlib/coro.cxy"
 import "stdlib/os.cxy"
 
 func stream(resp: &Response): !void {
@@ -17,7 +18,7 @@ pub func main(): !void  {
 
     server("/whoami", (@unused req: &const Request, resp: &Response) => {
         resp.header("Content-Type", "application/json")
-        resp.body() << "{ \"tid\": " << Thread.current().id() << ", \"cid\": " << coroRunning!.id <<  " }"
+        resp.body() << "{ \"tid\": " << Thread.current().id() << ", \"cid\": " << running().id <<  " }"
     })
 
     server("/stream", (@unused req: &const Request, resp: &Response) => {

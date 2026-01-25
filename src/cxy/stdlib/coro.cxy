@@ -71,6 +71,16 @@ macro __cxy_coro_setsp(x) {
 }
 
 }
+else {
+
+macro __cxy_coro_setjmp(ctx) module.jmp.sigsetjmp(ctx! !: ^i32, 0)
+macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^i32, 1)
+macro __cxy_coro_setsp(x) {
+  @volatile asm(""::"r"(alloca!(#u64)))
+  @volatile asm("mov sp, x0" :: "r"(x!) : "x0")
+}
+
+}
 
 @align(16)
 struct Coroutine {

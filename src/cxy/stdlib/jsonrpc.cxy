@@ -84,7 +84,7 @@ pub class JSONRPCClient[T] {
             var received = sock.receive(buf, sizeof!(buf), timeout);
             if (!received)
                 raise JsonRpcError(CXY_JSON_RPC_INTERNAL_ERROR!,
-                                   f"Receiving response from server failed: ${strerr()}")
+                                   f"Receiving response from server failed: {strerr()}")
             var count = *received;
             if (count > 0)
                 s << __string(buf !: string, count);
@@ -95,19 +95,19 @@ pub class JSONRPCClient[T] {
         var obj = json.fromString[json.ShellObject](&s);
         if (!obj&.isArray())
             raise JsonRpcError( CXY_JSON_RPC_INTERNAL_ERROR!,
-                                f"Unexpected response, expecting an array of responses: ${s}" )
+                                f"Unexpected response, expecting an array of responses: {s}" )
         var responses = Vector[Response]();
         for (var entry: <&const json.Array> *obj) {
             var resp = json.cast[Response](entry.0);
             if (!!resp.error && resp.result != null && !!resp.result) {
                 raise JsonRpcError(CXY_JSON_RPC_INTERNAL_ERROR!,
-                f"Response ${resp.id} is invalid, payload contains both error and result")
+                f"Response {resp.id} is invalid, payload contains both error and result")
             }
             if (resp.error) {
                 const code = resp.error&.code;
                 if (code < -32099 && code > CXY_JSON_RPC_API_ERROR!)
                     raise JsonRpcError(code,
-                                       f"internal server error (${resp.error&.message}, ${resp.error&.data})")
+                                       f"internal server error ({resp.error&.message}, {resp.error&.data})")
             }
             responses.push(&&resp)
         }
@@ -155,7 +155,7 @@ pub class JSONRPCClient[T] {
         var resp = resps.[0];
         if (resp.error) {
             raise JsonRpcError(resp.error&.code,
-                               f"Server returned error (${resp.error&.message}, ${resp.error&.data})")
+                               f"Server returned error ({resp.error&.message}, {resp.error&.data})")
         }
         return json.cast[T](&resp.result)
     }
@@ -200,7 +200,7 @@ pub class JSONRPCServer[T] {
             default =>
         }
         // Method not found
-        return RpcError(CXY_JSON_RPC_METHOD_NOT_FOUND!, f"Method '${method}' not found");
+        return RpcError(CXY_JSON_RPC_METHOD_NOT_FOUND!, f"Method '{method}' not found");
     }
 
 
@@ -220,7 +220,7 @@ pub class JSONRPCServer[T] {
             if (!tmp) {
                 raise JsonRpcError(
                     CXY_JSON_RPC_INVALID_PARAMS!,
-                    f"Missing required argument: '${name}'"
+                    f"Missing required argument: '{name}'"
                 )
             }
             return json.cast[T](*tmp) catch {
@@ -244,7 +244,7 @@ pub class JSONRPCServer[T] {
         if (resp.jsonrpc != CXY_JSON_RPC_VERSION!) {
             resp.error = RpcError(
                 CXY_JSON_RPC_API_ERROR!,
-                f"Unsupported RCP version '${resp.jsonrpc}', expecting version '${CXY_JSON_RPC_VERSION!}'"
+                f"Unsupported RCP version '{resp.jsonrpc}', expecting version '{CXY_JSON_RPC_VERSION!}'"
             )
             return &&resp
         }

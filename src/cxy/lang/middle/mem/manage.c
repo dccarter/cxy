@@ -147,7 +147,8 @@ static bool mergeVariableStates(DynArray *lhs, const DynArray *rhs)
         VariableState state;
         if (varLhs->state == varRhs->state)
             state = varLhs->state;
-        else if (varLhs->state == vtsAssigned || varRhs->state == vtsAssigned)
+        else if (varLhs->state == vtsAssigned || varRhs->state == vtsAssigned ||
+                 varLhs->state== vtsNullified || varRhs->state == vtsNullified)
             state = vtsMaybeAssigned;
         else
             state = vtsUninitialized;
@@ -372,7 +373,7 @@ static void reportUseUnassigned(MemContext *ctx,
                                 const VariableTrace *vt)
 {
     const AstNode *var = vt->variable;
-    if (vt->state == vtsAssigned)
+    if (vt->state == vtsAssigned || vt->state == vtsNullified)
         return;
 
     static const char *msg[] = {
@@ -416,8 +417,11 @@ static void visitVariableDecl(AstVisitor *visitor, AstNode *node)
         astVisit(visitor, init);
         return;
     }
-
-    insertVariableTrace(ctx, node, init ? vtsAssigned : vtsUninitialized);
+    VariableState state = vtsUninitialized;
+    if (init) {
+        state = nodeIs(init, NullLit)? vtsNullified : vtsAssigned;
+    }
+    insertVariableTrace(ctx, node, state);
     pushOnDynArray(ctx->locals, &node);
     astVisit(visitor, init);
     if (isLeftValueExpr(init) && nodeNeedsMemMgmt(init))
