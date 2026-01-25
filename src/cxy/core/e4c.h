@@ -17,7 +17,7 @@ extern "C" {
 
 /* Maximum number of nested `try` blocks */
 #ifndef E4C_MAX_FRAMES
-#define E4C_MAX_FRAMES 16
+#define E4C_MAX_FRAMES 32
 #endif
 
 /* Maximum length (in bytes) of an exception message */

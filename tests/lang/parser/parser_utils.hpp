@@ -41,6 +41,9 @@ private:
     StrPool strings_;
     Log log_;
     CompilerDriver driver_;
+    std::string captured_diagnostics_;
+
+    static void quietDiagnosticHandler(const Diagnostic* diagnostic, void* ctx);
 
 public:
     ParserTestFixture();
@@ -61,6 +64,16 @@ public:
      * @brief Parse source code as a complete program/module
      */
     AstNode* parseProgram(const std::string& source, const std::string& filename = "test.cxy");
+
+    /**
+     * @brief Get captured diagnostic messages from last parse
+     */
+    const std::string& getCapturedDiagnostics() const { return captured_diagnostics_; }
+
+    /**
+     * @brief Clear captured diagnostics
+     */
+    void clearDiagnostics() { captured_diagnostics_.clear(); }
 
 private:
     Lexer createLexer(const std::string& source, const std::string& filename);

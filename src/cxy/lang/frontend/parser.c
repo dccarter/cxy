@@ -6,6 +6,7 @@
 #include "ast.h"
 #include "defines.h"
 #include "flag.h"
+#include "lang/frontend/token.h"
 #include "lexer.h"
 #include "strings.h"
 
@@ -1385,7 +1386,7 @@ static AstNode *parseCallArguments(Parser *P)
 {
     Token tok = *current(P);
     bool isSpread = match(P, tokElipsis);
-    AstNode *expr = expressionWithoutStructs(P);
+    AstNode *expr = expressionWithStructs(P);
     return isSpread ? newAstNode(P,
                                  &tok,
                                  &(AstNode){.tag = astSpreadExpr,
@@ -1817,13 +1818,23 @@ static AstNode *primary(Parser *P, bool allowStructs)
     return postfixCast(P, primary_(P, allowStructs), allowStructs);
 }
 
+static AstNode *primaryWithoutStructs(Parser *P, bool allowStructs)
+{
+    Token tok = *current(P);
+    return postfixCast(P, primary_(P, false), false);
+}
+
 static AstNode *expression(Parser *P, bool allowStructs)
 {
     AstNode *attrs = NULL;
     if (check(P, tokAt))
         attrs = attributes(P);
 
-    AstNode *expr = ternary(P, primary);
+    AstNode *expr = NULL;
+    if (allowStructs)
+        expr = ternary(P, primary);
+    else
+        expr = ternary(P, primaryWithoutStructs);
     expr->attrs = attrs;
     return expr;
 }
@@ -2374,14 +2385,21 @@ static AstNode *ifStatement(Parser *P)
 {
     AstNode *ifElse = NULL, *cond = NULL, *body = NULL;
     Token tok = *consume0(P, tokIf);
-    consume0(P, tokLParen);
+    bool hasLparen = match(P, tokLParen);
     if (check(P, tokConst, tokVar)) {
         cond = variable(P, false, false, true, false);
     }
     else {
-        cond = expression(P, true);
+        cond = expression(P, false);
     }
-    consume0(P, tokRParen);
+    if (hasLparen)
+        consume0(P, tokRParen);
+
+    if (!hasLparen && !check(P, tokLBrace)) {
+        parserError(P,
+            &peek(P, 1)->fileLoc,
+            "if statement without parentheses requires braces around body", NULL);
+    }
 
     body = statement(P, false);
     if (match(P, tokElse)) {
@@ -2402,18 +2420,25 @@ static AstNode *forStatement(Parser *P, bool isComptime)
 
     Token tok = *consume0(P, tokFor);
 
-    consume0(P, tokLParen);
+    bool hasLparen = match(P, tokLParen);
     AstNode *var = forVariable(P, isComptime);
     consume0(P, tokColon);
-    AstNode *range = expression(P, !isComptime);
+    AstNode *range = expression(P, false);
     AstNode *cond = NULL;
     if (isComptime && match(P, tokComma)) {
         cond = expression(P, false);
         cond->flags |= flgComptime;
     }
-    consume0(P, tokRParen);
-    if (!match(P, tokSemicolon))
+    if (hasLparen)
+        consume0(P, tokRParen);
+    if (!match(P, tokSemicolon)) {
+        if (!hasLparen && !check(P, tokLBrace)) {
+            parserError(P, &peek(P, 1)->fileLoc,
+                "for statement without parentheses requires braces around body",
+                NULL);
+        }
         body = statement(P, false);
+    }
 
     return newAstNode(
         P,
@@ -2436,14 +2461,24 @@ static AstNode *whileStatement(Parser *P)
         body = statement(P, false);
     }
     else {
-        consume0(P, tokLParen);
+        bool hasLparen = match(P, tokLParen);
         if (check(P, tokConst, tokVar)) {
             cond = variable(P, false, false, true, false);
         }
         else {
-            cond = expression(P, true);
+            cond = expression(P, false);
         }
-        consume0(P, tokRParen);
+        if (!hasLparen) {
+            if (!check(P, tokSemicolon, tokLBrace)) {
+                parserError(P, &peek(P, 1)->fileLoc,
+                "while statement without parentheses requires braces around body",
+                NULL);
+            }
+        }
+        else {
+            consume0(P, tokRParen);
+        }
+
         if (!match(P, tokSemicolon))
             body = statement(P, false);
     }
@@ -2489,9 +2524,10 @@ static AstNode *switchStatement(Parser *P)
     AstNodeList cases = {NULL};
     Token tok = *consume0(P, tokSwitch);
 
-    consume0(P, tokLParen);
+    bool hasLParen = match(P, tokLParen);
     AstNode *cond = expression(P, false);
-    consume0(P, tokRParen);
+    if (hasLParen)
+        consume0(P, tokRParen);
 
     consume0(P, tokLBrace);
     while (!check(P, tokRBrace, tokEoF)) {
@@ -2558,9 +2594,10 @@ static AstNode *matchStatement(Parser *P)
     AstNodeList cases = {NULL};
     Token tok = *consume0(P, tokMatch);
 
-    consume0(P, tokLParen);
+    bool hasLparen = match(P, tokLParen);
     AstNode *expr = expression(P, false);
-    consume0(P, tokRParen);
+    if (hasLparen)
+        consume0(P, tokRParen);
 
     consume0(P, tokLBrace);
     while (!check(P, tokRBrace, tokEoF)) {
@@ -2694,7 +2731,7 @@ static AstNode *statement(Parser *P, bool exprOnly)
         stmt = macroSdlStmt(P);
         break;
     default: {
-        AstNode *expr = expression(P, false);
+        AstNode *expr = expression(P, true);
         stmt = exprOnly ? expr
                         : newAstNode_(P,
                                       &expr->loc,

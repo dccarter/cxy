@@ -1,9 +1,17 @@
+func get() => 100
 
-func say(fn: func(name: string, age: i32) -> string) {
-    println(fn("World", 10), "World")
+func demo() {
+    if condition {
+      for (const i: iterable) {
+        while flag {
+          switch getValue() {
+            case 1 => continue
+            default => break
+          }
+        }
+      }
+    }
 }
 
 func main() {
-    var x: i128 = -12345678901234567890;
-    println( x )
 }

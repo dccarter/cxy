@@ -27,6 +27,7 @@ typedef struct {
     Log *L;
     int depth;
     bool needsSpace;
+    bool needsNewline;
 
     struct {
         bool withLocation;
@@ -152,7 +153,6 @@ static void emitNil(SexpDumpContext *ctx)
 }
 
 // Forward declarations
-static void nodeToSexp(ConstAstVisitor *visitor, const AstNode *node);
 static void manyNodesToSexp(ConstAstVisitor *visitor, const AstNode *nodes);
 
 static void emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
@@ -214,7 +214,7 @@ static void emitMetadata(ConstAstVisitor *visitor, const AstNode *node)
     emitCloseParen(ctx);
 }
 
-static void nodeToSexp(ConstAstVisitor *visitor, const AstNode *node)
+static void dispatch(ConstVisitor func, ConstAstVisitor *visitor, const AstNode *node)
 {
     if (node == NULL) {
         SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -225,18 +225,27 @@ static void nodeToSexp(ConstAstVisitor *visitor, const AstNode *node)
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
     emitOpenParen(ctx);
     emitSymbol(ctx, getAstNodeName(node));
-
-    astConstVisit(visitor, node);
+    func(visitor, node);
     emitCloseParen(ctx);
+    if (node->next != NULL)
+        emitNewline(ctx);
 }
 
 static void manyNodesToSexp(ConstAstVisitor *visitor, const AstNode *nodes)
 {
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
     for (const AstNode *node = nodes; node; node = node->next) {
-        SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
         emitNewline(ctx);
-        nodeToSexp(visitor, node);
+        astConstVisit(visitor, node);
     }
+}
+
+static void visitFallback(ConstAstVisitor *visitor, const AstNode *node)
+{
+    SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+    // For any nodes not explicitly handled, just emit metadata
+    emitMetadata(visitor, node);
+    astConstVisitFallbackVisitAll(visitor, node);
 }
 
 // Visitor functions
@@ -247,7 +256,7 @@ static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->program.module) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->program.module);
+        astConstVisit(visitor, node->program.module);
     }
 
     manyNodesToSexp(visitor, node->program.top);
@@ -329,8 +338,8 @@ static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
     emitMetadata(visitor, node);
-    nodeToSexp(visitor, node->castExpr.expr);
-    nodeToSexp(visitor, node->castExpr.to);
+    astConstVisit(visitor, node->castExpr.expr);
+    astConstVisit(visitor, node->castExpr.to);
 }
 
 static void visitDefine(ConstAstVisitor *visitor, const AstNode *node)
@@ -341,13 +350,13 @@ static void visitDefine(ConstAstVisitor *visitor, const AstNode *node)
     if (node->define.type) {
         SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
         emitNewline(ctx);
-        nodeToSexp(visitor, node->define.type);
+        astConstVisit(visitor, node->define.type);
     }
 
     if (node->define.container) {
         SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
         emitNewline(ctx);
-        nodeToSexp(visitor, node->define.container);
+        astConstVisit(visitor, node->define.container);
     }
 }
 
@@ -366,7 +375,7 @@ static void visitImport(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->import.module) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->import.module);
+        astConstVisit(visitor, node->import.module);
     }
 
     manyNodesToSexp(visitor, node->import.entities);
@@ -413,12 +422,12 @@ static void visitArrayType(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->arrayType.elementType) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->arrayType.elementType);
+        astConstVisit(visitor, node->arrayType.elementType);
     }
 
     if (node->arrayType.dim) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->arrayType.dim);
+        astConstVisit(visitor, node->arrayType.dim);
     }
 }
 
@@ -431,7 +440,7 @@ static void visitFuncType(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->funcType.ret) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->funcType.ret);
+        astConstVisit(visitor, node->funcType.ret);
     }
 }
 
@@ -442,7 +451,7 @@ static void visitOptionalType(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->optionalType.type) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->optionalType.type);
+        astConstVisit(visitor, node->optionalType.type);
     }
 }
 
@@ -460,7 +469,7 @@ static void visitPointerType(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->pointerType.pointed) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->pointerType.pointed);
+        astConstVisit(visitor, node->pointerType.pointed);
     }
 }
 
@@ -471,7 +480,7 @@ static void visitReferenceType(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->referenceType.referred) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->referenceType.referred);
+        astConstVisit(visitor, node->referenceType.referred);
     }
 }
 
@@ -488,12 +497,12 @@ static void visitMemberExpr(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->memberExpr.target) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->memberExpr.target);
+        astConstVisit(visitor, node->memberExpr.target);
     }
 
     if (node->memberExpr.member) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->memberExpr.member);
+        astConstVisit(visitor, node->memberExpr.member);
     }
 }
 
@@ -504,12 +513,12 @@ static void visitIndexExpr(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->indexExpr.target) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->indexExpr.target);
+        astConstVisit(visitor, node->indexExpr.target);
     }
 
     if (node->indexExpr.index) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->indexExpr.index);
+        astConstVisit(visitor, node->indexExpr.index);
     }
 }
 
@@ -520,7 +529,7 @@ static void visitCallExpr(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->callExpr.callee) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->callExpr.callee);
+        astConstVisit(visitor, node->callExpr.callee);
     }
 
     manyNodesToSexp(visitor, node->callExpr.args);
@@ -534,12 +543,12 @@ static void visitBinaryExpr(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->binaryExpr.lhs) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->binaryExpr.lhs);
+        astConstVisit(visitor, node->binaryExpr.lhs);
     }
 
     if (node->binaryExpr.rhs) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->binaryExpr.rhs);
+        astConstVisit(visitor, node->binaryExpr.rhs);
     }
 }
 
@@ -551,7 +560,7 @@ static void visitUnaryExpr(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->unaryExpr.operand) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->unaryExpr.operand);
+        astConstVisit(visitor, node->unaryExpr.operand);
     }
 }
 
@@ -569,13 +578,13 @@ static void visitFuncDecl(ConstAstVisitor *visitor, const AstNode *node)
     // Return type
     if (node->funcDecl.signature && node->funcDecl.signature->ret) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->funcDecl.signature->ret);
+        astConstVisit(visitor, node->funcDecl.signature->ret);
     }
 
     // Body
     if (node->funcDecl.body) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->funcDecl.body);
+        astConstVisit(visitor, node->funcDecl.body);
     }
 }
 
@@ -587,12 +596,12 @@ static void visitFuncParamDecl(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->funcParam.type) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->funcParam.type);
+        astConstVisit(visitor, node->funcParam.type);
     }
 
     if (node->funcParam.def) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->funcParam.def);
+        astConstVisit(visitor, node->funcParam.def);
     }
 }
 
@@ -605,12 +614,12 @@ static void visitVarDecl(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->varDecl.type) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->varDecl.type);
+        astConstVisit(visitor, node->varDecl.type);
     }
 
     if (node->varDecl.init) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->varDecl.init);
+        astConstVisit(visitor, node->varDecl.init);
     }
 }
 
@@ -627,7 +636,7 @@ static void visitReturnStmt(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->returnStmt.expr) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->returnStmt.expr);
+        astConstVisit(visitor, node->returnStmt.expr);
     }
 }
 
@@ -638,9 +647,37 @@ static void visitExpressionStmt(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->exprStmt.expr) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->exprStmt.expr);
+        astConstVisit(visitor, node->exprStmt.expr);
     }
 }
+
+// static void visitCaseStmt(ConstAstVisitor *visitor, const AstNode *node)
+// {
+//     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+//     if (node->caseStmt.variable) {
+//         emitNewline(ctx);
+//         astConstVisit(visitor, node->caseStmt.variable);
+//     }
+//     if (node->caseStmt.match) {
+//         emitNewline(ctx);
+//         astConstVisit(visitor, node->caseStmt.match);
+//     }
+//     if (node->caseStmt.body) {
+//         emitNewline(ctx);
+//         astConstVisit(visitor, node->caseStmt.body);
+//     }
+// }
+
+// static void visitSwitchStmt(ConstAstVisitor *visitor, const AstNode *node)
+// {
+//     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
+//     emitMetadata(visitor, node);
+
+//     if (node->exprStmt.expr) {
+//         emitNewline(ctx);
+//         astConstVisit(visitor, node->exprStmt.expr);
+//     }
+// }
 
 static void visitIfStmt(ConstAstVisitor *visitor, const AstNode *node)
 {
@@ -650,19 +687,19 @@ static void visitIfStmt(ConstAstVisitor *visitor, const AstNode *node)
     // Condition
     if (node->ifStmt.cond) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->ifStmt.cond);
+        astConstVisit(visitor, node->ifStmt.cond);
     }
 
     // Then branch
     if (node->ifStmt.body) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->ifStmt.body);
+        astConstVisit(visitor, node->ifStmt.body);
     }
 
     // Else branch
     if (node->ifStmt.otherwise) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->ifStmt.otherwise);
+        astConstVisit(visitor, node->ifStmt.otherwise);
     }
 }
 
@@ -683,12 +720,12 @@ static void visitFieldDecl(ConstAstVisitor *visitor, const AstNode *node)
 
     if (node->structField.type) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->structField.type);
+        astConstVisit(visitor, node->structField.type);
     }
 
     if (node->structField.value) {
         emitNewline(ctx);
-        nodeToSexp(visitor, node->structField.value);
+        astConstVisit(visitor, node->structField.value);
     }
 }
 
@@ -702,12 +739,6 @@ static void visitTypeRef(ConstAstVisitor *visitor, const AstNode *node)
 {
     SexpDumpContext *ctx = getConstAstVisitorContext(visitor);
     emitType(ctx, node->type);
-}
-
-static void visitFallback(ConstAstVisitor *visitor, const AstNode *node)
-{
-    // For any nodes not explicitly handled, just emit metadata
-    emitMetadata(visitor, node);
 }
 
 AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *state)
@@ -770,14 +801,13 @@ AstNode *dumpAstToSexpState(CompilerDriver *driver, AstNode *node, FormatState *
         [astReturnStmt] = visitReturnStmt,
         [astExprStmt] = visitExpressionStmt,
         [astIfStmt] = visitIfStmt,
-    });
-    visitor.fallback = visitFallback;
+    }, .fallback = visitFallback, .dispatch = dispatch);
 
     // Handle metadata node like YAML dumper does
     if (nodeIs(node, Metadata)) {
-        nodeToSexp(&visitor, node->metadata.node);
+        astConstVisit(&visitor, node->metadata.node);
     } else {
-        nodeToSexp(&visitor, node);
+        astConstVisit(&visitor, node);
     }
 
     return node;

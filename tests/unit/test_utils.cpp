@@ -269,7 +269,6 @@ TEST_CASE("formatu128 Buffer Handling") {
     SUBCASE("Exact fit") {
         char exact[5]; // For "1234" + null terminator
         formatu128(1234, exact, sizeof(exact));
-        printf("Exact %s\n", exact);
         REQUIRE(std::strcmp(exact, "1234") == 0);
     }
 }
