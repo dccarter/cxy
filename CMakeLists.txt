@@ -440,6 +440,7 @@ if(ENABLE_UNIT_TESTS)
         tests/lang/parser/test_literals.cpp
         tests/lang/parser/test_primitive_types.cpp
         tests/lang/parser/test_optional_parens.cpp
+        tests/lang/parser/test_for_loop.cpp
         tests/lang/parser/parser_utils.cpp
         tests/unit/test_utils.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
