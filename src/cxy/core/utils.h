@@ -58,8 +58,8 @@ extern "C" {
 #define INT128_MIN       ((__int128_t)(UINT128_C(1) << 127))
 #define INT128_MAX       ((__int128_t)(UINT128_MAX >> 1))
 
-#define UINT128_HIGH(val) ((__uint64_t)(((__uint128_t)(val)) >> 64))
-#define UINT128_LOW(val)  ((__uint64_t)((__uint128_t)(val)))
+#define UINT128_HIGH(val) ((uint64_t)(((__uint128_t)(val)) >> 64))
+#define UINT128_LOW(val)  ((uint64_t)((__uint128_t)(val)))
 
 #define sizeof__(A) (sizeof(A) / sizeof(*(A)))
 

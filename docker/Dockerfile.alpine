@@ -1,7 +1,24 @@
 FROM alpine:latest
 # Install packages
-RUN apk add --update cmake make llvm-dev clang-dev llvm19-static llvm19-gtest \
-    clang19-static rsync gdb openssl openssl-dev bash git
+RUN apk add --update \
+    cmake \
+    make \
+    llvm21-dev \
+    llvm21-static \
+    llvm21-dev \
+    llvm21-gtest \
+    clang21-static \
+    clang21-dev \
+    rsync \
+    gdb \
+    openssl \
+    openssl-dev \
+    bash \
+    git
+
+# Link llvm-config21 to llvm-config
+RUN ln -sf /usr/lib/llvm21/bin/llvm-config /usr/bin/llvm-config
+RUN ls /usr/bin/llvm-config
 
 # Needed by cxy compiler
 ENV CXY_OS=__ALPINE__

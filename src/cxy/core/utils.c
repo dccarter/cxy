@@ -129,7 +129,7 @@ __uint128_t strtou128(const char *str, char **endptr, int base)
     return result;
 }
 
-static void pu64_to_buffer(__uint64_t u, char **buf, size_t *remaining) {
+static void pu64_to_buffer(u64 u, char **buf, size_t *remaining) {
     int written = snprintf(*buf, *remaining, "%"PRIu64, u);
     if (written > 0 && (size_t)written <= *remaining) {
         *buf += written;
@@ -137,7 +137,7 @@ static void pu64_to_buffer(__uint64_t u, char **buf, size_t *remaining) {
     }
 }
 
-static void pu640_to_buffer(__uint64_t u, char **buf, size_t *remaining) {
+static void pu640_to_buffer(u64 u, char **buf, size_t *remaining) {
     int written = snprintf(*buf, *remaining, "%019"PRIu64, u);
     if (written > 0 && (size_t)written <= *remaining) {
         *buf += written;

@@ -13,6 +13,10 @@ namespace fs = std::filesystem;
 
 void printType_(FormatState *state, const Type *type, bool keyword) {}
 
+const NamedTypeMember *findNamedTypeMemberInContainer(
+    const TypeMembersContainer *container, cstring member)
+{ return nullptr; }
+
 int main(int argc, char *argv[])
 {
     const char *fileName = "<stdin>";
