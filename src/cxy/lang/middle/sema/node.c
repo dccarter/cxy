@@ -86,7 +86,7 @@ static AstNode *createStructInitialize(TypingContext *ctx,
     AstNodeList init = {};
     for (AstNode *member = decl->structDecl.members; member;
          member = member->next) {
-        if (nodeIs(member, FieldDecl) && member->structField.value) {
+        if (!hasFlag(member, Static) && nodeIs(member, FieldDecl) && member->structField.value) {
             AstNode *expr = insertAstNode(
                 &init,
                 makeFieldExpr(

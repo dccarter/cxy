@@ -1,17 +1,10 @@
 import "stdlib/coro.cxy"
-
-func demo() {
-    println("Before")
-    sleepAsync(3000)
-    println("After")
-}
-
-
-func hello(fn: func() -> void) {
-    fn()
+struct Hello {
+    @static
+    LOG_TAG = "Hello World"
+    func `init`(){}
 }
 
 func main() {
-    hello(() => { demo() })
-    sleepAsync(5000)
+    var x = Hello();
 }

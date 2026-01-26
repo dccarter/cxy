@@ -291,7 +291,7 @@ pub class JSONParser {
 func fieldFromJSON[T](
     p: &JSONParser,
     pos: (u32, u32),
-    obj: &T,
+    @unused obj: &T,
     key: &__string,
     partialAllowed: bool
 ): !void {
