@@ -2,6 +2,24 @@ FROM ubuntu:latest AS builder
 
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing cmake \
-  clang llvm llvm-dev libclang-dev clang-format gdb openssl libssl-dev
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
+  cmake \
+  openssl \
+  libssl-dev \
+  wget \
+  software-properties-common \
+  lsb-release
 
+# Install llvm-21
+RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - \
+ && apt-add-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" \
+ && apt-get update \
+ && apt-get install -y --fix-missing \
+    llvm-21-dev \
+    clang-21 \
+    libclang-21-dev \
+    clang-format-21 \
+ && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 21 \
+  --slave /usr/bin/clang++ clang++ /usr/bin/clang++-21 \
+  --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-21 \
+ && update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-21 21

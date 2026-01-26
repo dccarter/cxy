@@ -1,4 +1,4 @@
-FROM suilteam/cxy-base:ubuntu as builder
+FROM suilteam/cxy-base:ubuntu AS builder
 
 # Build arguments
 ARG RELEASE_TAG=main
@@ -16,7 +16,7 @@ LABEL build=${BUILD_ID}
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
-    wget git
+    git
 
 # Install cxy compiler
 RUN bash -c "$(wget https://raw.githubusercontent.com/dccarter/cxy/refs/tags/$RELEASE_TAG/src/tools/download-cxy.sh -O -)"
