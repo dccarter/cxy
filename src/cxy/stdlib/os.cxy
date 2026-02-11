@@ -249,7 +249,7 @@ pub func copy[Src, Dest](dst: &const Dest, src: &const Src): !void {
     #if (defined MACOS) {
          var status = copyfile.fcopyfile(srcFd.fd, dstFd.fd, null, COPYFILE_ALL!)
          if (status < 0) {
-            raise IOError(f"copy file {srcFd.fd}->${dstFd.fd} failed: ${strerr()}")
+            raise IOError(f"copy file {srcFd.fd}->{dstFd.fd} failed: {strerr()}")
          }
     }
     else #if (defined UNIX) {
@@ -261,10 +261,10 @@ pub func copy[Src, Dest](dst: &const Dest, src: &const Src): !void {
                 if (errno! == EAGAIN! || errno! == EWOULDBLOCK!) {
                     const ret = fdWaitRead(srcFd.fd)
                     if (ret != State.AE_READABLE)
-                        raise IOError(f"Waiting for file ${srcFd.fd} to be readable failed: ${strerr()}")
+                        raise IOError(f"Waiting for file {srcFd.fd} to be readable failed: {strerr()}")
                     continue
                 }
-                raise IOError(f"copy file ${srcFd.fd}->${dstFd.fd} failed: ${strerr()}")
+                raise IOError(f"copy file {srcFd.fd}->{dstFd.fd} failed: {strerr()}")
             }
             copied += numWritten;
         }
@@ -302,7 +302,7 @@ pub class FileInputStream: InputStream {
     func open(path: string, nonBlocking: bool = true, mode: i32 = 0666): !This {
         var fd = fcntl.open(path !: ^const char, O_RDONLY!, mode);
         if (fd < 0)
-            raise IOError(f"opening file '${path}' failed: ${strerr()}")
+            raise IOError(f"opening file '{path}' failed: {strerr()}")
         return This(fd, true, nonBlocking)
     }
 
@@ -332,10 +332,10 @@ pub class FileInputStream: InputStream {
                 if (errno! == EAGAIN!) {
                     const ret = fdWaitRead(fd, timeout)
                     if (ret != State.AE_READABLE)
-                        raise IOError(f"Waiting for file ${fd} to be readable failed: ${strerr()}")
+                        raise IOError(f"Waiting for file {fd} to be readable failed: {strerr()}")
                     continue
                 }
-                raise IOError(f"reading from file ${fd} failed: ${strerr()}")
+                raise IOError(f"reading from file {fd} failed: {strerr()}")
             }
 
             if (*tmp == 0)
@@ -362,10 +362,10 @@ pub class FileInputStream: InputStream {
     func readAll(): !String {
         var st = Stat{}
         if (nos.fs_fstat(fd, ptrof st) != 0)
-            raise IOError(f"fstat(${fd}) failed: ${strerr()}")
+            raise IOError(f"fstat({fd}) failed: {strerr()}")
 
         if (st.st_size > 1048576)
-            raise IOError(f"file size(=${st.st_size}) to large (limit: 1mb) to read with this api")
+            raise IOError(f"file size(={st.st_size}) to large (limit: 1mb) to read with this api")
 
         var s = String();
         if (!S_ISREG!(st.st_mode)) {
@@ -383,7 +383,7 @@ pub class FileInputStream: InputStream {
             var p = ptroff!(buf + nRead)
             var tmp = read(p, st.st_size - nRead)
             if (!tmp)
-                raise IOError(f"error reading file ${fd}: ${strerr()}")
+                raise IOError(f"error reading file {fd}: {strerr()}")
             nRead += *tmp
         }
         s.resize(nRead)
@@ -395,7 +395,7 @@ pub class FileInputStream: InputStream {
         while {
             var tmp = read(buf, 4092)
             if (*tmp < 0)
-                raise IOError(f"reading command output failed: ${strerr()}")
+                raise IOError(f"reading command output failed: {strerr()}")
             if (*tmp == 0)
                 return;
 
@@ -442,7 +442,7 @@ pub class FileOutputStream : OutputStream {
     ): !This {
         var fd = fcntl.open(path !: ^const char, flags, mode);
         if (fd < 0)
-            raise IOError(f"opening file '${path}' failed: ${strerr()}")
+            raise IOError(f"opening file '{path}' failed: {strerr()}")
         return This(fd, true, nonBlocking)
     }
 
@@ -470,10 +470,10 @@ pub class FileOutputStream : OutputStream {
                 if (errno! == EAGAIN!) {
                     const ret = fdWaitRead(fd, timeout)
                     if (ret != State.AE_WRITABLE)
-                        raise IOError(f"Waiting for file ${fd} to be writable failed: ${strerr()}")
+                        raise IOError(f"Waiting for file {fd} to be writable failed: {strerr()}")
                     continue
                 }
-                raise IOError(f"writing to file ${fd} failed: ${strerr()}")
+                raise IOError(f"writing to file {fd} failed: {strerr()}")
             }
 
             numWritten += *tmp
@@ -559,7 +559,7 @@ pub struct Process {
         var status = 0`i32;
         const ret = syswait.waitpid(_pid, ptrof status, 0)
         if (ret < 0)
-            raise IOError(f"wait for pid ${_pid} failed: ${strerr()}")
+            raise IOError(f"wait for pid {_pid} failed: {strerr()}")
 
         if (WIFEXITED!(status)) {
             return WEXITSTATUS!(status)
@@ -579,19 +579,19 @@ pub struct Process {
             if (pidFd < 1) {
                 if (errno! == EINVAL!)
                     return -(<i32>EINVAL!)
-                raise IOError(f"wait for pid ${_pid} failed: ${strerr()}")
+                raise IOError(f"wait for pid {_pid} failed: {strerr()}")
             }
 
             defer unistd.close(pidFd)
             var status = 0`i32;
             var ret = syswait.waitpid(_pid, ptrof status, WNOHANG!);
             if (ret < 0)
-                raise IOError(f"wait for pid ${_pid} failed: ${strerr()}")
+                raise IOError(f"wait for pid {_pid} failed: {strerr()}")
             if (ret == 0) {
                 fdWaitRead(pidFd)
                 ret = syswait.waitpid(_pid, ptrof status, WNOHANG!)
                 if (ret < 0)
-                    raise IOError(f"wait for pid ${_pid} failed: ${strerr()}")
+                    raise IOError(f"wait for pid {_pid} failed: {strerr()}")
             }
 
             if (WIFEXITED!(status)) {
@@ -614,15 +614,15 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
         raise IOError("first entry of `argv` must be the same as the command name")
 
     if (unistd.pipe(input) != 0)
-        raise IOError(f"opening process input stream failed: ${strerr()}")
+        raise IOError(f"opening process input stream failed: {strerr()}")
     if (unistd.pipe(out) != 0)
-        raise IOError(f"opening process output stream failed: ${strerr()}")
+        raise IOError(f"opening process output stream failed: {strerr()}")
     if (unistd.pipe(err) != 0)
-        raise IOError(f"opening process error stream failed: ${strerr()}")
+        raise IOError(f"opening process error stream failed: {strerr()}")
 
     var pid = unistd.fork();
     if (pid == -1)
-        raise IOError(f"creating a process failed: ${strerr()}")
+        raise IOError(f"creating a process failed: {strerr()}")
 
     if (pid == 0) {
         // Child process
@@ -635,7 +635,7 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
         for (const x, _: env)
             stdlib.setenv(x.0 !: ^const char, x.1 !: ^const char, 1)
         var ret = unistd.execvp(cmd !: ^const char, argv.data !: ^^const char)
-        raise IOError(f"starting ${cmd} failed: ${strerr()}")
+        raise IOError(f"starting {cmd} failed: {strerr()}")
         stdlib.exit(ret)
     }
     else if (pid > 0) {
@@ -644,7 +644,7 @@ pub func execvpe(cmd: string, argv: [string], env: [(string, string)]): !Process
         unistd.close(err.[1])
         return Process(pid, input.[0], out.[0], err.[0])
     }
-    raise IOError(f"forking process failed: ${strerr()}")
+    raise IOError(f"forking process failed: {strerr()}")
 }
 
 @[inline]
@@ -774,7 +774,7 @@ pub func execute[T](
         #T)
     const pid = unistd.fork();
     if (pid == -1)
-        raise IOError(f"creating a process failed: ${strerr()}")
+        raise IOError(f"creating a process failed: {strerr()}")
 
     if (pid == 0) {
         var argv = [ "sh", "-c", cmd, null ]
@@ -792,13 +792,13 @@ pub func execute[T](
         }
 
         var ret = unistd.execvp("sh" !: ^const char, argv !: ^^const char)
-        raise IOError(f"starting ${cmd} failed: ${strerr()}")
+        raise IOError(f"starting {cmd} failed: {strerr()}")
         stdlib.exit(ret)
     }
     else if (pid > 0) {
         return Process(pid).wait()
     }
-    raise IOError(f"forking process failed: ${strerr()}")
+    raise IOError(f"forking process failed: {strerr()}")
 }
 
 macro sh(cmd, ...env) module.execute(cmd!, varargs_def!(env!, {}))

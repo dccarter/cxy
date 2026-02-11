@@ -217,6 +217,19 @@ static inline Token makeToken_(Lexer *lexer,
                    .buffer = buffer};
 }
 
+static inline Token makeToken__(Lexer *lexer,
+                               LexerBuffer *buffer,
+                               const FilePos *begin,
+                               const FilePos *end,
+                               TokenTag tag)
+{
+    return (Token){.tag = tag,
+                   .fileLoc = {.fileName = lexer->buffer->fileName,
+                               .begin = *begin,
+                               .end = *end},
+                   .buffer = buffer};
+}
+
 static Token makeIntLiteral(Lexer *lexer, const FilePos *begin, __uint128_t iVal)
 {
     Token token = makeToken(lexer, begin, tokIntLiteral);
@@ -242,12 +255,12 @@ static Token makeInvalidToken(Lexer *lexer,
 
 static Token multilineString(Lexer *lexer)
 {
+    skipChar(lexer);
     FilePos begin = lexer->buffer->filePos;
     LexerBuffer *buffer = lexer->buffer;
-    skipChar(lexer);
     while (!isEofReached(lexer)) {
+        FilePos end = lexer->buffer->filePos;
         if (acceptChar(lexer, '"')) {
-            FilePos end = lexer->buffer->filePos;
             if (getCurChar(lexer) == '"' && peekNextChar(lexer) == '"') {
                 skipChar(lexer);
                 skipChar(lexer);
@@ -478,6 +491,7 @@ Token advanceLexer(Lexer *lexer)
 
             parsingStringLiteral = true;
         lexerLexString:
+            begin = lexer->buffer->filePos;
             while (getCurChar(lexer) != '\"') {
                 if (acceptChar(lexer, '\n')) {
                     // Backslash to continue string on another line
@@ -495,10 +509,11 @@ Token advanceLexer(Lexer *lexer)
 
                 if (!parsingStringLiteral &&
                     (lexer->flags & lxContinueStringExpr)) {
+                    FilePos end = lexer->buffer->filePos;
                     if (getCurChar(lexer) == '{' &&
                         peekNextChar(lexer) != '{') {
                         Token tok =
-                            makeToken_(lexer, buffer, &begin, tokStringLiteral);
+                            makeToken__(lexer, buffer, &begin, &end, tokStringLiteral);
                         lexer->flags |= lxReturnLStrFmt;
                         skipChar(lexer); // skip {
                         return tok;
@@ -511,10 +526,12 @@ Token advanceLexer(Lexer *lexer)
                 lexer->flags &= ~lxContinueStringExpr;
                 lexer->flags |= lxExitStringExpr;
             }
+
+            FilePos end = lexer->buffer->filePos;
             if (!acceptChar(lexer, '\"'))
                 return makeInvalidToken(
                     lexer, &begin, "unterminated string literal");
-            return makeToken_(lexer, buffer, &begin, tokStringLiteral);
+            return makeToken__(lexer, buffer, &begin, &end, tokStringLiteral);
         }
 
         if (acceptChar(lexer, '\'')) {

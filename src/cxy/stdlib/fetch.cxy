@@ -653,7 +653,7 @@ class Session {
         }
         var hostStr = String(host)
         var addr = getRemoteAddress(hostStr.str(), port);
-        TRC1!(f"Connected to host: '${proto}://${host}:${port}'")
+        TRC1!(f"Connected to host: '{proto}://{host}:{port}'")
         return This(proto, hostStr, port, &&addr)
     }
 }
@@ -664,7 +664,7 @@ pub func fetch(url: __string, builder: RequestBuilder = null): !Response {
         var methodName = url.substr(1)
         var ret = methodFromString(methodName)
         if (ret.0 == .Unknown)
-            raise HttpError(f"Invalid fetch url '${url}', @METHOD in url is unknown")
+            raise HttpError(f"Invalid fetch url '{url}', @METHOD in url is unknown")
         var i = <i64>ret.1
         while {
             if (!isSpace!(methodName.[i]))

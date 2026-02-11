@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 PROJECT (msgpack-c C)
 
-list (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
-set (prefix ${CMAKE_INSTALL_PREFIX})
-set (exec_prefix "\${prefix}")
+list (APPEND CMAKE_MODULE_PATH "{PROJECT_SOURCE_DIR}/cmake/")
+set (prefix {CMAKE_INSTALL_PREFIX})
+set (exec_prefix "\{prefix}")
 set (libdir "\${exec_prefix}/lib")
 set (includedir "\${prefix}/include")
 

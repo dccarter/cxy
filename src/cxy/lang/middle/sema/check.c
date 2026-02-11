@@ -789,7 +789,7 @@ static void checkTernaryExpr(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    if (!isTypeAssignableFrom(body, otherwise)) {
+    if (!isTypeAssignableFrom(body ?: cond, otherwise)) {
         logError(ctx->L,
                  &node->loc,
                  "operands to ternary expression ('?') have different types, "
@@ -798,7 +798,7 @@ static void checkTernaryExpr(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
     }
     else
-        node->type = body;
+        node->type = body ?: cond;
 }
 
 const FileLoc *manyNodesLoc_(FileLoc *dst, AstNode *nodes)

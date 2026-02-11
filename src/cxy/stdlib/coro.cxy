@@ -6,6 +6,7 @@ import "sys/mman.h" as vmem
 import "native/evloop/ae.h" as ae
 
 import { List } from "./list.cxy"
+import CircularBuffer from "./buffer.cxy"
 
 @__cc "native/evloop/ae.c"
 
@@ -319,6 +320,26 @@ class CoroutineScheduler {
         }
     }
 
+    func timeout(ms: i64) {
+        if (ms > 0) {
+            @unused var status = ae.aeCreateTimeEvent(
+                eventLoop,
+                ms,
+                eventLoopTimerFired,
+                running !: ^void,
+                null
+            );
+            assert!(status != .AE_ERR)
+            var by = suspend();
+            ae.aeDeleteTimeEvent(eventLoop, status)
+            return by == status
+        }
+        else {
+            suspend()
+            return false
+        }
+    }
+
     func `deinit`() {
     }
 }
@@ -368,35 +389,91 @@ func __fdWaitWrite(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitWrite(f
 @[inline, __override_builtin("sleepAsync")]
 func __sleep(ms: i64) { __get_scheduler().sleep(ms) }
 
+@[inline, __override_builtin("timeout")]
+func __timeout(ms: i64) => __get_scheduler().timeout(ms)
+
+pub struct Channel[T] {
+    _buffer: CircularBuffer[T]
+    _in: ^coro.Coroutine = null
+    _out: ^coro.Coroutine = null
+
+    func `init`(capacity: i32 = 0) {
+        buf = CircularBuffer[T](capacity)
+    }
+
+    func send(x: T, dd: i64 = 0) {
+        if _buffer.full() {
+            // Buffer is full, wait for receive to consume
+            _in = coro.running()
+            if timeout(dd) {
+                _in = null
+                return
+            }
+            _in = null
+        }
+
+        _buffer.push(&&x) catch discard  // We will get here if there is room
+        if _out != null {
+            // There is a receive waiting for data, resume it some it
+            // consume the data
+            coro.resume(_out, 0)
+        }
+    }
+
+    func receive(dd: i64 = 0): T? {
+        if _buffer.empty() {
+            // Buffer is empty, wait for sender to send
+            _out = coro.running()
+            if timeout(dd) {
+                _out = null
+                // we timed out waiting for message to receive
+                return null
+            }
+            _out = null
+        }
+
+        if _in != null {
+            // there sender is sender waiting to send, resuming them
+            // makes the fill up the buffer
+            coro.resume(_in, 0)
+        }
+
+        return _buffer.pop() catch {
+            // We should never get here
+            return null
+        }
+    }
+}
+
 pub struct Mutex {
-    waiting = List[Coroutine]{};
-    holder: ^Coroutine = null;
+    _waiting = List[Coroutine]{};
+    _holder: ^Coroutine = null;
 
     func `init`() {}
 
     func lock() {
-        if (holder == null) {
-            holder = running()
+        if (_holder == null) {
+            _holder = running()
             return
         }
-        waiting.push(running())
+        _waiting.push(running())
         suspend()
     }
 
     func tryLock() {
         if (holder == null) {
-            holder = running()
+            _waiting = running()
             return true
         }
         return false
     }
 
     func unlock() {
-        var next = waiting.pop()
+        var next = _waiting.pop()
         if (next == null) {
             return
         }
-        holder = next
+        _holder = next
         resume(next, 0)
     }
 }

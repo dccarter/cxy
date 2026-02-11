@@ -687,6 +687,7 @@ static void aeAddTimeEvent(aeEventLoop *eventLoop,
                            long long milliseconds)
 {
     long long id = eventLoop->timeEventNextId++;
+    eventLoop->timeEventNextId = eventLoop->timeEventNextId ?: 1;
     te->id = id;
     aeAddMillisecondsToNow(milliseconds, &te->when_sec, &te->when_ms);
     te->prev = NULL;
@@ -731,7 +732,7 @@ aeEventLoop *aeCreateEventLoop(void *context, int setsize)
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
-    eventLoop->timeEventNextId = 0;
+    eventLoop->timeEventNextId = 1;
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;

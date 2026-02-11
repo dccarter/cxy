@@ -942,7 +942,8 @@ static void visitTernaryExpr(AstVisitor *visitor, AstNode *node)
 {
     // Transform to if, this will avoid computing otherwise unecessarily
     SimplifyContext *ctx = getAstVisitorContext(visitor);
-    AstNode *cond = node->ternaryExpr.cond, *body = node->ternaryExpr.body,
+    AstNode *cond = node->ternaryExpr.cond,
+            *body = node->ternaryExpr.body ?: deepCloneAstNode(ctx->pool, cond),
             *otherwise = node->ternaryExpr.otherwise;
     AstNode *tmp =
         makeVarDecl(ctx->pool,
