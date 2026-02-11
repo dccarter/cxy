@@ -1,10 +1,7 @@
 import "stdlib/coro.cxy"
-struct Hello {
-    @static
-    LOG_TAG = "Hello World"
-    func `init`(){}
-}
+
+func hello() {}
 
 func main() {
-    var x = Hello();
+    async hello()
 }

@@ -92,8 +92,8 @@ static void listAddAstNode(AstNodeList *list, AstNode *node)
 
 static inline const char *getTokenString(Parser *P, const Token *tok, bool trim)
 {
-    size_t start = tok->fileLoc.begin.byteOffset + trim;
-    size_t size = tok->fileLoc.end.byteOffset - trim - start;
+    size_t start = tok->fileLoc.begin.byteOffset;
+    size_t size = tok->fileLoc.end.byteOffset - start;
     if (tok->buffer->fileData[start] == '`' &&
         tok->buffer->fileData[start + size - 1] == '`') {
         return makeStringSized(
@@ -105,11 +105,7 @@ static inline const char *getTokenString(Parser *P, const Token *tok, bool trim)
 static inline const char *getStringLiteral(Parser *P, const Token *tok)
 {
     size_t start = tok->fileLoc.begin.byteOffset;
-    if (tok->buffer->fileData[start] == '"')
-        start++;
     size_t size = tok->fileLoc.end.byteOffset - start;
-    if (size > 0)
-        size--;
 
     char *str = mallocOrDie(size + 1), *p = str;
     size = escapeString(&tok->buffer->fileData[start], size, str, size);
@@ -2906,12 +2902,25 @@ static AstNode *parseTypeImpl(Parser *P)
         type = primitive(P);
     }
     else {
+        Flags moduleFlags = flgNone;
         switch (tok.tag) {
         case tokIdent:
         case tokThisClass:
+        case tokModule:
+            if (tok.tag == tokModule) {
+                advance(P);
+                consume0(P, tokDot);
+                moduleFlags = flgModule;
+                if (!check(P, tokIdent)) {
+                    reportUnexpectedToken(P, "identifier");
+                    unreachable("");
+                }
+            }
             type = parsePath(P);
-            if (nodeIs(type, Path))
+            if (nodeIs(type, Path)) {
                 type->path.isType = true;
+                type->path.elements->flags |= moduleFlags;
+            }
             break;
         case tokLParen:
             type = parseTupleType(P);

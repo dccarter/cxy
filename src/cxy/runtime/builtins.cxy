@@ -1496,6 +1496,16 @@ pub class Exception {
     }
 }
 
+pub class OutOfRangeException: Exception {
+    msg: String = null;
+
+    func `init`(msg: String = null) {
+        super( "OutOfRangeException" )
+    }
+
+    func what() => msg == null? "test failed" : msg.str()
+}
+
 pub struct Void{}
 
 pub struct Repeat {
@@ -1624,16 +1634,18 @@ pub const WHT = Style{color: 37 };
 #if (defined __CXY_TEST__) {
 // Add macro for testing
 pub class TestFailed: Exception {
-    func `init`() {
+    msg: String = null
+    func `init`(msg: String = null) {
         super( "TestFailed" )
+        this.msg = &&msg
     }
 
-    func what() => "test failed"
+    func what() => msg == null? "test failed" : msg.str()
 }
 
-macro ok(cond) {
+macro ok(cond, ...msg) {
     if (!(cond!))
-        raise TestFailed()
+        raise TestFailed(msg!)
 }
 
 #if (!defined TESTS_RUNNER) {

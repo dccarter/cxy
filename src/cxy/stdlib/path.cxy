@@ -374,12 +374,12 @@ pub func remove(path: PathLike, recursive: bool = false): !void {
         }
         var status = withNullTermination[i32](&spath, (p: ^const char) => unistd.rmdir(p))
         if (status != 0)
-            raise IOError(f"deleting directory '{spath}' failed: ${strerr()}")
+            raise IOError(f"deleting directory '{spath}' failed: {strerr()}")
     }
     else if (exists(path)) {
         var status = withNullTermination[i32](&spath, (p: ^const char) => unistd.unlink(p))
         if (status != 0)
-            raise IOError(f"deleting file '${spath}' failed: ${strerr()}")
+            raise IOError(f"deleting file '{spath}' failed: {strerr()}")
     }
 }
 
@@ -394,6 +394,6 @@ pub func getFileSize(path: PathLike): !u64 {
     })
 
     if (result is #bool)
-        raise IOError(f"Getting file '${path}' size failed: ${strerr()}")
+        raise IOError(f"Getting file '{path}' size failed: {strerr()}")
     return result as u64
 }

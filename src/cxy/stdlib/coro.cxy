@@ -6,6 +6,7 @@ import "sys/mman.h" as vmem
 import "native/evloop/ae.h" as ae
 
 import { List } from "./list.cxy"
+import CircularBuffer from "./buffer.cxy"
 
 @__cc "native/evloop/ae.c"
 
@@ -15,71 +16,74 @@ type Stack = ^void
 pub type State = ae.State
 
 #if (defined __x86_64) {
+    macro __cxy_coro_setjmp(ctx) =({
+        @volatile var ret: i32 = 0;
+        @volatile asm("""
+            lea LJMPRET$=(%rip), %rcx
+            xor $0, $0
+            movq %rbx,   ($1)
+            movq %rbp,  8($1)
+            movq %r12, 16($1)
+            movq %r13, 24($1)
+            movq %r14, 32($1)
+            movq %r15, 40($1)
+            movq %rsp, 48($1)
+            movq %rcx, 56($1)
+            LJMPRET$=:
+            """ :
+            "=&r"(ret) :
+            "r" (ctx!) :
+            "memory", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "cc"
+        )
+        ret;
+    })
 
-macro __cxy_coro_setjmp(ctx) =({
-    @volatile var ret: i32 = 0;
-    @volatile asm("""
-        lea LJMPRET$=(%rip), %rcx
-        xor $0, $0
-        movq %rbx,   ($1)
-        movq %rbp,  8($1)
-        movq %r12, 16($1)
-        movq %r13, 24($1)
-        movq %r14, 32($1)
-        movq %r15, 40($1)
-        movq %rsp, 48($1)
-        movq %rcx, 56($1)
-        LJMPRET$=:
-        """ :
-        "=&r"(ret) :
-        "r" (ctx!) :
-        "memory", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "cc"
-    )
-    ret;
-})
+    macro __cxy_coro_longjmp(ctx) {
+        @volatile asm("""
+            movq    $$1, %rdx
+            movq 56($0), %rcx
+            movq 48($0), %rsp
+            movq 40($0), %r15
+            movq 32($0), %r14
+            movq 24($0), %r13
+            movq 16($0), %r12
+            movq  8($0), %rbp
+            movq   ($0), %rbx
+            .cfi_def_cfa %rdx, 0
+            .cfi_offset %rbx, 0
+            .cfi_offset %rbp, 8
+            .cfi_offset %r12, 16
+            .cfi_offset %r13, 24
+            .cfi_offset %r14, 32
+            .cfi_offset %r15, 40
+            .cfi_offset %rsp, 48
+            .cfi_offset %rip, 56
+            jmp    *%rcx
+            """ ::
+            "r"(ctx!) :
+            "rdx"
+        )
+    }
 
-macro __cxy_coro_longjmp(ctx) {
-    @volatile asm("""
-        movq    $$1, %rdx
-        movq 56($0), %rcx
-        movq 48($0), %rsp
-        movq 40($0), %r15
-        movq 32($0), %r14
-        movq 24($0), %r13
-        movq 16($0), %r12
-        movq  8($0), %rbp
-        movq   ($0), %rbx
-        .cfi_def_cfa %rdx, 0
-        .cfi_offset %rbx, 0
-        .cfi_offset %rbp, 8
-        .cfi_offset %r12, 16
-        .cfi_offset %r13, 24
-        .cfi_offset %r14, 32
-        .cfi_offset %r15, 40
-        .cfi_offset %rsp, 48
-        .cfi_offset %rip, 56
-        jmp    *%rcx
-        """ ::
-        "r"(ctx!) :
-        "rdx"
-    )
-}
-
-macro __cxy_coro_setsp(x) {
-    @volatile asm(""::"r"(alloca!(#u64)))
-    @volatile asm("leaq (%rax), %rsp" :: "rax"(x!))
-}
+    macro __cxy_coro_setsp(x) {
+        @volatile asm(""::"r"(alloca!(#u64)))
+        @volatile asm("leaq (%rax), %rsp" :: "rax"(x!))
+    }
 
 }
 else {
-
-macro __cxy_coro_setjmp(ctx) module.jmp.sigsetjmp(ctx! !: ^i32, 0)
-macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^i32, 1)
-macro __cxy_coro_setsp(x) {
-  @volatile asm(""::"r"(alloca!(#u64)))
-  @volatile asm("mov sp, x0" :: "r"(x!) : "x0")
-}
-
+    #if (defined MACOS) {
+        macro __cxy_coro_setjmp(ctx)  module.jmp.sigsetjmp(ctx! !: ^i32, 0)
+        macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^i32, 1)
+    }
+    else {
+        macro __cxy_coro_setjmp(ctx)  module.jmp.__sigsetjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 0)
+        macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 1)
+    }
+    macro __cxy_coro_setsp(x) {
+      @volatile asm(""::"r"(alloca!(#u64)))
+      @volatile asm("mov sp, x0" :: "r"(x!) : "x0")
+    }
 }
 
 @align(16)
@@ -319,6 +323,26 @@ class CoroutineScheduler {
         }
     }
 
+    func timeout(ms: i64) {
+        if (ms > 0) {
+            @unused var status = ae.aeCreateTimeEvent(
+                eventLoop,
+                ms,
+                eventLoopTimerFired,
+                running !: ^void,
+                null
+            );
+            assert!(status != .AE_ERR)
+            var by = suspend();
+            ae.aeDeleteTimeEvent(eventLoop, status)
+            return by == status
+        }
+        else {
+            suspend()
+            return false
+        }
+    }
+
     func `deinit`() {
     }
 }
@@ -368,35 +392,91 @@ func __fdWaitWrite(fd: i32, timeout: u64 = 0) => __get_scheduler().fdWaitWrite(f
 @[inline, __override_builtin("sleepAsync")]
 func __sleep(ms: i64) { __get_scheduler().sleep(ms) }
 
+@[inline, __override_builtin("timeout")]
+func __timeout(ms: i64) => __get_scheduler().timeout(ms)
+
+pub struct Channel[T] {
+    _buffer: CircularBuffer[T]
+    _in: ^Coroutine = null
+    _out: ^Coroutine = null
+
+    func `init`(capacity: i32 = 0) {
+        _buffer = CircularBuffer[T](capacity)
+    }
+
+    func send(x: T, dd: i64 = 0) {
+        if _buffer.full() {
+            // Buffer is full, wait for receive to consume
+            _in = running()
+            if timeout(dd) {
+                _in = null
+                return
+            }
+            _in = null
+        }
+
+        _buffer.push(&&x) catch discard  // We will get here if there is room
+        if _out != null {
+            // There is a receive waiting for data, resume it some it
+            // consume the data
+            resume(_out, 0)
+        }
+    }
+
+    func receive(dd: i64 = 0): T? {
+        if _buffer.empty() {
+            // Buffer is empty, wait for sender to send
+            _out = running()
+            if timeout(dd) {
+                _out = null
+                // we timed out waiting for message to receive
+                return null
+            }
+            _out = null
+        }
+
+        if _in != null {
+            // there sender is sender waiting to send, resuming them
+            // makes the fill up the buffer
+            resume(_in, 0)
+        }
+
+        return _buffer.pop() catch {
+            // We should never get here
+            return null
+        }
+    }
+}
+
 pub struct Mutex {
-    waiting = List[Coroutine]{};
-    holder: ^Coroutine = null;
+    _waiting = List[Coroutine]{};
+    _holder: ^Coroutine = null;
 
     func `init`() {}
 
     func lock() {
-        if (holder == null) {
-            holder = running()
+        if (_holder == null) {
+            _holder = running()
             return
         }
-        waiting.push(running())
+        _waiting.push(running())
         suspend()
     }
 
     func tryLock() {
-        if (holder == null) {
-            holder = running()
+        if (_holder == null) {
+            _holder = running()
             return true
         }
         return false
     }
 
     func unlock() {
-        var next = waiting.pop()
+        var next = _waiting.pop()
         if (next == null) {
             return
         }
-        holder = next
+        _holder = next
         resume(next, 0)
     }
 }

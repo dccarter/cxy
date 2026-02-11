@@ -1,0 +1,90 @@
+module circular
+
+pub class CircularBuffer[T] {
+    _buffer: ^T
+    _capacity: i32
+    _head: i32 = 0
+    _tail: i32 = 0
+    _size: i32 = 0
+
+    func `init`(capacity: i32 = 0) {
+        this._capacity = _capacity ?: 1
+        _buffer = __calloc(capacity * sizeof!(T)) as ^T
+    }
+
+    func push(value: T): !void {
+        if _size == _capacity {
+            raise OutOfRangeException("Out of memory")
+        }
+
+        _buffer.[_tail] = value
+        _tail = (_tail + 1) % _capacity
+        _size += 1
+    }
+
+    func pop(): !T {
+        if _size == 0 {
+            raise OutOfRangeException("Out of memory")
+        }
+        var value = &&_buffer.[_head];
+        _head = (_head + 1) % _capacity
+        _size -= 1
+        return &&value
+    }
+
+    func peek(): Optional[&T] {
+        if _size == 0 {
+            return null
+        }
+        return &_buffer.[_head]
+    }
+
+    @inline
+    func full() => _size == _capacity
+
+    @inline
+    func empty() => _size == 0
+
+    func `deinit`() {
+        if _buffer {
+            #if T.isDestructible {
+                while _head != _tail {
+                    delete _buffer.[_head]
+                    _head = (_head + 1) % _capacity
+                }
+            }
+            free(_buffer)
+            _buffer = null
+        }
+    }
+}
+
+test "CircularBuffer" {
+    var _buffer = CircularBuffer[i32](10);
+    _buffer.push(1)
+    _buffer.push(2)
+    _buffer.push(3)
+    ok!(_buffer.pop() == 1)
+    ok!(_buffer.pop() == 2)
+    _buffer.push(4)
+    _buffer.push(5)
+    _buffer.push(6)
+    ok!(_buffer.pop() == 3)
+    ok!(_buffer.pop() == 4)
+    ok!(_buffer.pop() == 5)
+    ok!(_buffer.pop() == 6)
+}
+
+test "CircularBuffer.peek" {
+    var _buffer = CircularBuffer[i32](3);
+    _buffer.push(1)
+    _buffer.push(2)
+    _buffer.push(3)
+    ok!(_buffer.peek() == 1)
+    ok!(_buffer.pop() == 1)
+    ok!(_buffer.peek() == 2)
+    ok!(_buffer.pop() == 2)
+    ok!(_buffer.peek() == 3)
+    ok!(_buffer.pop() == 3)
+    ok!(!_buffer.peek())
+}

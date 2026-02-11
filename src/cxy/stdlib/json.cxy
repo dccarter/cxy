@@ -225,7 +225,7 @@ pub class JSONParser {
     func expectChar(c: char): !void {
         skipWhitespace()
         if (done() || data.[off] != c)
-            raise JSONParserError(f"{line}:${col} - expected character '${c}' not found")
+            raise JSONParserError(f"{line}:{col} - expected character '{c}' not found")
         advance()
     }
 
@@ -243,7 +243,7 @@ pub class JSONParser {
     func expectNull(): !void {
         var l, c = tag()
         if (!matchNull())
-            raise JSONParserError(f"${l}:${c} - expected characters, expecting `null`")
+            raise JSONParserError(f"{l}:{c} - expected characters, expecting `null`")
     }
 
     func skipValue(): !void {
@@ -319,7 +319,7 @@ func fieldFromJSON[T](
     }
 
     const typeName = #{T.name};
-    raise JSONParserError(f"${pos.0}:${pos.1} - Json key '${key}' does not exist in type '${typeName}'")
+    raise JSONParserError(f"{pos.0}:{pos.1} - Json key '{key}' does not exist in type '{typeName}'")
 }
 
 func parseJSON[T](p: &JSONParser): !T {
@@ -392,6 +392,12 @@ func parseJSON[T](p: &JSONParser): !T {
                 "type `{t}` cannot be implicitly parsed from json, implement `{t}::fromJSON(p: &JSONParser)",
                 #T, #T)
         }
+    }
+    else #if T.isString {
+        error!("cannot parse into native string type, consider using `{t}`", #String)
+    }
+    else {
+        error!("unsupported type `{t}`", #T)
     }
 }
 
@@ -612,7 +618,7 @@ class Object: Value {
                     case '"'`char => value = JSONString()
                     case '['`char => value = Array()
                     case '{'`char => value = This()
-                    default => raise JSONParserError(f"Unexpected character: ${p.peekChar()}")
+                    default => raise JSONParserError(f"Unexpected character: {p.peekChar()}")
                 }
                 value.fromJSON(p)
                 members.[String(name)] = &&value
@@ -643,7 +649,7 @@ func createObject(): Value{ return Object() }
 
 macro jsonRequireTag(value, kind) {
     if (value!.tag != kind!)
-        raise JSONError(f"Expecting a '${kind!}' Value, got a '${value!.tag}'")
+        raise JSONError(f"Expecting a '{kind!}' Value, got a '{value!.tag}'")
 }
 
 struct ShellObject {

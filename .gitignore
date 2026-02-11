@@ -80,7 +80,12 @@ generated.dSYM
 
 # IDE files
 .idea
+.vscode
+.zed
 ./hello.cxy
 
 # AI files
 ./PROMPT.md
+
+# Cache
+.cache

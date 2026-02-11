@@ -145,6 +145,7 @@ extern "C" {
     f(fdWaitRead)                  \
     f(fdWaitWrite)                 \
     f(sleepAsync)                  \
+    f(timeout)                     \
     f(__smart_ptr_alloc)           \
     f(__smart_ptr_alloc_trace)
 
