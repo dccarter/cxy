@@ -1,457 +1,1268 @@
 module args
 
-import { Vector } from "stdlib/vector.cxy"
-import { HashMap } from "stdlib/hash.cxy"
+import { Vector }  from "./vector.cxy"
+import { HashMap } from "./hash.cxy"
+import { getenv }  from "./os.cxy"
+// Basic exceptions
+exception ParseError(msg: String) => msg != null? msg.str() : ""
+exception ValidationError(msg: String) => msg != null? msg.str() : ""
 
-macro NOSF  '\0'as char
+pub type FlagValue = __string | bool | i64
 
-exception ParserError(msg: String) => msg != null? msg.str() : ""
-
-pub struct Param {
-    name: __string
-    desc: __string
-    sf = NOSF!;
-    required = false;
-    option = true;
-    def = __string();
-    isGlobal = false;
-
-    const func show(os: &OutputStream, longestParam: u64) {
-        var remaining = longestParam - name.size();
-        os << "    "
-        if (sf != NOSF!) {
-            os << '-' << sf
-               << ", "
-        } else {
-            os << "    "
-        }
-
-        os << "--" <<  name
-        if (required) {
-            os << " (required)"
-            remaining -= 11
-        }
-        os << Repeat(' ', remaining) << " " << desc
-            << "\n"
-    }
-
-    @inline
-    const func `str`(os: &OutputStream) {
-        os << name
-    }
+// Flag group types
+pub enum FlagGroupType {
+    MutuallyExclusive,
+    RequiredTogether
 }
 
-struct ParamContainer {
-    params = HashMap[__string, Param]();
-
-    func findParamByFlag(flag: char): Optional[&Param] {
-        for (const _, param: params) {
-            if (param.sf != NOSF! && param.sf == flag)
-                return &param
-        }
-        return null
-    }
-
-    @inline
-    func findByName(name: __string) => params.[name]
-
-    func addParam(param: Param): !void {
-        if (params.[param.name])
-            raise ParserError(f"argument '{param.name}' already exists")
-        if (param.sf != NOSF! && !!findParamByFlag(param.sf))
-            raise ParserError(f"argument with short format '{param.sf}' already exists")
-
-        params.[param.name] = &&param
-    }
-
-    @inline
-    const func empty() => params.empty()
-}
-
-pub class Command {
+// Flag group for validation
+pub struct FlagGroup {
     name: __string
-    desc: __string
-    longestParam = 0`u64;
-    interactive = false;
-    hasLocalFlags = false;
-    params = ParamContainer{};
-    parsed = HashMap[__string, __string]();
-    positionals = Vector[__string]();
-    rest = Vector[__string]();
+    flags = Vector[__string]()
+    groupType: FlagGroupType = .MutuallyExclusive
+    required: bool = false
 
-    func `init`(name: __string, desc: __string) {
+    func `init`(name: __string, groupType: FlagGroupType) {
         this.name = name
-        this.desc = desc
+        this.groupType = groupType
     }
 
-    virtual func run(): i32
+    func `str`(@unused os: &OutputStream) { }
+}
 
-    func parse(args: [string]): !void {
-        var i = 0;
-        while (i < args.size()) {
-            var full = args.[i++];
-            var arg = __string(full);
-            if (arg.[0] != '-'`char) {
-                positionals.push(arg)
-                continue
-            }
-            var val = __string();
-            var idx = arg.indexOf('='`char);
-            if (idx) {
-                var index = *idx;
-                val = arg.substr(index + 1)
-                arg = arg.substr(0, <i64>index)
-            }
+// Simple flag definition
+pub struct Flag {
+    name: __string
+    shorthand: char = '\0'
+    usage: __string
+    defaultValue: FlagValue
+    required = false
+    envVar = __string()
 
-            var paramOpt = None[&Param]();
-            if (arg.[1] == '-'`char) {
-                // skip the --
-                arg = arg.substr(2)
-                if (arg.empty()) {
-                    // rest of arguments
-                    if (val.empty()) {
-                        populateRest(args, i + 1)
-                        break
-                    }
-                    raise ParserError(f"invalid command line argument '{full}'")
-                }
-                paramOpt = params.findByName(arg)
-            }
-            else {
-                arg = arg.substr(1)
-                if (arg.empty())
-                    raise ParserError(f"invalid command line argument '{full}'")
-                if (arg.size() > 1)
-                    parseMultipleOptions(arg)
-                paramOpt = params.findParamByFlag(arg.[<i64>(arg.size() - 1)])
-            }
-
-            if (!paramOpt)
-                raise ParserError(f"option '{full}' is not supported by command '{name}'")
-
-            const param = *paramOpt;
-            if (param.option) {
-                if (!val.empty())
-                    raise ParserError(f"value given to an option argument '{name}'")
-            }
-            else if (val.empty()) {
-                if (i >= args.size() || args.[i].[0] == '-'`char)
-                    raise ParserError(f"argument '{arg}' is missing a value")
-                val = __string(args.[i++])
-            }
-            addParsed(param.name, val)
-        }
-        validateParams()
+    func `init`(name: __string, usage: __string, defaultValue: __string = "".s) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
     }
 
-    @inline
-    func addParam(param: Param): !void {
-        hasLocalFlags = hasLocalFlags || !param.isGlobal
-        if (param.option && !param.def.empty())
-            param.option = false
-        if (!param.option && !param.required && param.def.empty())
-            param.required = true
-        params.addParam(param)
-        var len = param.name.size();
-        if (param.required)
-            len += 11
-        longestParam = max(longestParam, len)
+    func `init`(name: __string, usage: __string, defaultValue: __string, envVar: __string) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
     }
 
-    func showHelp(app: __string, os: &OutputStream, isHelp: bool) {
-        if (isHelp) {
-            os << desc << "\n\n"
-        }
-
-        os << "Usage:\n"
-        os << "  " << app << ' ' << name
-        if (hasLocalFlags) {
-            os << " [flags]\n"
-               << "\n"
-               << "Flags:\n"
-
-            for (const _, param: params.params) {
-                if (param.isGlobal)
-                    continue
-
-                param.show(os, longestParam)
-            }
-        }
-        else {
-            // append new line
-            os << '\n'
-        }
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: __string = "".s) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
     }
 
-    @inline
-    const func `str`(@unused os: &OutputStream) {}
-
-    const func argument(name: __string) => parsed.[name]
-
-    - func validateParams(): !void {
-        for (const _, param: params.params) {
-            if (param.option)
-                continue
-            if (!parsed.[param.name]) {
-                if (param.def.empty())
-                    raise ParserError(f"missing required argument '{param.name}'")
-                else
-                    parsed.[param.name] = param.def
-            }
-        }
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: __string, envVar: __string) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
     }
 
-    - func parseMultipleOptions(opts: __string): !void {
-        for (const i: 0..opts.size()-1) {
-            var paramOpt = params.findParamByFlag(opts.[i]);
-            if (!paramOpt)
-                raise ParserError(
-                    f"option '{opts.[i]}' specified in '{opts}' not supported by command '{name}'"
-                )
-            const param = *paramOpt;
-            if (!param.option)
-                raise ParserError(
-                    f"argument '{name}' passed in multi short options '{opts}' requires a value"
-                )
-            addParsed(param.name, __string())
-        }
+    func `init`(name: __string, usage: __string, defaultValue: bool = false) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
     }
 
-    @inline
-    - func populateRest(args: [string], idx: u64): void {
-        for (const i: idx..args.size()) {
-            rest.push(args.[i])
-        }
+    func `init`(name: __string, usage: __string, defaultValue: bool, envVar: __string) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
     }
 
-    @inline
-    - func addParsed(arg: __string, val: __string): !void {
-        if (parsed.[arg])
-            raise ParserError(f"duplicate argument '{arg}' specified")
-        parsed.[arg] = val
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: bool = false) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+    }
+
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: bool, envVar: __string) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
+    }
+
+    func `init`(name: __string, usage: __string, defaultValue: i64 = 0) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+    }
+
+    func `init`(name: __string, usage: __string, defaultValue: i64, envVar: __string) {
+        this.name = name
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
+    }
+
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: i64 = 0) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+    }
+
+    func `init`(name: __string, shorthand: char, usage: __string, defaultValue: i64, envVar: __string) {
+        this.name = name
+        this.shorthand = shorthand
+        this.usage = usage
+        this.defaultValue = defaultValue
+        this.envVar = envVar
     }
 }
 
-pub func command[T](...params: Param): !T {
-    var cmd = T();
-    #for (const param: params) {
-        cmd.addParam(#{param})
-    }
-    return &&cmd
-}
-
-class HelpCommand : Command {
-    showHelp: Lambda[func(_: __string) -> i32];
-    func `init`(showHelp: func(_: __string) -> i32) {
-        super("help", "Show application or command help")
-        this.showHelp =  Lambda[func(_: __string) -> i32](showHelp)
+// Storage for parsed flag values
+pub struct FlagValues {
+    values = HashMap[__string, FlagValue]()
+    func set(name: __string, value: FlagValue): void {
+        values.[name] = &&value
     }
 
-    func run(): i32 {
-        if (!positionals.empty())
-            return showHelp(positionals.[0])
-        else
-            return showHelp(__string())
-    }
-}
+    @inline
+    func has(name: __string) => values.contains(name)
 
-class VersionCommand : Command {
-    appName: __string
-    appVersion: __string
-
-    func `init`(appName: __string, appVersion: __string) {
-        super("version", "Show application version")
-        this.appName = appName
-        this.appVersion = appVersion
+    func getString(name: __string): __string {
+        var val = values.[name]
+        if (val) {
+            match (*val) {
+                __string as s => return __copy!(s)
+                ... => return __string()
+            }
+        }
+        return __string()
     }
 
-    func run(): i32 {
-        stdout << appName << " v" << appVersion
+    func getBool(name: __string): bool {
+        var val = values.[name]
+        if (val) {
+            match (*val) {
+                bool as b => return b
+                ... => return false
+            }
+        }
+        return false
+    }
+
+    func getInt(name: __string): i64 {
+        var val = values.[name]
+        if (val) {
+            match (*val) {
+                i64 as i => return i
+                ... => return 0
+            }
+        }
         return 0
     }
 }
 
-pub class App {
+// Simple command definition
+pub class Command {
     name: __string
-    version: __string
-    desc: __string
-    defaultCmd: __string
-    longestParam = 0`u64;
-    longestCmd = 0 as u64;
-    params = ParamContainer{};
-    commands = HashMap[__string, Command]();
+    description: __string
+    flags = HashMap[__string, Flag]()
+    flagsByShorthand = HashMap[char, __string]()
+    flagValues = FlagValues{}
+    args = Vector[__string]()
 
-    func `init`(
-        name: __string,
-        version: __string,
-        desc: __string,
-        defaultCmd: __string
-    ) {
+    // Hierarchical command structure
+    parent: Optional[&This] = null
+    commands = HashMap[__string, Command]()
+
+    // Persistent flags (inherited by subcommands)
+    persistentFlags = HashMap[__string, Flag]()
+    persistentFlagsByShorthand = HashMap[char, __string]()
+
+    // Flag groups for validation
+    flagGroups = Vector[FlagGroup]()
+    type Handler = func(cmd: &This) -> i32
+    // Action handler for this command
+    action: lambda_of!(#Handler)
+
+    func `init`(name: __string, description: __string) {
         this.name = name
-        this.version = version
-        this.desc = desc
-        this.defaultCmd = defaultCmd
-
-        addParam(Param{
-            name: "help".s,
-            sf: 'h',
-            desc: "Show application or current command help".s
-        }) catch discard
-
-        addCommand(
-            HelpCommand((name: __string): i32 => {
-                if (!name.empty()) {
-                    // an error occurred with the help command
-                    var cmdOpt = commands.[name];
-                    if (!cmdOpt) {
-                        var msg = f"command '{name}' passed to help does not exist";
-                        this.showCommandHelp(&stderr, *commands.["help"], msg.str())
-                        return -1
-                    }
-                    this.showCommandHelp(&stdout, *cmdOpt, null)
-                }
-                else {
-                    this.showHelp(&stdout, null)
-                }
-                return 0
-            })
-        ) catch discard
-
-        addCommand(VersionCommand(name, version)) catch discard
+        this.description = description
     }
 
-    func `()`(...args: auto): !void {
-        #const hasCommand = false;
-        #for (const arg: args) {
-            #const M = typeof!(#{arg});
-            #if (#M == #Param) {
-                require!(
-                    !#{hasCommand}, "all global arguments must be added before commands"
-                )
-                addParam(&& #{arg})
-            }
-            else #if (is_base_of!(#Command, #M)) {
-                #{hasCommand = true}
-                addCommand(&& #{arg})
-            }
-            else {
-                error!("type '{t}' must implement args::Command", #M)
-            }
+    // Set the action handler for this command
+    func setAction(handler: Handler): void {
+        action = &&handler
+    }
+
+    // Execute this command's action or show help if no action
+    func execute(): i32 {
+        if action != null {
+            return action(this)
+        } else {
+            help(&stdout)
+            return 0
         }
     }
 
-    @inline
-    func addParam(param: Param): !void {
-        param.isGlobal = true
-        if (param.option && !param.def.empty())
-            param.option = false
-        if (!param.option && !param.required && param.def.empty())
-            param.required = true
-        params.addParam(param)
-        var len = param.name.size();
-        if (param.required)
-            len += 11
-        longestParam = max(longestParam, len)
+    // Add a flag to this command
+    func addFlag(flag: Flag): !void {
+        if flags.contains(flag.name) {
+            raise ParseError(f"flag '{flag.name}' already exists")
+        }
+        if flag.shorthand != '\0' && flagsByShorthand.contains(flag.shorthand) {
+            raise ParseError(f"shorthand '{flag.shorthand}' already exists")
+        }
+        if flag.shorthand != '\0' {
+            flagsByShorthand.[flag.shorthand] = flag.name
+        }
+        flags.[flag.name] = &&flag
     }
 
+    // Find flag by shorthand character
+    - func findFlagByShorthand(shorthand: char): Optional[&Flag] {
+        // First check local flags
+        var flagName = flagsByShorthand.[shorthand]
+        if flagName {
+            var name = *flagName
+            return flags.[__copy!(name)]
+        }
+
+        // Then check persistent flags
+        var persistentFlagName = persistentFlagsByShorthand.[shorthand]
+        if persistentFlagName {
+            var name = *persistentFlagName
+            return persistentFlags.[__copy!(name)]
+        }
+
+        return null
+    }
+
+    // Add a persistent flag (inherited by subcommands)
+    func addPersistentFlag(flag: Flag): !void {
+        if persistentFlags.contains(flag.name) {
+            raise ParseError(f"persistent flag '{flag.name}' already exists")
+        }
+        if flag.shorthand != '\0' && persistentFlagsByShorthand.contains(flag.shorthand) {
+            raise ParseError(f"persistent shorthand '{flag.shorthand}' already exists")
+        }
+
+        if flag.shorthand != '\0' {
+            persistentFlagsByShorthand.[flag.shorthand] = flag.name
+        }
+        persistentFlags.[flag.name] = &&flag
+    }
+
+    // Add a subcommand to this command
     func addCommand(cmd: Command): !void {
-        if (commands.[cmd.name])
-            raise ParserError("command with name '{cmd.name}' already added")
-        longestCmd = max(longestCmd, cmd.name.size())
-        for (const _, param: params.params) {
-            cmd.addParam(param)
+        if commands.contains(cmd.name) {
+            raise ParseError(f"command '{cmd.name}' already exists")
         }
+        cmd.parent = this
+
+        // Inherit persistent flags from parent
+        for (const _, flag: persistentFlags) {
+            cmd.addFlag(flag) catch discard  // Ignore conflicts
+        }
+
         commands.[cmd.name] = &&cmd
     }
 
-    func parse(args: [string]): i32 {
-        var name = defaultCmd;
-        if (args.size() > 1 && args.[1].[0] != '-' as char ) {
-           name = __string(args.[1])
-           args = args.view(2)
-        }
-        else
-            args = args.view(1)
-
-        if (!commands.[name]) {
-            showHelp(&stderr, f"specified default command '{defaultCmd}' is not a valid command" )
-            return -1
-        }
-
-        var cmdOpt = commands.[name];
-        if (!cmdOpt){
-            showHelp(&stderr, f"command '{name}' not found")
-            return -1
-        }
-        var cmd = *cmdOpt;
-        cmd.parse(args) catch {
-            showCommandHelp(&stderr, cmd, ex!.what())
-            return -1
-        }
-
-        if (cmd.parsed.["help"]) {
-            showCommandHelp(&stdout, cmd)
-            return 0
-        }
-
-        return cmd.run()
+    // Add flag group for validation
+    func addFlagGroup(group: FlagGroup): void {
+        flagGroups.push(group)
     }
 
-    func showHelp(os: &OutputStream, msg: String = null): void {
-        if (msg != null) {
-            os << msg << '\n';
+    // Find subcommand by name
+    - func findCommand(name: __string): This {
+        var cmd = commands.[name]
+        if cmd {
+            var tmp = *cmd
+            return __copy!(tmp)
         }
-        else {
-            os << name << " v" << version
-               << "\n"
-               << desc
-               << "\n"
+        return null
+    }
+
+    // Check if string looks like a boolean value
+    - func isBooleanValue(s: __string): bool {
+        return s == "true" || s == "false" || s == "1" || s == "0"
+    }
+
+    // Parse integer from string
+    - func parseInt(s: __string): i64? {
+        if s.empty() { return null }
+
+        var result = 0`i64
+        var negative = false
+        var start = 0
+
+        if s.[0] == '-' {
+            negative = true
+            start = 1
         }
-        os << '\n';
 
-        os << "Usage:  " << name << " [command]\n"
-           << '\n'
+        for i : start..s.size() {
+            var c = s.[i]
+            if c < '0' || c > '9' {
+                return null
+            }
+            result = result * 10 + (c - '0')
+        }
 
-        // append commands help
-        if (!commands.empty()) {
-            os << "Available Commands:\n"
-            for (const _, cmd: commands) {
-                var remaining = longestCmd - cmd.name.size();
-                os << "  " << cmd.name << ' '
-                if (cmd.interactive) {
-                    os << "(interactive) "
-                    remaining -= 14
+        return Some(negative ? -result : result)
+    }
+
+    // Parse command line arguments with subcommand support
+    // Returns (finalCommand, shouldExecute) - finalCommand is null if error
+    func parse(argv: [string]): !(This, bool) {
+        var i = 0 as i64
+        while (i < argv.size()) {
+            var arg = __string(argv.[i]);
+
+            // Check for subcommands before treating as positional args
+            if !arg.startswith("-") {
+                var subCmd = findCommand(arg)
+                if subCmd {
+                    // Copy already-parsed persistent flag values to subcommand
+                    for (const name, value: flagValues.values) {
+                        if persistentFlags.contains(name) {
+                            subCmd.flagValues.values.[name] = value
+                        }
+                    }
+
+                    // Parse subcommand with remaining args
+                    var remaining = Vector[string]()
+                    for j : (i + 1)..argv.size() {
+                        remaining.push(argv.[j])
+                    }
+                    var remainingArray = remaining.data()
+                    return subCmd.parse(remainingArray)
+                } else {
+                    // Not a subcommand, store as positional arg
+                    args.push(arg)
+                    i++
+                    continue
                 }
-                if (remaining > 0)
-                    os << Repeat(' ', remaining)
-                os << cmd.desc << '\n'
             }
-            os << "\n"
+
+            // Handle long flags (--flag)
+            if arg.startswith("--") {
+                i = parseLongFlagArg(argv, i)
+                continue
+            }
+
+            // Handle short flags (-f)
+            if arg.size() > 1 {
+                i = parseShortFlagArg(argv, i)
+                continue
+            }
+
+            // Single dash is treated as positional argument
+            args.push(arg)
+            i++
         }
 
-        // append global arguments
-        if (!params.empty()) {
-            os << "Flags:\n"
-            for (const _, param: params.params) {
-                param.show(os, longestParam)
-            }
+        // Apply environment variable values for flags not set by command line
+        applyEnvVars()
+
+        // Validate flag groups after parsing
+        validateFlagGroups()
+
+        // Check if help was requested
+        if flagValues.getBool("help") {
+            return (__copy!(this), false)  // Don't execute, just show help
         }
-        os << '\n'
-           << "Use \"" << name
-           << " [command] --help\" for more information about a command"
-           << "\n";
+
+        return (__copy!(this), true)  // Execute this command
     }
 
-    func showCommandHelp(os: &OutputStream, cmd: &Command, err: string = null): void {
-        if (err != null)
-            os << "error: " << err << "\n"
-        cmd.showHelp(name, os, err != null)
-        // append global arguments
-        if (!params.empty()) {
-            os << "\nGlobal Flags:\n"
-            for (const _, param: params.params) {
-                param.show(os, longestParam)
+    // Parse long flag arguments
+    - func parseLongFlagArg(argv: [string], index: i64): !i64 {
+        var arg = __string(argv.[index]);
+
+        // Parse --flag=value format
+        var eqPos = arg.indexOf('=')
+        if eqPos {
+            var flagName = arg.substr(2, <i64>*eqPos - 2)
+            var flagValue = arg.substr(*eqPos + 1);
+            parseLongFlag(flagName, flagValue, true)
+            return index + 1
+        }
+
+        // Parse --flag format (value might be next arg)
+        var flagName = arg.substr(2)
+        var flagValue = __string()
+        var hasValue = false
+
+        // Check if next arg is the value (not another flag)
+        if (index + 1 < argv.size()) {
+            var nextArg = __string(argv.[index + 1])
+            if !nextArg.startswith("-") {
+                // Only treat as value if this flag type requires a value
+                var flag = flags.[flagName]
+                if !flag {
+                    flag = persistentFlags.[flagName]
+                }
+                if flag {
+                    match (flag&.defaultValue) {
+                        bool as _ => {
+                            // Check if next arg is a boolean value
+                            if isBooleanValue(nextArg) {
+                                flagValue = nextArg
+                                hasValue = true
+                                parseLongFlag(flagName, flagValue, hasValue)
+                                return index + 2  // Skip both flag and value
+                            } else {
+                                // Not a boolean, don't consume next arg
+                                parseLongFlag(flagName, flagValue, hasValue)
+                                return index + 1  // Just skip the flag
+                            }
+                        }
+                        ... => {
+                            // String/int flags do consume next arg as value
+                            flagValue = nextArg
+                            hasValue = true
+                            parseLongFlag(flagName, flagValue, hasValue)
+                            return index + 2  // Skip both flag and value
+                        }
+                    }
+                }
+            }
+        }
+
+        parseLongFlag(flagName, flagValue, hasValue)
+        return index + 1
+    }
+
+    // Parse short flag arguments
+    - func parseShortFlagArg(argv: [string], index: i64): !i64 {
+        var arg = __string(argv.[index])
+        var flags_str = arg.substr(1) // Skip the -
+
+        // Handle single short flag with potential attached value: -fvalue
+        if flags_str.size() == 1 {
+            var shorthand = flags_str.[0]
+            var flag = findFlagByShorthand(shorthand)
+            if !flag {
+                raise ParseError(f"unknown shorthand flag: -{shorthand}")
+            }
+
+            return parseShortFlag(argv, index, *flag)
+        }
+
+        // Handle multiple short flags: -abc
+        for i : 0..flags_str.size() {
+            var shorthand = flags_str.[i]
+            var flag = findFlagByShorthand(shorthand)
+            if !flag {
+                raise ParseError(f"unknown shorthand flag: -{shorthand}")
+            }
+
+            // For boolean flags, just set to true
+            match (flag&.defaultValue) {
+                bool as _ => {
+                    flagValues.set(flag&.name, true)
+                }
+                ... => {
+                    // Non-boolean flags in group need special handling
+                    if i < flags_str.size() - 1 {
+                        raise ParseError(f"flag -{shorthand} requires a value but is in a group")
+                    }
+                    // Last flag in group can have a value
+                    return parseShortFlag(argv, index, *flag)
+                }
+            }
+        }
+
+        return index + 1
+    }
+
+    // Parse individual short flag
+    - func parseShortFlag(argv: [string], index: i64, flag: &Flag): !i64 {
+        var flagValue = __string()
+        var hasValue = false
+
+        // Check if next arg is the value (not another flag)
+        if (index + 1 < argv.size()) {
+            var nextArg = __string(argv.[index + 1])
+            if !nextArg.startswith("-") {
+                match (flag.defaultValue) {
+                    bool as _ => {
+                        // Check if next arg is a boolean value
+                        if isBooleanValue(nextArg) {
+                            flagValue = nextArg
+                            hasValue = true
+                            parseLongFlag(flag.name, flagValue, hasValue)
+                            return index + 2
+                        } else {
+                            // Not a boolean, don't consume next arg
+                            parseLongFlag(flag.name, flagValue, hasValue)
+                            return index + 1
+                        }
+                    }
+                    ... => {
+                        // String/int flags do consume next arg as value
+                        flagValue = nextArg
+                        hasValue = true
+                        parseLongFlag(flag.name, flagValue, hasValue)
+                        return index + 2
+                    }
+                }
+            }
+        }
+
+        parseLongFlag(flag.name, flagValue, hasValue)
+        return index + 1
+    }
+
+    // Parse a single long flag
+    - func parseLongFlag(flagName: __string, flagValue: __string, hasValue: bool): !void {
+        // Check local flags first, then persistent flags
+        var flag = flags.[flagName]
+        if !flag {
+            flag = persistentFlags.[flagName]
+        }
+        if !flag {
+            raise ParseError(f"unknown flag: --{flagName}")
+        }
+        // Handle different flag types
+        match (flag&.defaultValue) {
+            bool as _ => {
+                if hasValue {
+                    if flagValue == "true" || flagValue == "1" {
+                        flagValues.set(flagName, true)
+                    } else if flagValue == "false" || flagValue == "0" {
+                        flagValues.set(flagName, false)
+                    } else {
+                        raise ParseError(f"invalid boolean value for --{flagName}: {flagValue}")
+                    }
+                } else {
+                    // Boolean flag without value defaults to true
+                    flagValues.set(flagName, true)
+                }
+            }
+            i64 as _ => {
+                if !hasValue {
+                    raise ParseError(f"flag --{flagName} requires a value")
+                }
+                var intVal = parseInt(flagValue)
+                if !intVal {
+                    raise ParseError(f"invalid integer value for --{flagName}: {flagValue}")
+                }
+                flagValues.set(flagName, *intVal)
+            }
+            __string as _ => {
+                if !hasValue {
+                    raise ParseError(f"flag --{flagName} requires a value")
+                }
+                flagValues.set(flagName, flagValue)
             }
         }
     }
+
+    // Enhanced help generation with subcommands
+    func help(os: &OutputStream): void {
+        os << description << "\n\n"
+
+        // Usage line
+        if commands.empty() {
+            os << "Usage: " << name << " [flags]\n"
+        } else {
+            os << "Usage: " << name << " [flags] [command]\n"
+        }
+
+        // Available commands
+        if !commands.empty() {
+            os << "\nAvailable Commands:\n"
+
+            // Find longest command name for alignment
+            var maxCmdLen = 0 as u64
+            for (const _, cmd: commands) {
+                if cmd.name.size() > maxCmdLen {
+                    maxCmdLen = cmd.name.size()
+                }
+            }
+            var cmdPadWidth = maxCmdLen + 4  // Add 4 spaces buffer
+
+            for (const _, cmd: commands) {
+                os << "  " << cmd.name
+                var padding = cmdPadWidth - cmd.name.size()
+                for i : 0..padding {
+                    os << " "
+                }
+                os << cmd.description << "\n"
+            }
+        }
+
+        // Flags
+        var hasLocalFlags = !flags.empty()
+        var hasPersistentFlags = !persistentFlags.empty()
+
+        if hasLocalFlags || hasPersistentFlags {
+            os << "\nFlags:\n"
+
+            // Find longest flag name for alignment
+            var maxFlagLen = 0 as u64
+            for (const _, flag: flags) {
+                var flagLen = flag.name.size() + 2  // +2 for "--"
+                if flagLen > maxFlagLen {
+                    maxFlagLen = flagLen
+                }
+            }
+            for (const _, flag: persistentFlags) {
+                var flagLen = flag.name.size() + 2  // +2 for "--"
+                if flagLen > maxFlagLen {
+                    maxFlagLen = flagLen
+                }
+            }
+            var flagPadWidth = maxFlagLen + 4  // Add 4 spaces buffer
+
+            // Show local flags first
+            for (const _, flag: flags) {
+                os << "  --" << flag.name
+                var padding = flagPadWidth - (flag.name.size() + 2)
+                for i : 0..padding {
+                    os << " "
+                }
+                os << flag.usage << "\n"
+            }
+
+            // Show persistent flags
+            for (const _, flag: persistentFlags) {
+                os << "  --" << flag.name
+                var padding = flagPadWidth - (flag.name.size() + 2)
+                for i : 0..padding {
+                    os << " "
+                }
+                os << flag.usage << "\n"
+            }
+        }
+
+        // Help footer
+        if !commands.empty() {
+            os << "\nUse \"" << name << " [command] --help\" for more information about a command.\n"
+        }
+    }
+
+    // Validate flag groups for mutual exclusion and required together
+    - func validateFlagGroups(): !void {
+        for group, _ : flagGroups {
+            var setFlags = Vector[__string]()
+
+            // Find which flags in this group are set
+            for flagName, _ : group.flags {
+                if flagValues.has(flagName.str()) {
+                    setFlags.push(flagName.str())
+                }
+            }
+
+            switch (group.groupType) {
+                .MutuallyExclusive => {
+                    if setFlags.size() > 1 {
+                        raise ValidationError(f"flags in group '{group.name}' are mutually exclusive: {setFlags.[0]}, {setFlags.[1]}")
+                    }
+                }
+                .RequiredTogether => {
+                    if setFlags.size() > 0 && setFlags.size() != group.flags.size() {
+                        var missing = Vector[__string]()
+                        for flagName, _ : group.flags {
+                            if !flagValues.has(flagName.str()) {
+                                missing.push(flagName.str())
+                            }
+                        }
+                        raise ValidationError(f"flag group '{group.name}' requires all flags to be provided together, missing: {missing.[0]}")
+                    }
+                }
+            }
+
+            // Check if required group is satisfied
+            if group.required && setFlags.empty() {
+                raise ValidationError(f"required flag group '{group.name}' must have at least one flag set")
+            }
+        }
+    }
+
+    // Apply environment variable values for flags not explicitly set
+    - func applyEnvVars(): void {
+        // Check local flags
+        for (const _, flag: flags) {
+            if !flag.envVar.empty() && !flagValues.has(flag.name) {
+                var envValue = getenv(flag.envVar.str(), "") catch __string()
+                if !envValue.empty() {
+                    parseEnvValue(flag, envValue) catch discard
+                }
+            }
+        }
+
+        // Check persistent flags
+        for (const _, flag: persistentFlags) {
+            if !flag.envVar.empty() && !flagValues.has(flag.name) {
+                var envValue = getenv(flag.envVar.str(), "") catch __string()
+                if !envValue.empty() {
+                    parseEnvValue(flag, envValue) catch discard
+                }
+            }
+        }
+    }
+
+    // Parse environment variable value according to flag type
+    - func parseEnvValue(flag: Flag, envValue: __string): !void {
+        match (flag.defaultValue) {
+            bool as _ => {
+                if envValue == "true" || envValue == "1" || envValue == "yes" {
+                    flagValues.set(flag.name, true)
+                } else if envValue == "false" || envValue == "0" || envValue == "no" {
+                    flagValues.set(flag.name, false)
+                } else {
+                    raise ValidationError(f"invalid boolean value for env var {flag.envVar}: {envValue}")
+                }
+            }
+            i64 as _ => {
+                var intVal = parseInt(envValue)
+                if !intVal {
+                    raise ValidationError(f"invalid integer value for env var {flag.envVar}: {envValue}")
+                }
+                flagValues.set(flag.name, *intVal)
+            }
+            __string as _ => flagValues.set(flag.name, envValue)
+        }
+    }
+}
+
+// Module level tests
+test "Flag creation and storage" {
+    var stringFlag = Flag("name", "Service name", "default".s)
+    ok!(stringFlag.name == "name")
+    ok!(stringFlag.usage == "Service name")
+
+    var boolFlag = Flag("verbose", "Enable verbose output", false)
+    ok!(boolFlag.name == "verbose")
+
+    var intFlag = Flag("port", "Port number", 8080 as i64)
+    ok!(intFlag.name == "port")
+}
+
+test "FlagValues type safety" {
+    var values = FlagValues{}
+    values.set("str", "hello".s)
+    values.set("bool", true)
+    values.set("int", 42 as i64)
+
+    ok!(values.getString("str") == "hello")
+    ok!(values.getBool("bool") == true)
+    ok!(values.getInt("int") == 42)
+
+    // Type mismatches return defaults
+    ok!(values.getString("bool") == __string())
+    ok!(values.getBool("str") == false)
+    ok!(values.getInt("str") == 0)
+}
+
+test "Command flag parsing --flag=value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("port", "Port number", 8080)) catch discard
+    cmd.addFlag(Flag("name", "Service name", "default".s)) catch discard
+
+    var args = ["--verbose=true", "--port=9000", "--name=myservice"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getInt("port") == 9000)
+    ok!(cmd.flagValues.getString("name") == "myservice")
+}
+
+test "Command flag parsing --flag value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("count", "Item count", 10)) catch discard
+
+    var args = ["--verbose", "--count", "25"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getInt("count") == 25)
+}
+
+test "Command positional arguments" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+
+    var args = ["--verbose", "file1.txt", "file2.txt"]
+    cmd.parse(args) catch discard
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.args.size() == 2)
+    ok!(cmd.args.[0] == "file1.txt")
+    ok!(cmd.args.[1] == "file2.txt")
+}
+
+test "Boolean flag without value defaults to true" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+
+    var args = ["--verbose"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.args.empty())
+}
+
+test "Boolean flag with explicit true value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("debug", "Enable debug", false)) catch discard
+
+    var args = ["--debug", "true"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("debug") == true)
+    ok!(cmd.args.empty())
+}
+
+test "Boolean flag with explicit false value" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("quiet", "Quiet mode", true)) catch discard
+
+    var args = ["--quiet", "false"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("quiet") == false)
+    ok!(cmd.args.empty())
+}
+
+test "Boolean flag with numeric values" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("enable", "Enable feature", false)) catch discard
+    cmd.addFlag(Flag("disable", "Disable feature", true)) catch discard
+
+    var args = ["--enable", "1", "--disable", "0"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("enable") == true)
+    ok!(cmd.flagValues.getBool("disable") == false)
+    ok!(cmd.args.empty())
+}
+
+test "Boolean flag ignores non-boolean next argument" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+
+    var args = ["--verbose", "filename.txt", "another.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.args.size() == 2)
+    ok!(cmd.args.[0] == "filename.txt")
+    ok!(cmd.args.[1] == "another.txt")
+}
+
+test "Mixed boolean and non-boolean flags" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("port", "Port number", 3000)) catch discard
+    cmd.addFlag(Flag("debug", "Enable debug", false)) catch discard
+
+    var args = ["--verbose", "--port", "8080", "--debug", "false", "file.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getInt("port") == 8080)
+    ok!(cmd.flagValues.getBool("debug") == false)
+    ok!(cmd.args.size() == 1)
+    ok!(cmd.args.[0] == "file.txt")
+}
+
+test "Short flag parsing basic" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", 'v', "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("port", 'p', "Port number", 3000)) catch discard
+    cmd.addFlag(Flag("name", 'n', "Service name", "default".s)) catch discard
+
+    var args = ["-v", "-p", "8080", "-n", "myservice"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getInt("port") == 8080)
+    ok!(cmd.flagValues.getString("name") == "myservice")
+}
+
+test "Short flag with boolean values" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("debug", 'd', "Enable debug", false)) catch discard
+    cmd.addFlag(Flag("quiet", 'q', "Quiet mode", true)) catch discard
+
+    var args = ["-d", "true", "-q", "false"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("debug") == true)
+    ok!(cmd.flagValues.getBool("quiet") == false)
+}
+
+test "Combined short flags -abc" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", 'v', "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("all", 'a', "Show all", false)) catch discard
+    cmd.addFlag(Flag("force", 'f', "Force operation", false)) catch discard
+
+    var args = ["-vaf"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getBool("all") == true)
+    ok!(cmd.flagValues.getBool("force") == true)
+}
+
+test "Mixed short and long flags" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", 'v', "Enable verbose", false)) catch discard
+    cmd.addFlag(Flag("port", 'p', "Port number", 3000)) catch discard
+    cmd.addFlag(Flag("debug", "Enable debug", false)) catch discard
+
+    var args = ["-v", "--debug", "-p", "9000", "file.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.flagValues.getBool("debug") == true)
+    ok!(cmd.flagValues.getInt("port") == 9000)
+    ok!(cmd.args.size() == 1)
+    ok!(cmd.args.[0] == "file.txt")
+}
+
+test "Short flag ignores non-boolean next argument" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("verbose", 'v', "Enable verbose", false)) catch discard
+
+    var args = ["-v", "filename.txt", "another.txt"]
+    cmd.parse(args) catch discard
+
+    ok!(cmd.flagValues.getBool("verbose") == true)
+    ok!(cmd.args.size() == 2)
+    ok!(cmd.args.[0] == "filename.txt")
+    ok!(cmd.args.[1] == "another.txt")
+}
+
+test "Basic subcommand support" {
+    var rootCmd = Command("docker", "Container management")
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var subCmd = rootCmd.findCommand("container")
+    ok!(subCmd != null)
+    ok!(subCmd.name == "container")
+    ok!(!!subCmd.parent)
+}
+
+test "Persistent flags inheritance" {
+    var rootCmd = Command("docker", "Container management")
+    rootCmd.addPersistentFlag(Flag("debug", 'd', "Debug mode", false)) catch discard
+
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var args = ["--debug", "true"]
+    containerCmd.parse(args) catch discard
+
+    ok!(containerCmd.flagValues.getBool("debug") == true)
+}
+
+test "Subcommand routing" {
+    var rootCmd = Command("docker", "Container management")
+    var containerCmd = Command("container", "Manage containers")
+    containerCmd.addFlag(Flag("all", 'a', "Show all", false)) catch discard
+    rootCmd.addCommand(containerCmd) catch discard
+
+    var args = ["container", "--all"]
+    rootCmd.parse(args) catch discard
+
+    ok!(containerCmd.flagValues.getBool("all") == true)
+    ok!(rootCmd.args.empty())
+}
+
+test "Multi-level command hierarchy" {
+    var rootCmd = Command("kubectl", "Kubernetes CLI")
+    var getCmd = Command("get", "Get resources")
+    var podsCmd = Command("pods", "Get pods")
+
+    getCmd.addCommand(podsCmd) catch discard
+    rootCmd.addCommand(getCmd) catch discard
+
+    var subCmd = rootCmd.findCommand("get")
+    ok!(subCmd != null)
+    ok!(subCmd.name == "get")
+
+    var subSubCmd = subCmd.findCommand("pods")
+    ok!(subSubCmd != null)
+    ok!(subSubCmd.name == "pods")
+}
+
+test "Persistent flags with subcommand execution" {
+    var rootCmd = Command("myapp", "My application")
+    rootCmd.addPersistentFlag(Flag("config", 'c', "Config file", "default.conf".s)) catch discard
+
+    var serveCmd = Command("serve", "Start server")
+    serveCmd.addFlag(Flag("port", 'p', "Port", 8080)) catch discard
+    rootCmd.addCommand(serveCmd) catch discard
+
+    var args = ["--config", "/etc/app.conf", "serve", "--port", "9000"]
+    rootCmd.parse(args) catch discard
+
+
+
+    ok!(serveCmd.flagValues.getString("config") == "/etc/app.conf")
+    ok!(serveCmd.flagValues.getInt("port") == 9000)
+}
+
+test "Mutually exclusive flag groups" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("json", 'j', "JSON output", false)) catch discard
+    cmd.addFlag(Flag("yaml", 'y', "YAML output", false)) catch discard
+    cmd.addFlag(Flag("table", 't', "Table output", false)) catch discard
+
+    var outputGroup = FlagGroup("output", FlagGroupType.MutuallyExclusive)
+    outputGroup.flags.push("json")
+    outputGroup.flags.push("yaml")
+    outputGroup.flags.push("table")
+    cmd.addFlagGroup(outputGroup)
+
+    // This should work - only one flag set
+    var args1 = ["--json"]
+    cmd.parse(args1) catch discard
+    ok!(cmd.flagValues.getBool("json") == true)
+
+    // Reset for next test
+    cmd.flagValues.values.clear()
+
+    // This should fail - multiple flags set
+    var args2 = ["--json", "--yaml"]
+    var _, failed = cmd.parse(args2) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "Environment variable binding" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("config", "Config file", "default.conf".s, "MYAPP_CONFIG")) catch discard
+    cmd.addFlag(Flag("debug", "Debug mode", false, "MYAPP_DEBUG")) catch discard
+    cmd.addFlag(Flag("port", "Port number", 8080, "MYAPP_PORT")) catch discard
+
+    // Note: This test would need actual environment variable setting
+    // For now it just tests the structure
+    ok!(cmd.flags.contains("config"))
+    ok!(cmd.flags.["config"]&.envVar == "MYAPP_CONFIG")
+    ok!(cmd.flags.["debug"]&.envVar == "MYAPP_DEBUG")
+    ok!(cmd.flags.["port"]&.envVar == "MYAPP_PORT")
+}
+
+test "Required together flag groups" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("username", 'u', "Username", "".s)) catch discard
+    cmd.addFlag(Flag("password", 'p', "Password", "".s)) catch discard
+
+    var authGroup = FlagGroup("auth", FlagGroupType.RequiredTogether)
+    authGroup.flags.push("username")
+    authGroup.flags.push("password")
+    cmd.addFlagGroup(authGroup)
+
+    // This should work - both flags provided
+    var args1 = ["--username", "user", "--password", "pass"]
+    cmd.parse(args1) catch discard
+    ok!(cmd.flagValues.getString("username") == "user")
+    ok!(cmd.flagValues.getString("password") == "pass")
+
+    // Reset for next test
+    cmd.flagValues.values.clear()
+
+    // This should fail - only one flag provided
+    var args2 = ["--username", "user"]
+    var _, failed = cmd.parse(args2) catch (null as Command, true)
+    ok!(failed)
+}
+
+test "Required flag group" {
+    var cmd = Command("test", "Test command")
+    cmd.addFlag(Flag("input", 'i', "Input file", "".s)) catch discard
+    cmd.addFlag(Flag("output", 'o', "Output file", "".s)) catch discard
+
+    var ioGroup = FlagGroup("io", FlagGroupType.MutuallyExclusive)
+    ioGroup.flags.push("input")
+    ioGroup.flags.push("output")
+    ioGroup.required = true
+    cmd.addFlagGroup(ioGroup)
+
+    // This should work - one required flag provided
+    var args1 = ["--input", "file.txt"]
+    cmd.parse(args1) catch discard
+    ok!(cmd.flagValues.getString("input") == "file.txt")
+
+    // Reset for next test
+    cmd.flagValues.values.clear()
+
+    // This should fail - no flags from required group provided
+    var args2:[string] = []
+    var _, failed = cmd.parse(args2) catch (null as Command, true)
+    ok!(failed)
+}
+
+// Factory function to create a built-in help command
+pub func createHelpCommand(rootCmd: &Command): void {
+    var helpCmd = Command("help", "Show help for commands")
+
+    // Set the action that executes help logic
+    helpCmd.setAction((cmd: &Command) => {
+        var helpArgs = cmd.args
+
+        if helpArgs.empty() {
+            // Show root command help
+            rootCmd.help(&stdout)
+        } else {
+            // Navigate to the specified command
+            var currentCmd = rootCmd
+            var found = true
+
+            for subCmdName, _ : helpArgs {
+                var subCmd = currentCmd.findCommand(subCmdName.str())
+                if subCmd == null {
+                    // Error: command not found
+                    stdout << "Error: command '" << subCmdName << "' not found\n"
+                    found = false
+                    break
+                }
+                currentCmd = &subCmd
+            }
+
+            if found {
+                currentCmd.help(&stdout)
+            }
+        }
+        return 0
+    })
+
+    rootCmd.addCommand(helpCmd) catch discard
+}
+
+// Factory function to create a root command with automatic help setup
+pub func RootCommand(name: __string, description: __string): Command {
+    var cmd = Command(name, description)
+
+    // Add persistent help flag that all subcommands inherit
+    var helpFlag = Flag("help", 'h', "Show help for this command", false)
+    cmd.addPersistentFlag(helpFlag) catch discard
+
+    // Add built-in help command
+    createHelpCommand(&cmd)
+
+    return cmd
+}
+
+test "Help generation validation" {
+    var rootCmd = Command("myapp", "My awesome application")
+    rootCmd.addFlag(Flag("config", 'c', "Config file", "app.conf".s)) catch discard
+    rootCmd.addFlag(Flag("verbose", 'v', "Verbose output", false)) catch discard
+    rootCmd.addPersistentFlag(Flag("debug", 'd', "Debug mode", false)) catch discard
+
+    var containerCmd = Command("container", "Manage containers")
+    containerCmd.addFlag(Flag("all", 'a', "Show all", false)) catch discard
+    rootCmd.addCommand(containerCmd) catch discard
+
+    // Test root command help
+    var helpOutput = String()
+    rootCmd.help(&helpOutput)
+    var s = helpOutput.__str()
+
+
+
+    // Validate help contains expected elements
+    ok!(!!s.find("My awesome application"))
+    ok!(!!s.find("Usage: myapp [flags] [command]"))
+    ok!(!!s.find("Available Commands:"))
+    ok!(!!s.find("container    Manage containers"))
+    ok!(!!s.find("Flags:"))
+    ok!(!!s.find("--config"))
+    ok!(!!s.find("--verbose"))
+    ok!(!!s.find("--debug"))
+    ok!(!!s.find("Use \"myapp [command] --help\" for more information"))
+}
+
+test "Help flag detection" {
+    var rootCmd = RootCommand("myapp", "My awesome application")
+
+    // Add a subcommand
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+
+    // Test help flag parsing on root command
+    var args1 = ["--help"]
+    var finalCmd1, shouldExecute1 = rootCmd.parse(args1) catch (null as Command, false)
+    ok!(finalCmd1 != null)
+    ok!(!shouldExecute1)  // Should not execute when help requested
+    ok!(finalCmd1.flagValues.getBool("help"))
+
+    // Test short help flag
+    var args2 = ["-h"]
+    var rootCmd2 = RootCommand("myapp", "My awesome application")
+    var finalCmd2, shouldExecute2 = rootCmd2.parse(args2) catch (null as Command, false)
+    ok!(finalCmd2 != null)
+    ok!(!shouldExecute2)  // Should not execute when help requested
+    ok!(finalCmd2.flagValues.getBool("help"))
+}
+
+test "Built-in help command" {
+    var rootCmd = RootCommand("myapp", "My awesome application")
+
+    // Add some subcommands
+    var containerCmd = Command("container", "Manage containers")
+    var runCmd = Command("run", "Run a container")
+    containerCmd.addCommand(runCmd) catch discard
+    rootCmd.addCommand(containerCmd) catch discard
+
+    // Test help command exists
+    var foundHelp = rootCmd.findCommand("help")
+    ok!(foundHelp != null)
+
+    // Test help command parsing from root (proper routing)
+    var args = ["help", "container"]
+    var finalCmd, shouldExecute = rootCmd.parse(args) catch (null as Command, false)
+
+    // Should return the help command as final command
+    ok!(finalCmd != null)
+    ok!(shouldExecute)  // Help command should execute its action
+    ok!(finalCmd.name == "help")
+
+    // The help command should have the container arg
+    ok!(finalCmd.args.size() == 1)
+    ok!(finalCmd.args.[0] == "container")
+}
+
+test "Action system with lambdas" {
+    var rootCmd = Command("myapp", "My awesome application")
+
+    // Add a command with an action
+    var runCmd = Command("run", "Run something")
+    runCmd.setAction((cmd: &Command) => {
+        // Access parsed arguments and flags
+        if cmd.args.size() > 0 {
+            return 0  // Success
+        }
+        return 1  // Error
+    })
+
+    rootCmd.addCommand(runCmd) catch discard
+
+    // Test that action executes after parsing
+    var args = ["run", "target"]
+    var finalCmd, shouldExecute = runCmd.parse(args) catch (null as Command, false)
+    ok!(finalCmd != null)
+    ok!(shouldExecute)
+    var exitCode = finalCmd.execute()
+    ok!(exitCode == 0)
+
+    // Test command without action shows help
+    var containerCmd = Command("container", "Manage containers")
+    rootCmd.addCommand(containerCmd) catch discard
+    var helpExitCode = containerCmd.execute()
+    ok!(helpExitCode == 0)  // Help returns 0
 }

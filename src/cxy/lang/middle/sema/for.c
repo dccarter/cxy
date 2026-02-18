@@ -246,7 +246,7 @@ static void transformForCustomRange(AstVisitor *visitor,
         AstNode *newVars =
             makeVarDecl(ctx->pool,
                         &range->loc,
-                        flgNone,
+                        flgTemporary,
                         makeAnonymousVariable(ctx->strings, "tmpVar"),
                         NULL,
                         makeUnaryExpr(ctx->pool,

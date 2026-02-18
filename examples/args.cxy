@@ -1,0 +1,78 @@
+import "stdlib/args.cxy" as args
+
+// Practical CLI application example using all implemented features
+func main(argv: [string]): i32 {
+    // Create root command with automatic help setup
+    var app = args.RootCommand("myapp", "A comprehensive CLI application")
+
+    // Global persistent flags (inherited by all subcommands)
+    app.addPersistentFlag(args.Flag("config", 'c', "Configuration file", "config.json".s, "MYAPP_CONFIG")) catch discard
+    app.addPersistentFlag(args.Flag("debug", 'd', "Enable debug mode", false, "MYAPP_DEBUG")) catch discard
+    app.addPersistentFlag(args.Flag("verbose", 'v', "Verbose output", false)) catch discard
+
+    // Database command with required together flags
+    var dbCmd = args.Command("database", "Database operations")
+    dbCmd.addFlag(args.Flag("host", 'H', "Database host", "localhost".s, "DB_HOST")) catch discard
+    dbCmd.addFlag(args.Flag("port", 'p', "Database port", 5432, "DB_PORT")) catch discard
+    dbCmd.addFlag(args.Flag("username", 'u', "Database username", "".s)) catch discard
+    dbCmd.addFlag(args.Flag("password", 'P', "Database password", "".s)) catch discard
+
+    // Username and password must be provided together
+    var authGroup = args.FlagGroup("auth", args.FlagGroupType.RequiredTogether)
+    authGroup.flags.push("username")
+    authGroup.flags.push("password")
+    authGroup.required = true
+    dbCmd.addFlagGroup(&&authGroup)
+
+    app.addCommand(&&dbCmd) catch discard
+
+    // Server command with subcommands
+    var serverCmd = args.Command("server", "Server management")
+    serverCmd.addFlag(args.Flag("port", 'p', "Server port", 8080)) catch discard
+    serverCmd.addFlag(args.Flag("host", 'h', "Server host", "localhost".s)) catch discard
+
+    var startCmd = args.Command("start", "Start the server")
+    startCmd.addFlag(args.Flag("daemon", "Run as daemon", false)) catch discard
+    serverCmd.addCommand(&&startCmd) catch discard
+
+    var stopCmd = args.Command("stop", "Stop the server")
+    stopCmd.addFlag(args.Flag("force", 'f', "Force stop", false)) catch discard
+    serverCmd.addCommand(&&stopCmd) catch discard
+
+    app.addCommand(&&serverCmd) catch discard
+
+    // Output command with mutually exclusive flags
+    var outputCmd = args.Command("output", "Format output data")
+    outputCmd.addFlag(args.Flag("json", 'j', "JSON format", false)) catch discard
+    outputCmd.addFlag(args.Flag("yaml", 'y', "YAML format", false)) catch discard
+    outputCmd.addFlag(args.Flag("table", 't', "Table format", false)) catch discard
+
+    // Only one output format allowed
+    var formatGroup = args.FlagGroup("format", args.FlagGroupType.MutuallyExclusive)
+    formatGroup.flags.push("json")
+    formatGroup.flags.push("yaml")
+    formatGroup.flags.push("table")
+    outputCmd.addFlagGroup(&&formatGroup)
+
+    app.addCommand(&&outputCmd) catch discard
+
+    // Parse real command line arguments
+    var finalCmd, shouldExecute = app.parse(argv) catch
+        (null as args.Command, false)
+
+    if finalCmd == null {
+        stderr << "Error: Parsing failed\n"
+        return 1
+    }
+
+    if !shouldExecute {
+        // Help was requested, show it
+        var output = String()
+        finalCmd.help(&output)
+        stdout << output.__str()
+        return 0
+    }
+
+    // Execute the final command
+    return finalCmd.execute()
+}

@@ -208,6 +208,8 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
         if (typeIs(from, Enum)) {
             return isTypeAssignableFrom(to, from->tEnum.base);
         }
+        if (!typeIs(from, Primitive))
+            return false;
 
         switch (to->primitive.id) {
 #define f(I, ...) case prt##I:
@@ -1359,14 +1361,14 @@ void resolveThisReferences(TypeTable *table, const Type *this, const Type *type)
         return;
 
     DynArray *refs = (DynArray *)&this->_this.references;
-
+    type = resolveType(type);
     if (type != NULL) {
         for (int i = 0; i < refs->size; i++) {
             AstNode *node = dynArrayAt(AstNode **, refs, i);
             u64 flags = flgNone;
             if (!typeIs(node->type, This))
                 unwrapType(node->type, &flags);
-            node->type = makePointerType(table, type, flags);
+            node->type = makeWrappedType(table, type, flags);
         }
     }
 

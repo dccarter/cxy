@@ -27,7 +27,6 @@ typedef struct {
     bool traceMemory;
     bool returnState;
     bool exceptionTrace;
-
     union {
         struct {
             AstNode *currentCall;

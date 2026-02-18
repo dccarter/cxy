@@ -1,0 +1,6 @@
+module types
+
+struct User {
+    name: string
+    age: i32
+}

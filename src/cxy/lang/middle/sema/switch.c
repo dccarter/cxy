@@ -68,11 +68,13 @@ static int compareLiteralNode(const void *left, const void *right)
     if (nodeIs(lhs, RangeExpr) && nodeIs(rhs, RangeExpr)) {
         return isOverlappingRange(lhs, rhs);
     }
-    else if (nodeIs(lhs, RangeExpr)) {
+
+    if (nodeIs(lhs, RangeExpr)) {
         csAssert0(isIntegralLiteral(rhs));
         return isIntegerInRange(lhs, getLiteralValue(rhs));
     }
-    else if (nodeIs(rhs, RangeExpr)) {
+
+    if (nodeIs(rhs, RangeExpr)) {
         csAssert0(isIntegralLiteral(lhs));
         return -isIntegerInRange(rhs, getLiteralValue(lhs));
     }

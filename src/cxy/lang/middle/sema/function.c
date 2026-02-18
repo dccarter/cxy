@@ -78,7 +78,7 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
     AstNode *decls = callee->func.decl->list.first ?: callee->func.decl,
             *decl = decls;
     const Type *found = NULL;
-    u64 maxScore = argsCount * 2, matchScore = 0, declarations = 0;
+    u64 maxScore = argsCount * 3, matchScore = 0, declarations = 0;
 
     for (; decl; decl = decl->list.link) {
         const Type *type = decl->type;
@@ -116,7 +116,7 @@ const Type *matchOverloadedFunctionPerfectMatch(Log *L,
                 }
                 compatible = isExplicitConstructableFrom(L, paramType, argType);
                 if (compatible) {
-                    score--;
+                    score -= 2;
                     continue;
                 }
                 break;

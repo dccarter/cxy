@@ -126,21 +126,13 @@ static void visitBackendCallExpr(AstVisitor *visitor, AstNode *node)
             func = type->tuple.copyFunc->func.decl;
         break;
     case bfiDrop:
+    case bfiDeclare:
         if (isStructType(type))
             func = findMemberDeclInType(type, S_DestructorOverload);
         else if (isUnionType(type))
             func = type->tUnion.destructorFunc->func.decl;
         else if (isTupleType(type) && type->tuple.destructorFunc)
             func = type->tuple.destructorFunc->func.decl;
-        var = resolveIdentifier(args);
-        if (hasVariableDropFlags(var)) {
-            node->backendCallExpr.dropFlags = var->varDecl.dropFlags;
-            if (!isWithinCleanupBlock(node)) {
-                astModifierAddAsNext(&ctx->blockModifier,
-                                     makeAssignDropFlagsNode(
-                                         ctx, var->varDecl.dropFlags, false));
-            }
-        }
         break;
     case bfiAlloca:
         if (isClassType(type))

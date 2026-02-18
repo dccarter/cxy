@@ -607,6 +607,56 @@ static AstNode *makeLShiftNode(AstVisitor *visitor,
         ctx->pool, &node->loc, flgNone, left, opShl, right, NULL, NULL);
 }
 
+static AstNode *makeMemberOfNode(AstVisitor *visitor,
+                               attr(unused) const AstNode *node,
+                               attr(unused) AstNode *args)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (!validateMacroArgumentCount(ctx, &node->loc, args, 2))
+        return NULL;
+
+    if (!nodeIs(args, TypeRef) && !hasFlag(args, Typeinfo)) {
+        logError(ctx->L, &args->loc,
+            "the first argument of `member_of` macro must be a type info",
+            NULL);
+        return NULL;
+    }
+    const Type *left = args->type ?: evalType(ctx, args);
+    if (left == NULL || typeIs(left, Error))
+        return NULL;
+
+    args = args->next;
+    if (!nodeIs(args, TypeRef) && !hasFlag(args, Typeinfo)) {
+        logError(ctx->L, &args->loc,
+            "the second argument of `member_of` macro must be a type info"
+             " union or tuple",
+            NULL);
+        return NULL;
+    }
+    left = resolveAndUnThisType(left);
+
+    const Type *right = args->type ?: evalType(ctx, args);
+    if (right == NULL || typeIs(right, Error))
+        return NULL;
+    right = resolveUnThisUnwrapType(right);
+
+    bool isMember = false;
+    if (typeIs(right, Union)) {
+        isMember = findUnionTypeIndex(right, left) != UINT32_MAX;
+    }
+    else {
+        logError(ctx->L, &args->loc,
+            "the second argument of `member_of` must either be a union or tuple"
+             " got `{t}`",
+            (FormatArg[]){{.t = right}});
+        return NULL;
+    }
+
+    return makeBoolLiteral(
+        ctx->pool,&node->loc,isMember, NULL,
+        getPrimitiveType(ctx->types, prtBool));
+}
+
 static AstNode *makeAstNodeList(AstVisitor *visitor,
                                 attr(unused) const AstNode *node,
                                 attr(unused) AstNode *args)
@@ -1711,6 +1761,7 @@ static const BuiltinMacro builtinMacros[] = {
     {.name = "len", makeLenNode},
     {.name = "line", makeLineNumberNode},
     {.name = "lshift", makeLShiftNode},
+    {.name = "member_of", makeMemberOfNode},
     {.name = "mk_ast_list", makeAstNodeList},
     {.name = "mk_bc", makeBackendCallNode},
     {.name = "mk_field", makeAstFieldStmtNode},

@@ -23,6 +23,7 @@ typedef struct {
     union {
         struct {
             bool inClassOrStruct;
+            AstNode *currentClsOrStruct;
             AstNode *catchLhs;
             AstNode *catchRhs;
             cstring fun;
@@ -32,6 +33,7 @@ typedef struct {
         };
         struct {
             bool inClassOrStruct;
+            AstNode *currentClsOrStruct;
             AstNode *catchLhs;
             AstNode *catchRhs;
             cstring fun;

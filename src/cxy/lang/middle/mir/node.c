@@ -801,6 +801,7 @@ static void visitBackendCallExpr(AstVisitor *visitor, AstNode *node)
                                     node->type,
                                     NULL));
         break;
+    default:break;
     }
 }
 

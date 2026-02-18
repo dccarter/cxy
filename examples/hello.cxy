@@ -1,7 +1,4 @@
-import "stdlib/coro.cxy"
+import { parse } from "stdlib/yaml.cxy"
 
-func hello() {}
-
-func main() {
-    async hello()
+func main(): !void {
 }

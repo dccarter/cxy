@@ -376,13 +376,19 @@ void transformToMemberCallExpr(AstVisitor *visitor,
                                cstring member,
                                AstNode *args)
 {
+    Operator op = node->binaryExpr.op;
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *callee = makeMemberExpr(
         ctx->pool,
         &target->loc,
         target->flags,
         target,
-        makeIdentifier(ctx->pool, &target->loc, member, 0, NULL, NULL),
+        op == opIs
+            ?
+            makeResolvedPathWithArgs(ctx->pool,
+                &target->loc,member,target->flags & flgConst,
+                NULL, args, NULL):
+            makeIdentifier(ctx->pool, &target->loc, member, 0, NULL, NULL),
         NULL,
         NULL);
     callee->parentScope = node;
@@ -390,7 +396,9 @@ void transformToMemberCallExpr(AstVisitor *visitor,
     node->tag = astCallExpr;
     node->type = NULL;
     node->callExpr.callee = callee;
-    node->callExpr.args = transformRValueToLValues(visitor, args);
+    if (op != opIs) {
+        node->callExpr.args = transformRValueToLValues(visitor, args);
+    }
 }
 
 const Type *transformToConstructCallExpr(AstVisitor *visitor, AstNode *node)
@@ -597,6 +605,11 @@ AstNode *transformToUnionValue(TypingContext *ctx,
                                const Type *lhs,
                                const Type *rhs)
 {
+    if (typeIs(lhs, Pointer) && typeIs(rhs, Pointer) &&
+        typeIs(rhs->pointer.pointed, Null)) {
+        return  right;
+    }
+
     const Type *stripped = stripPointerOnce(lhs, NULL),
                *strippedRhs = resolveAndUnThisType(stripPointerOnce(rhs, NULL));
     if (strippedRhs != lhs && typeIs(stripped, Union) &&

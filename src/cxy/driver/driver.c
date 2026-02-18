@@ -371,14 +371,14 @@ static cstring getModuleLocation(CompilerDriver *driver,
     csAssert0(modulePath && modulePath[0] != '\0');
     char path[PATH_MAX];
     u64 modulePathLen = strlen(modulePath);
-    if (modulePath[0] == '.' && modulePath[1] == '/') {
+    if (modulePath[0] == '.' && (modulePath[1] == '.' || modulePath[1] == '/')) {
         cstring importerFilename = strrchr(importer, '/');
         if (importerFilename == NULL)
             return modulePath;
         size_t importedLen = (importerFilename - importer) + 1;
-        modulePathLen -= 2;
+        // modulePathLen -= 2;
         memcpy(path, importer, importedLen);
-        memcpy(&path[importedLen], modulePath + 2, modulePathLen);
+        memcpy(&path[importedLen], modulePath, modulePathLen);
         path[importedLen + modulePathLen] = '\0';
         char tmp[PATH_MAX];
         return makeString(driver->strings, realpath(path, tmp));
@@ -435,8 +435,13 @@ const Type *compileModule(CompilerDriver *driver,
     cstring path = source->stringLiteral.value;
     if (!isImportModuleACHeader(source->stringLiteral.value)) {
         path = getModuleLocation(driver, source, false);
-        if (path == NULL)
+        if (path == NULL) {
+            logError(driver->L,
+                &source->loc,
+                "module source file '{s}' does not exist",
+                (FormatArg[]){{.s = source->stringLiteral.value}});
             return NULL;
+        }
 
         program = findCachedModule(driver, path);
         if (program == NULL) {
@@ -498,7 +503,7 @@ const Type *compileModule(CompilerDriver *driver,
             logError(
                 driver->L,
                 &entity->loc,
-                "module {s} member'{s}' cannot be imported, it is not public",
+                "module {s} member '{s}' cannot be imported, it is not public",
                 (FormatArg[]){{.s = source->stringLiteral.value},
                               {.s = entity->importEntity.name}});
             logNote(driver->L,

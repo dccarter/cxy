@@ -199,8 +199,11 @@ typedef struct {
     f(Alloca)                  \
     f(Zeromem)                 \
     f(MemAlloc)                \
+    f(Declare)                 \
     f(Copy)                    \
-    f(Drop)
+    f(Drop)                    \
+    f(Move)                    \
+    f(Assign)
 
 // clang-format on
 
@@ -228,7 +231,12 @@ struct MirNode;
         void *codegen;                                                         \
         struct MirNode *ir;                                                    \
     };                                                                         \
-    struct MirNode *mir;
+    union  {                                                                   \
+        struct MirNode *mir;                                                   \
+        struct {                                                               \
+            bool used;                                                         \
+        } attr(packed);                                                        \
+    };
 
 typedef enum { iptModule, iptPath } ImportKind;
 typedef enum { cInclude, cDefine, cSources } CCodeKind;

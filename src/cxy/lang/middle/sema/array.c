@@ -10,7 +10,7 @@ static AstNode *getArrayDimension(AstNode *node)
 {
     if (node == NULL)
         return node;
-
+    const Type *type = node->type;
     switch (node->tag) {
     case astCastExpr:
         return node->castExpr.expr;
@@ -128,6 +128,22 @@ void checkArrayType(AstVisitor *visitor, AstNode *node)
         node->type = ERROR_TYPE(ctx);
         return;
     }
+    if (typeIs(dim_, Literal)) {
+        if (!nodeIs(dim_->literal.value, IntegerLit)) {
+            logError(ctx->L,
+                &node->loc,
+                "expecting array dimension to be constant integral type "
+                "at compile time",
+                NULL);
+            node->type = ERROR_TYPE(ctx);
+            return;
+        }
+        clearAstBody(node->arrayType.dim);
+        node->arrayType.dim->tag = astIntegerLit;
+        node->arrayType.dim->intLiteral.value =
+            dim_->literal.value->intLiteral.value;
+    }
+
     AstNode *dim = getArrayDimension(node->arrayType.dim);
     if (dim == NULL) {
         node->type = makeArrayType(ctx->types, element, size);

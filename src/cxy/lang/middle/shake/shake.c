@@ -133,7 +133,8 @@ static bool validateOperatorOverloadArguments(ShakeAstContext *ctx,
 #define f(OP, _0, _1, STR, ...)                                                \
     case op##OP:                                                               \
         return reportIfUnexpectedNumberOfParameters(                           \
-            ctx, &node->loc, STR, count, op == opRange ? 0 : 1);
+            ctx, &node->loc, STR, count,                                       \
+            (op == opRange || op == opIs) ? 0 : 1);
         AST_BINARY_EXPR_LIST(f)
 #undef f
 
@@ -623,6 +624,9 @@ static void shakeFuncDecl(AstVisitor *visitor, AstNode *node)
     if (overloadOperator != opInvalid) {
         if (!validateOperatorOverloadArguments(ctx, node, total))
             return;
+        if (ctx->currentClsOrStruct && overloadOperator == opDeinitOverload) {
+            ctx->currentClsOrStruct->flags |= flgImplementsDeinit;
+        }
     }
 
     node->funcDecl.paramsCount = total;
@@ -889,7 +893,7 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
             }
         }
     }
-    else if (decl->funcDecl.operatorOverload != opInvalid) {
+    else if (decl->funcDecl.operatorOverload != opInvalid && decl->funcDecl.operatorOverload != opIs) {
         logError(ctx->L,
                  &node->loc,
                  "unsupported generic function overload, must be inferrable",
@@ -1149,7 +1153,9 @@ static void shakeClassOrStructDecl(AstVisitor *visitor, AstNode *node)
 {
     ShakeAstContext *ctx = getAstVisitorContext(visitor);
     ctx->cls = getDeclarationName(node);
+    ctx->stack.currentClsOrStruct = node;
     astVisitFallbackVisitAll(visitor, node);
+    ctx->stack.currentClsOrStruct = NULL;
     AstNode *builtins = createClassOrStructBuiltins(ctx->pool, node);
     if (node->structDecl.members) {
         getLastAstNode(node->structDecl.members)->next = builtins;

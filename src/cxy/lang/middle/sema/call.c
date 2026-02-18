@@ -46,6 +46,9 @@ static void reAssignCalleeType(AstNode *node, const Type *type)
                 !nodeIs(resolved, FieldDecl))
                 member->ident.resolvesTo = type->func.decl;
         }
+        if (nodeIs(member, Path)) {
+            reAssignCalleeType(member, type);
+        }
     }
     else if (nodeIs(node, Identifier)) {
         AstNode *resolved = node->ident.resolvesTo;

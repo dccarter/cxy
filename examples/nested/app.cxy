@@ -1,0 +1,7 @@
+import { display } from "./src/helper.cxy"
+import { User } from "./types.cxy"
+
+func main() {
+    var user = User{ name: "John", age: 102 }
+    display(&user)
+}

@@ -543,8 +543,6 @@ func requestParserOnHeaderField(p: ^parser.llhttp_t, at: ^const char, len: u64) 
         assert!(req._s1 != null)
         TRC3!("    Header: " << req._s1 << " = " << req._s2)
         req._headers.[&&req._s1] = &&req._s2
-        req._s1 = null
-        req._s2 = null
     }
     if (req._s1 == null) {
         req._s1 = String(at, len)

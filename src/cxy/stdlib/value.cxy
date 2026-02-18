@@ -1,0 +1,618 @@
+module value
+
+import { Vector } from "./vector.cxy"
+import { HashMap } from "./hash.cxy"
+
+// Simple null type for representing JSON null
+pub struct Null { }
+
+// Universal value type for JSON/YAML/TOML data
+pub struct Value {
+    _value: Null | bool | i64 | f64 | String | Vector[Value] | HashMap[String, Value] = Null{}
+
+    // Constructors for different value types
+    @inline
+    func `init`() {
+        _value = Null{}
+    }
+
+    @[inline, explicit]
+    func `init`(b: bool) {
+        _value = b
+    }
+
+    @[inline, explicit]
+    func `init`(i: i64) {
+        _value = i
+    }
+
+    @[inline, explicit]
+    func `init`(f: f64) {
+        _value = f
+    }
+
+    @[inline] // We need implicit assignment
+    func `init`(s: String) {
+        _value = &&s
+    }
+
+    @[inline, explicit]
+    func `init`(arr: Vector[Value]) {
+        _value = &&arr
+    }
+
+    @[inline, explicit]
+    func `init`(obj: HashMap[String, Value]) {
+        _value = &&obj
+    }
+
+    @[static, inline]
+    func Object() : This => This(HashMap[String, Value]())
+    @[static, inline]
+    func Array() : This => This(Vector[Value]())
+
+    @inline
+    const func raw() => &_value
+
+    // Type checking methods
+    @inline
+    const func isNull(): bool {
+        match (_value) {
+            Null => return true
+            ... => return false
+        }
+    }
+
+    func `deinit`(): void {}
+
+    @inline
+    const func isBool(): bool {
+        match (_value) {
+            bool => return true
+            ... => return false
+        }
+    }
+
+    @inline
+    const func isInt(): bool {
+        match (_value) {
+            i64 => return true
+            ... => return false
+        }
+    }
+
+    @inline
+    const func isFloat(): bool {
+        match (_value) {
+            f64 => return true
+            ... => return false
+        }
+    }
+
+    @inline
+    const func isString(): bool {
+        match (_value) {
+            String => return true
+            ... => return false
+        }
+    }
+
+    @inline
+    const func isArray(): bool {
+        match (_value) {
+            Vector[Value] => return true
+            ... => return false
+        }
+    }
+
+    @inline
+    const func isObject(): bool {
+        match (_value) {
+            HashMap[String, Value] => return true
+            ... => return false
+        }
+    }
+
+    // Safe type extraction (returns Optional)
+    func getBool(): Optional[bool] {
+        match (_value) {
+            bool as b => return b
+            ... => return null
+        }
+    }
+
+    const func getBool(): Optional[bool] {
+        match (_value) {
+            bool as b => return b
+            ... => return null
+        }
+    }
+
+    func getInt(): Optional[i64] {
+        match (_value) {
+            i64 as i => return i
+            ... => return null
+        }
+    }
+
+    const func getInt(): Optional[i64] {
+        match (_value) {
+            i64 as i => return i
+            ... => return null
+        }
+    }
+
+    func getFloat(): Optional[f64] {
+        match (_value) {
+            f64 as f => return f
+            ... => return null
+        }
+    }
+
+    const func getFloat(): Optional[f64] {
+        match (_value) {
+            f64 as f => return f
+            ... => return null
+        }
+    }
+
+    func getString(): Optional[&String] {
+        match (_value) {
+            String as s => return &s
+            ... => return null
+        }
+    }
+
+    const func getString(): Optional[&String] {
+        match (_value) {
+            String as s => return &s
+            ... => return null
+        }
+    }
+
+    func getArray(): Vector[Value] {
+        match (_value) {
+            Vector[Value] as arr => return arr
+            ... => return null
+        }
+    }
+
+    const func getArray(): const Vector[Value] {
+        match (_value) {
+            Vector[Value] as arr => return arr
+            ... => return null
+        }
+    }
+
+    func getObject(): HashMap[String, Value] {
+        match (_value) {
+            HashMap[String, Value] as obj => return obj
+            ... => return null
+        }
+    }
+
+    const func getObject(): const HashMap[String, Value] {
+        match (_value) {
+            HashMap[String, Value] as obj => return obj
+            ... => return null
+        }
+    }
+
+    // Unsafe type extraction (throws on wrong type)
+    func asBool(): !bool {
+        match (_value) {
+            bool as b => return b
+            ... => raise TypeError(f"Expected bool, got {typeName()}")
+        }
+    }
+
+    func asInt(): !i64 {
+        match (_value) {
+            i64 as i => return i
+            ... => raise TypeError(f"Expected int, got {typeName()}")
+        }
+    }
+
+    func asFloat(): !f64 {
+        match (_value) {
+            f64 as f => return f
+            ... => raise TypeError(f"Expected float, got {typeName()}")
+        }
+    }
+
+    func asString(): !String {
+        match (_value) {
+            String as s => return __copy!(s)
+            ... => raise TypeError(f"Expected string, got {typeName()}")
+        }
+    }
+
+    func asArray(): !Vector[Value] {
+        match (_value) {
+            Vector[Value] as arr => return __copy!(arr)
+            ... => raise TypeError(f"Expected array, got {typeName()}")
+        }
+    }
+
+    func asObject(): !HashMap[String, Value] {
+        match (_value) {
+            HashMap[String, Value] as obj => return __copy!(obj)
+            ... => raise TypeError(f"Expected object, got {typeName()}")
+        }
+    }
+
+    // Object indexing (returns Optional like HashMap does)
+    func get(key: String): Optional[&Value] {
+        match (_value) {
+            HashMap[String, Value] as obj => return obj.[key]
+            ... => return null
+        }
+    }
+
+    const func get(key: String): Optional[&Value] {
+        match (_value) {
+            HashMap[String, Value] as obj => return obj.[key]
+            ... => return null
+        }
+    }
+
+    @inline
+    func `[]`(key: String): Optional[&Value] {
+        return get(key)
+    }
+
+    @inline
+    const func `[]`(key: String): Optional[&Value] {
+        return get(key)
+    }
+
+    // Array indexing (returns Optional like Vector does)
+    func get(idx: i32): Optional[&Value] {
+        match (_value) {
+            Vector[Value] as arr => {
+                if (idx >= 0 && idx < arr.size()) {
+                    return arr.[idx]
+                }
+                return null
+            }
+            ... => return null
+        }
+    }
+
+    const func get(idx: i32): Optional[&Value] {
+        match (_value) {
+            Vector[Value] as arr => {
+                if (idx >= 0 && idx < arr.size()) {
+                    return arr.[idx]
+                }
+                return null
+            }
+            ... => return null
+        }
+    }
+
+    @inline
+    func `[]`(idx: i32): Optional[&Value] {
+        return get(idx)
+    }
+
+    @inline
+    const func `[]`(idx: i32): Optional[&Value] {
+        return get(idx)
+    }
+
+    // Object mutation with method chaining
+    func set(key: String, value: Value): ^This {
+        match (_value) {
+            HashMap[String, Value] as obj => {
+                obj.[key] = &&value
+            }
+            ... => {
+                // Convert to object if not already
+                _value = HashMap[String, Value]()
+                match (_value) {
+                    HashMap[String, Value] as obj => obj.[key] = &&value
+                }
+            }
+        }
+        return this
+    }
+
+    func `[]=`(key: String, value: Value): void {
+        set(key, &&value)
+    }
+
+    // Array mutation with method chaining
+    func set(idx: i32, value: Value): ^This {
+        match (_value) {
+            Vector[Value] as arr => {
+                if (idx >= 0 && idx < arr.size()) {
+                    arr.[idx] = &&value
+                }
+            }
+            ... => {
+                // Convert to array if not already
+                _value = Vector[Value]()
+                // Note: can't set arbitrary indices in new array
+                match (_value) {
+                    Vector[Value] as arr => arr.push(&&value)
+                }
+            }
+        }
+        return this
+    }
+
+    func `[]=`(idx: i32, value: Value): void {
+        set(idx, &&value)
+    }
+
+    // Array operations
+    func push(value: Value): ^This {
+        match (_value) {
+            Vector[Value] as arr => arr.push(&&value)
+            ... => {
+                _value = Vector[Value]()
+                match (_value) {
+                    Vector[Value] as arr => arr.push(&&value)
+                }
+            }
+        }
+        return this
+    }
+
+    func pop(): Optional[Value] {
+        match (_value) {
+            Vector[Value] as arr => {
+                if (!arr.empty()) {
+                    return arr.pop()
+                }
+                return null
+            }
+            ... => return null
+        }
+    }
+
+    // Size operations
+    const func size(): u64 {
+        match (_value) {
+            Vector[Value] as arr => return arr.size()
+            HashMap[String, Value] as obj => return obj.size()
+            ... => return 0
+        }
+    }
+
+    const func empty(): bool {
+        match (_value) {
+            Vector[Value] as arr => return arr.empty()
+            HashMap[String, Value] as obj => return obj.empty()
+            Null => return true
+            ... => return false
+        }
+    }
+
+    // Type name for debugging
+    const func typeName(): string {
+        match (_value) {
+            Null => return "null"
+            bool => return "bool"
+            i64 => return "int"
+            f64 => return "float"
+            String => return "string"
+            Vector[Value] => return "array"
+            HashMap[String, Value] => return "object"
+        }
+    }
+
+    // String representation
+    const func `str`(os: &OutputStream): void {
+        match (_value) {
+            Null => os << "null"
+            bool as b => os << (b ? "true" : "false")
+            i64 as i => os << i
+            f64 as f => os << f
+            String as s => os << "\"" << s << "\""
+            Vector[Value] as arr => {
+                os << "["
+                for (item, index : arr) {
+                    if (index > 0) os << ", "
+                    os << item
+                }
+                os << "]"
+            }
+            HashMap[String, Value] as obj => {
+                os << "{"
+                var first = true
+                for (key, value : obj) {
+                    if (!first) os << ", "
+                    os << "\"" << key << "\": " << value
+                    first = false
+                }
+                os << "}"
+            }
+        }
+    }
+
+    // Cast function for converting Value to target types
+    const func cast[Target](): !Target {
+        #if (#Target == #Value) {
+            return <Target>(*this)
+        }
+        else #if (#Target == #bool) {
+            match (_value) {
+                bool as b => return b
+                ... => raise TypeError(f"Expected bool, got {typeName()}")
+            }
+        }
+        else #if (Target.isNumber) {
+            match (_value) {
+                i64 as i => return <Target>i
+                f64 as f => return <Target>f
+                ... => raise TypeError(f"Expected number, got {typeName()}")
+            }
+        }
+        else #if (Target.isString && Target.isClass) {
+            match (_value) {
+                String as s => return __copy!(s)
+                ... => raise TypeError(f"Expected string, got {typeName()}")
+            }
+        }
+        else #if (Target.isOptional) {
+            #const M = Target.targetType;
+            match (_value) {
+                Null => return None[M]()
+                ... => return Some(this.cast[M]())
+            }
+        }
+        else #if (Target.isStruct || Target.isClass) {
+            const _name = #{Target.name}
+            match (_value) {
+                HashMap[String, Value] as obj => {
+                    var value = Target();
+                    #for (const member: Target.members) {
+                        #if (member.isField) {{
+                            #const M = member.Tinfo;
+                            const val = obj.[#{member.name}];
+                            #if (!M.isOptional) {
+                                if (!val) {
+                                    var msg = String("cast failed, missing required member ");
+                                    msg << #{member.name}
+                                    raise TypeError(&&msg)
+                                }
+                                value.#{mk_ident!(member.name)} = val&.cast[M]()
+                            }
+                            else {
+                                if (!!val && !val&.isNull())
+                                    value.#{mk_ident!(member.name)} = val&.cast[M]()
+                            }
+                        }}
+                    }
+                    return &&value
+                }
+                ... => raise TypeError(f"Expected object for struct/class cast, got {typeName()}/{_name}")
+            }
+        }
+        else {
+            error!("Unsupported cast target type '{t}'", #Target)
+        }
+    }
+}
+
+pub func build[T](value: &const T): Value {
+    #if (#T == #bool) {
+        return Value(value)
+    }
+    else #if (T.isNumber) {
+        return Value(value)
+    }
+    else #if (T.isString) {
+        return Value(value)
+    }
+    else #if (T.isOptional) {
+        if (!value) {
+            return Value()
+        }
+        else {
+            return Value(*value)
+        }
+    }
+    else #if (T.isClass || T.isStruct) {
+        var obj = Value.Object()
+        #for (const member: T.members) {
+            #if (member.isField) {{
+                #const M = member.Tinfo;
+                #const jsonAttr = member.attributes.["json"]
+                #if (!jsonAttr || !jsonAttr.["ignore"]) {
+                    const val = value.#{member.name};
+                    #if (jsonAttr && jsonAttr.["optional"]) {
+                        #if (M.isClass) {
+                            if (val != null) {
+                                obj.[#{member.name}] = build(&val)
+                            }
+                        }
+                        else #if (M.isOptional) {
+                            if (!!val) {
+                                obj.[#{member.name}] = build(&val)
+                            }
+                        }
+                        else {
+                            obj.[#{member.name}] = build(&val)
+                        }
+                    }
+                    else {
+                        obj.[#{member.name}] = build(&val)
+                    }
+                }
+            }}
+        }
+        return &&obj
+    }
+    else {
+        error!("Unsupported cast target type '{t}'", #T)
+    }
+}
+
+// Exception for type errors
+exception TypeError(msg: String) => msg != null ? msg.str() : "Type error"
+
+// Tests
+test "Value construction" {
+    var nullVal = Value()
+    ok!(nullVal.isNull())
+
+    var boolVal = Value(true)
+    ok!(boolVal.isBool())
+    ok!(boolVal.asBool() == true)
+
+    var intVal = Value(42 as i64)
+    ok!(intVal.isInt())
+    ok!(intVal.asInt() == 42)
+
+    var strVal = Value("hello")
+    ok!(strVal.isString())
+    ok!(strVal.asString() == "hello")
+}
+
+test "Value object operations" {
+    var obj = Value.Object()
+    obj.set("name", Value("test"))
+    obj.set("count", Value(10))
+
+    ok!(obj.isObject())
+    ok!(obj.size() == 2)
+
+    var name = obj.["name"]
+    ok!(!!name)
+    ok!((*name).isString())
+    ok!((*name).asString() == "test")
+}
+
+test "Value array operations" {
+    var arr = Value(Vector[Value]())
+    arr.push(Value("first"))
+    arr.push(Value(42 as i64))
+
+    ok!(arr.isArray())
+    ok!(arr.size() == 2)
+
+    var first = arr.[0]
+    ok!(!!first)
+    ok!((*first).isString())
+    ok!((*first).asString() == "first")
+
+    var popped = arr.pop()
+    ok!(!!popped)
+    ok!((*popped).isInt())
+    ok!((*popped).asInt() == 42)
+}
+
+test "Value chaining" {
+    var config = Value.Object()
+    config.set("name", Value("myapp"))
+          .set("version", Value("1.0.0"))
+
+    ok!(config.size() == 2)
+
+    var version = config.["version"]
+    ok!(!!version)
+    ok!((*version).asString() == "1.0.0")
+}

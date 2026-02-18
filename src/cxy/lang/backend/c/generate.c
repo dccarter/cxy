@@ -2,8 +2,6 @@
 // Created by Carter Mbotho on 2024-08-21.
 //
 
-#include "driver/driver.h"
-
 #include "lang/frontend/ast.h"
 #include "lang/frontend/flag.h"
 #include "lang/frontend/strings.h"
@@ -14,32 +12,12 @@
 #include "src/prologue.h"
 #include "src/epilogue.h"
 
+#include "codegen.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
-
-typedef struct CBackend {
-    cstring filename;
-    FILE *output;
-    bool testMode;
-} CBackend;
-
-typedef struct CodegenContext {
-    CBackend *backend;
-    StrPool *strings;
-    FormatState types;
-    FormatState state;
-    cstring loopUpdate;
-    bool loopUpdateUsed;
-    bool hasTestCases;
-    bool memTraceEnabled;
-    bool inLoop;
-    struct {
-        bool enabled;
-        FilePos pos;
-    } debug;
-} CodegenContext;
 
 #define getState(ctx) &(ctx)->state
 #define typeState(ctx) &(ctx)->types
@@ -1177,6 +1155,10 @@ static void visitUnionValue(ConstAstVisitor *visitor, const AstNode *node)
     format(getState(ctx), "}", NULL);
 }
 
+#define EosNl(ctx, node)                                                       \
+    if (node->next)                                                            \
+        format(getState(ctx), "\n", NULL);
+
 static void visitBackendBfiZeromem(ConstAstVisitor *visitor,
                                    const AstNode *node)
 {
@@ -1292,7 +1274,7 @@ static void visitBackendBfiDrop(ConstAstVisitor *visitor, const AstNode *node)
 {
     CodegenContext *ctx = getConstAstVisitorContext(visitor);
     AstNode *args = node->backendCallExpr.args;
-    const Type *type = unwrapType(stripReference(args->type), NULL);
+    const Type *type = resolveUnThisUnwrapType(stripReference(args->type));
     const AstNode *dropFlags = node->backendCallExpr.dropFlags;
     VariableState state = node->backendCallExpr.state;
     if (dropFlags)
@@ -1345,14 +1327,77 @@ static void visitBackendBfiDrop(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static void visitBackendBfiDeclare(ConstAstVisitor *visitor, const AstNode *node)
+{
+    // builtins__ManagedVariable_init(T, name, DCTOR) = init
+    CodegenContext *ctx = getConstAstVisitorContext(visitor);
+    AstNode *var = node->backendCallExpr.args;
+    cstring initFunc = nodeIs(var, VarDecl)?
+        "builtins__ManagedVariable_init" : "builtins__ManagedParam_init";
+    const Type *type = resolveUnThisUnwrapType(stripReference(node->type));
+    bool valid = nodeIs(var, FuncParamDecl) ||
+        (var->varDecl.init && !nodeIs(node->varDecl.init, NullLit));
+    addDebugInfo(ctx, node);
+    if (isClassType(type)) {
+        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
+        generateTypeName(ctx, getState(ctx), type);
+        format(getState(ctx),
+            ", {s}, __smart_ptr_drop, {b}, ClsVar)",
+            (FormatArg[]){{.s = var->_name}, {.b = valid}});
+    }
+    else if (isTupleType(type)) {
+        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
+        generateTypeName(ctx, getState(ctx), type);
+        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
+        if (type->tuple.destructorFunc) {
+            const AstNode *func = type->tuple.destructorFunc->func.decl;
+            csAssert0(func);
+            generateFunctionName(getState(ctx), func);
+        }
+        else {
+            format(getState(ctx), "builtins__ClosureTuple_cleanup", NULL);
+        }
+        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
+    }
+    else if (isUnionType(type)) {
+        const AstNode *func = type->tUnion.destructorFunc->func.decl;
+        csAssert0(func);
+        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
+        generateTypeName(ctx, getState(ctx), type);
+        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
+        generateFunctionName(getState(ctx), func);
+        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
+    }
+    else if (isStructType(type)) {
+        const AstNode *func = findMemberDeclInType(type, S_DestructorOverload);
+        csAssert0(func);
+        format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
+        generateTypeName(ctx, getState(ctx), type);
+        format(getState(ctx), ", {s}, ", (FormatArg[]){{.s = var->_name}});
+        generateFunctionName(getState(ctx), func);
+        format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});
+    }
+    else {
+        unreachable("");
+    }
+
+    if (var->varDecl.init != NULL) {
+        format(getState(ctx), " = ", NULL);
+        astConstVisit(visitor, var->varDecl.init);
+    }
+    format(getState(ctx), ";", NULL);
+
+    EosNl(ctx, node);
+}
+
 static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     CodegenContext *ctx = getConstAstVisitorContext(visitor);
-
+    AstNode *args = node->backendCallExpr.args;
     switch (node->backendCallExpr.func) {
     case bfiSizeOf: {
         const Type *type =
-            resolveAndUnThisType(node->backendCallExpr.args->type);
+            resolveAndUnThisType(args->type);
         format(getState(ctx), "sizeof(", NULL);
         if (isClassType(type))
             generateCustomTypeName(ctx, getState(ctx), type, "Class");
@@ -1363,7 +1408,7 @@ static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
     }
     case bfiAlloca: {
         const Type *type =
-            resolveAndUnThisType(node->backendCallExpr.args->type);
+            resolveAndUnThisType(args->type);
         format(getState(ctx), "__builtin_alloca(sizeof(", NULL);
         if (isClassType(type))
             generateCustomTypeName(ctx, getState(ctx), type, "Class");
@@ -1373,26 +1418,41 @@ static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
         break;
     }
     case bfiZeromem:
-        visitBackendBfiZeromem(visitor, node->backendCallExpr.args);
+        visitBackendBfiZeromem(visitor, args);
         break;
     case bfiMemAlloc:
-        visitBackendBfiMemAlloc(visitor, node->backendCallExpr.args);
+        visitBackendBfiMemAlloc(visitor, args);
         break;
     case bfiCopy:
-        visitBackendBfiCopy(visitor, node->backendCallExpr.args);
+        visitBackendBfiCopy(visitor, args);
         break;
     case bfiDrop:
         visitBackendBfiDrop(visitor, node);
         break;
+    case bfiDeclare:
+        visitBackendBfiDeclare(visitor, node);
+        break;
+    case bfiMove:
+        if (nodeIs(args, MemberExpr) || nodeIs(args, IndexExpr))
+            format(getState(ctx), "builtins__MemberExpr_move(", NULL);
+        else
+            format(getState(ctx), "builtins__ManagedVariable_move(", NULL);
+        astConstVisit(visitor, node->backendCallExpr.args);
+        format(getState(ctx), ")", NULL);
+        break;
+    case bfiAssign: {
+        const AstNode *expr = node->backendCallExpr.args;
+        format(getState(ctx), "builtins__ManagedVariable_assign(", NULL);
+        astConstVisit(visitor, expr->binaryExpr.lhs);
+        format(getState(ctx), ") = ", NULL);
+        astConstVisit(visitor, expr->binaryExpr.rhs);
+        break;
+    }
     default:
         // csAssert(false, "Unsupported bfi");
         break;
     }
 }
-
-#define EosNl(ctx, node)                                                       \
-    if (node->next)                                                            \
-        format(getState(ctx), "\n", NULL);
 
 static void visitInlineAssembly(ConstAstVisitor *visitor, const AstNode *node)
 {
@@ -1960,53 +2020,6 @@ AstNode *generateCode(CompilerDriver *driver, AstNode *node)
 
 #define appendCode(f, s) fwrite((s), 1, sizeof(s) - 1, f)
 
-static void generatedCodePrologue(FILE *f)
-{
-    appendCode(
-        f,
-        "#if defined(__clang__)\n"
-        "#pragma clang diagnostic push\n"
-        "#pragma clang diagnostic ignored \"-Wvisibility\"\n"
-        "#pragma clang diagnostic ignored \"-Wmain-return-type\"\n"
-        "#pragma clang diagnostic ignored \"-Wincompatible-pointer-types\"\n"
-        "#pragma clang diagnostic ignored "
-        "\"-Wincompatible-library-redeclaration\"\n"
-        "#elif defined(__GNUC__)\n"
-        "#pragma GCC diagnostic push\n"
-        "#pragma GCC diagnostic ignored \"-Wbuiltin-declaration-mismatch\"\n"
-        "#pragma GCC diagnostic ignored \"-Wincompatible-pointer-types\"\n"
-        "#else\n"
-        "#error \"Unsupported compiler\"\n"
-        "#endif\n"
-        "\n"
-        "#if __has_attribute(__builtin_unreachable)\n"
-        "#define unreachable(...)\n"
-        "    do {\n"
-        "        assert(!\"Unreachable code reached\");\n"
-        "        __builtin_unreachable();\n"
-        "    } while (0)\n"
-        "#else\n"
-        "#define unreachable(...) abort();\n"
-        "#endif\n"
-        "\n"
-        "#define likely(x)      __builtin_expect(!!(x), 1)\n"
-        "#define unlikely(x)    __builtin_expect(!!(x), 0)\n"
-        "\n"
-        "#define __CXY_LOOP_CLEANUP(FLAGS, LABEL) \\\n"
-        "   if ((FLAGS) == 1) goto LABEL; \\\n"
-        "   if ((FLAGS) == 2) { (FLAGS) = 0; break; }\n"
-        "\n"
-        "#define __CXY_BLOCK_CLEANUP(FLAGS, LABEL) \\\n"
-        "   if ((FLAGS) == 1) goto LABEL; \\\n"
-        "\n"
-        "#define __CXY_DROP_WITH_FLAGS(FLAGS, ...) if (FLAGS) __VA_ARGS__\n"
-        "#define INT128_C(u)      ((__int128_t)u)\n"
-        "#define UINT128_C(u)     ((__uint128_t)u)\n"
-        "#define INT128(h, l)     ((__int128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))\n"
-        "#define UINT128(h, l)    (UINT128_C(h)<<64 | l)\n");
-    appendCode(f, "\n");
-}
-
 static void generateCodeEpilogue(FILE *f)
 {
     appendCode(f,
@@ -2183,7 +2196,7 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
     freeFormatState(&cmd);
 
     if (backend->output) {
-        generateCodeEpilogue(backend->output);
+        fwrite(CXY_EPILOGUE_SOURCE, 1, CXY_EPILOGUE_SOURCE_SIZE, backend->output);
         fprintf(backend->output, "\n/* %s */\n", command);
         fclose(backend->output);
         backend->output = NULL;

@@ -38,6 +38,12 @@ int main(int argc, char *argv[]) {
 
 #endif
 
+void builtins__ClosureTuple_cleanup(void *ptr)
+{
+    struct builtins__ClosureTuple { void *_0; } *closure = ptr;
+    __smart_ptr_drop(closure->_0);
+}
+
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #elif defined(__clang__)
@@ -45,3 +51,4 @@ int main(int argc, char *argv[]) {
 #else
 #error \"Unsupported compiler\"
 #endif
+

@@ -100,6 +100,7 @@ extern "C" {
     f(likely)                   \
     f(unlikely)                 \
     f(atomic)                   \
+    f(forced)                   \
     f(__init)                   \
     f(__defaults_init)          \
     f(__startup)                \

@@ -153,6 +153,7 @@ struct MirType;
         struct {                                                               \
             bool generating;                                                   \
             bool generated;                                                    \
+            bool incomplete;                                                   \
         };                                                                     \
     };                                                                         \
     const Type *retyped;

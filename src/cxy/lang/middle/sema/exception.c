@@ -239,6 +239,28 @@ bool exceptionVerifyRaiseExpr(TypingContext *ctx,
     return true;
 }
 
+static bool isDiscardableException(AstNode *node)
+{
+    const Type *lhs = node->binaryExpr.lhs->type;
+    if (isVoidResultType(lhs))
+        return true;
+    AstNode *parent = node->parentScope;
+    switch (parent->tag) {
+    case astVarDecl:
+#define f(TAG) case ast##TAG:
+    CXY_LANG_AST_EXP_TAGS(f)
+        return false;
+#undef f
+    default:
+        return true;
+    }
+}
+
+static bool isDiscardExpr(const AstNode *node)
+{
+    return nodeIs(node, BlockStmt) && node->blockStmt.stmts == NULL;
+}
+
 void checkCatchBinaryOperator(AstVisitor *visitor,
                               AstNode *node,
                               struct ExceptionCather *catcher)
@@ -258,7 +280,7 @@ void checkCatchBinaryOperator(AstVisitor *visitor,
     }
 
     if (!ctx->returnState) {
-        if (isVoidType(rhsType) && !isVoidResultType(lhsType)) {
+        if (isVoidType(rhsType) && !isDiscardableException(node)) {
             logError(ctx->L,
                      &rhs->loc,
                      "catch block must yield a default value",
@@ -267,9 +289,10 @@ void checkCatchBinaryOperator(AstVisitor *visitor,
             return;
         }
 
-        const Type *targetType = isVoidResultType(lhsType)
-                                     ? makeVoidType(ctx->types)
-                                     : getResultTargetType(lhsType);
+        const Type *targetType =
+            isVoidResultType(lhsType) ? makeVoidType(ctx->types) :
+                (isDiscardExpr(rhs) ? makeVoidType(ctx->types) :
+                    getResultTargetType(lhsType) );
         if (!isTypeAssignableFrom(targetType, rhsType)) {
             logError(
                 ctx->L,

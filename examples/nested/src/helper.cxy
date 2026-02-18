@@ -1,0 +1,7 @@
+module helper
+
+import { User } from "../types.cxy"
+
+pub func display(user: &const User) {
+    println(user)
+}

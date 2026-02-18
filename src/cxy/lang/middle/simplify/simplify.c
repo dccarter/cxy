@@ -510,6 +510,14 @@ bool isRedundantStatement(AstNode *node)
     return isRedundantExpression(expr);
 }
 
+static bool isDiscardedExpressionReturn(const AstNode *node)
+{
+    const AstNode *parent = node->parentScope;
+    if (nodeIs(parent, GroupExpr))
+        return isDiscardedExpressionReturn(parent);
+    return nodeIs(parent, ExprStmt);
+}
+
 static void createModuleInit(AstVisitor *visitor, AstNode *program)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
@@ -727,7 +735,7 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
     SimplifyContext *ctx = getAstVisitorContext(visitor);
     AstNode *callee = node->callExpr.callee, *args = node->callExpr.args;
     AstNode *func = callee->type->func.decl;
-
+    callee->parentScope = node;
     astVisit(visitor, callee);
     AstNode *arg = args,
             *params = nodeIs(func, FuncDecl) ? func->funcDecl.signature->params
@@ -758,8 +766,8 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
             astModifierAdd(&ctx->block, var);
         }
 
-        const Type *left = unwrapType(func->type->func.params[i], NULL),
-                   *right = unwrapType(arg->type, NULL);
+        const Type *left = resolveUnThisUnwrapType(func->type->func.params[i]),
+                   *right = resolveUnThisUnwrapType(arg->type);
         if (left != right) {
             simplifyCastExpression(ctx, arg, left);
         }
@@ -1117,9 +1125,10 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     AstNode *target = node->memberExpr.target;
     if (nodeNeedsTemporaryVar(target) && !nodeIs(target, TypeRef)) {
+        Flags flags = isDiscardedExpressionReturn(node->parentScope)? flgNone : flgTemporary;
         AstNode *var = makeVarDecl(ctx->pool,
                                    &target->loc,
-                                   flgTemporary,
+                                   flags,
                                    makeAnonymousVariable(ctx->strings, "_m"),
                                    NULL,
                                    target,

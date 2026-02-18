@@ -12,7 +12,7 @@ static void checkIndexExprAssignment(AstVisitor *visitor, AstNode *node)
     // change X.[a] = y to X.op_idx_assign(a, y);
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *left = node->assignExpr.lhs;
-    const Type *lhs = left->indexExpr.target->type;
+    const Type *lhs = stripReference(left->indexExpr.target->type);
     const Type *target = stripPointer(lhs);
 
     const Type *func = findMemberInType(lhs, S_IndexAssignOverload);
@@ -51,7 +51,7 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
             return;
         }
 
-        if (isClassOrStructType(target)) {
+        if (isClassOrStructType(stripReference(target))) {
             checkIndexExprAssignment(visitor, node);
             return;
         }
@@ -110,7 +110,7 @@ void checkAssignExpr(AstVisitor *visitor, AstNode *node)
     if ((flags & flgConst) || hasFlag(left, Const) || hasFlag(lhs, Const)) {
         logError(ctx->L,
                  &node->loc,
-                 "lhs of assignment expressions is a constant",
+                 "lhs of assignment expression is a constant",
                  (FormatArg[]){{.t = lhs}});
         node->type = ERROR_TYPE(ctx);
     }

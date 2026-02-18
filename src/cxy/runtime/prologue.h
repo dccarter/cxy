@@ -45,6 +45,66 @@ typedef __uint128_t uint128_t;
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
+typedef struct builtins__ManagedVariable {
+    void *ptr;
+    void (*cleaner)(void *);
+    const char *name;
+    bool valid;
+} builtins__ManagedVariable;
+
+static void builtins__Var_cleanup(void *ptr)
+{
+    builtins__ManagedVariable *m = ptr;
+    if (m->valid) {
+        m->cleaner(m->ptr);
+        m->valid = false;
+    }
+}
+
+static void builtins__ClsVar_cleanup(void *ptr)
+{
+    builtins__ManagedVariable *m = ptr;
+    if (m->valid) {
+        m->cleaner(*(void **)m->ptr);
+        m->valid = false;
+    }
+}
+
+#define builtins__cleanup_attr(CLEANER) \
+    __attribute__((cleanup(builtins__##CLEANER##_cleanup)))
+
+#define builtins__ManagedVariable_init(T, NAME, CLEANER, VALID, WRAP)           \
+    T NAME;                                                                     \
+    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {       \
+        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME         \
+    };                                                                          \
+    NAME
+
+#define builtins__ManagedParam_init(T, NAME, CLEANER, VALID, WRAP)              \
+    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {       \
+        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME         \
+    }
+
+#define builtins__ManagedVariable_assign(NAME)                                  \
+    if (__mm##NAME.valid)                                                       \
+        __mm##NAME.cleaner( __mm##NAME.ptr );                                   \
+    __mm##NAME.valid = true;                                                    \
+    NAME
+
+#define builtins__ManagedVariable_null(NAME)                                    \
+    if (__mm##NAME.valid != NULL) {                                             \
+        __mm##NAME.cleaner(__mm##NAME.ptr);                                     \
+        __mm##NAME.valid = false                                                \
+    }
+
+#define builtins__ManagedVariable_move(NAME)                                    \
+    ({ __mm##NAME.valid = false; NAME; })
+
+#define builtins__MemberExpr_move(EXPR)                                         \
+    ({ typeof(EXPR) tmp = EXPR; EXPR = (typeof(EXPR)){}; tmp; })
+
+static void builtins__ClosureTuple_cleanup(void *ptr);
+
 // Memory management flags
 #define __CXY_LOOP_CLEANUP(FLAGS, LABEL) \
    if ((FLAGS) == 1) goto LABEL; \

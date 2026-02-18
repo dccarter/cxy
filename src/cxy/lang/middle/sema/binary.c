@@ -136,21 +136,23 @@ static void checkBinaryOperatorOverload(AstVisitor *visitor, AstNode *node)
     //            flgConst));
     //    }
 
-    const AstNode *decl = nodeIs(overload->decl, GenericDecl)
-                              ? overload->decl->genericDecl.decl
-                              : overload->decl;
-    const AstNode *param = decl->funcDecl.signature->params;
-    if (nodeIsThisParam(param))
-        param = param->next;
+    if (node->binaryExpr.op != opIs) {
+        const AstNode *decl = nodeIs(overload->decl, GenericDecl)
+                                  ? overload->decl->genericDecl.decl
+                                  : overload->decl;
+        const AstNode *param = decl->funcDecl.signature->params;
+        if (nodeIsThisParam(param))
+            param = param->next;
 
-    if (nodeIs(param->funcParam.type, ReferenceType) &&
-        !isReferenceType(right) && isReferable(right)) {
-        node->binaryExpr.rhs = makeReferenceOfExpr(ctx->pool,
-                                                   &node->binaryExpr.rhs->loc,
-                                                   flgNone,
-                                                   node->binaryExpr.rhs,
-                                                   NULL,
-                                                   NULL);
+        if (nodeIs(param->funcParam.type, ReferenceType) &&
+            !isReferenceType(right) && isReferable(right)) {
+            node->binaryExpr.rhs = makeReferenceOfExpr(ctx->pool,
+                                                       &node->binaryExpr.rhs->loc,
+                                                       flgNone,
+                                                       node->binaryExpr.rhs,
+                                                       NULL,
+                                                       NULL);
+            }
     }
 
     transformToMemberCallExpr(

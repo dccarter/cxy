@@ -214,16 +214,19 @@ pub struct Optional[T] {
 
     @inline func `init`() {
         ok = false
-        zero!(ptrof val)
+        zero!(@forced ptrof val)
     }
 
     @inline func `init`(value: T) { val = &&value; ok = true }
-    func `destructor`() {
-        if (ok) {
-            #if (T.isClass || T.isDestructible)
-                delete val
-            else #if (has_member!(#T, "op__destructor", #func() -> void))
-                val.op__destructor()
+
+    #if ((T.isClass || T.isDestructible) || (has_member!(#T, "op__destructor", #func() -> void))) {
+        func `destructor`() {
+            if (ok) {
+                #if (T.isClass || T.isDestructible)
+                    delete val
+                else
+                    val.op__destructor()
+            }
         }
     }
 
@@ -245,6 +248,7 @@ pub struct Optional[T] {
     @inline const func `!!`() => ok
     @inline const func `deref`() { return val }
     @inline const func `&.`() { return &val }
+    @inline const func `is`[T]() => val is #T
 
     #if (T.isPrimitive) {
         @inline const func `==`(other: &const T) => ok && val == other
@@ -554,6 +558,11 @@ pub struct __string {
             i++
         }
         return None[u64]()
+    }
+
+    @inline
+    const func contains(ch: char) : bool {
+        return !!indexOf(ch)
     }
 
     const func rIndexOf(ch: char) : Optional[u64] {
@@ -945,6 +954,11 @@ pub class String : OutputStream {
         return None[u64]()
     }
 
+    @inline
+    const func contains(ch: char) : bool {
+        return !!indexOf(ch)
+    }
+
     const func rIndexOf(ch: char) : Optional[u64] {
         if (_size == 0)
             return None[u64]()
@@ -1179,13 +1193,17 @@ pub struct Slice[T] {
         return This(ptroff!(data + start), count)
     }
 
-    #if (!T.isUnresolved) {
-        const func `str`(sb: OutputStream) {
+    #if (!T.isUnresolved &&
+            ( !(T.isStruct || T.isClass) ||
+              has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
+            )
+    ) {
+        const func `str`(sb: &OutputStream) {
             sb.appendChar('[')
             for (const i: 0..len) {
                 if (i != 0)
                     sb.appendString(", ")
-                sb << data.[i]
+                sb << (data.[i])
             }
             sb.appendChar(']')
         }

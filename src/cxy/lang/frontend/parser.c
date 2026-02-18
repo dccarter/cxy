@@ -2031,16 +2031,12 @@ static AstNode *variable(
     }
 
     if (!(isExpression || woInit || isExtern)) {
-        if (init && init->tag == astClosureExpr)
-            match(P, tokSemicolon);
-        else if (isEndOfStmt(P))
-            match(P, tokSemicolon);
-        else
-            consume(P,
-                    tokSemicolon,
-                    "';', semicolon required after non-expression variable "
-                    "declaration",
-                    NULL);
+        // if (init && init->tag == astClosureExpr)
+        //     match(P, tokSemicolon);
+        // else if (isEndOfStmt(P))
+        //     match(P, tokSemicolon);
+        // else
+        match(P, tokSemicolon);
     }
 
     return newAstNode(

@@ -6,6 +6,7 @@ import "./log.cxy"
 import { tcpConnect, TcpSocket, TcpListener } from "./tcp.cxy"
 import { Address, BufferedSocketOutputStream, Socket } from "./net.cxy"
 import { Vector } from "./vector.cxy"
+import { Value, build } from "./value.cxy"
 
 import plugin "jsonrpc" as jsonrpc
 
@@ -39,7 +40,7 @@ struct Response {
     id: i64 = -1;
     jsonrpc: String = null;
     @json(optional: true)
-    result = json.Value();
+    result: Value? = null;
     @json(optional: true)
     error: RpcError? = null;
 
@@ -53,7 +54,7 @@ struct Request {
     id: i64 = 0;
     jsonrpc: String = null;
     method: String = null;
-    params = json.Value();
+    params = Value();
     func `init`() {}
 }
 
@@ -91,19 +92,19 @@ pub class JSONRPCClient[T] {
             if (count < sizeof!(buf))
                 break;
         }
-        println(s)
-        var obj = json.fromString[json.ShellObject](&s);
-        if (!obj&.isArray())
+
+        var obj = json.parse[Value](s.__str());
+        if (!obj.isArray())
             raise JsonRpcError( CXY_JSON_RPC_INTERNAL_ERROR!,
                                 f"Unexpected response, expecting an array of responses: {s}" )
         var responses = Vector[Response]();
-        for (var entry: <&const json.Array> *obj) {
-            var resp = json.cast[Response](entry.0);
-            if (!!resp.error && resp.result != null && !!resp.result) {
+        for idx: 0..obj.size() {
+            var resp = obj.[idx as i32]&.cast[Response]()
+            if (!!resp.error && !!resp.result) {
                 raise JsonRpcError(CXY_JSON_RPC_INTERNAL_ERROR!,
                 f"Response {resp.id} is invalid, payload contains both error and result")
             }
-            if (resp.error) {
+            if (!!resp.error) {
                 const code = resp.error&.code;
                 if (code < -32099 && code > CXY_JSON_RPC_API_ERROR!)
                     raise JsonRpcError(code,
@@ -138,7 +139,7 @@ pub class JSONRPCClient[T] {
                         #if (i != 0)
                             os << ", "
                         os << "\"" << args.#{i}.0 << "\": "
-                        json.toJSON(&os, args.#{i}.1)
+                        json.toJSON(&os, &args.#{i}.1)
                     }
                     os << "}"
                 }}
@@ -157,7 +158,7 @@ pub class JSONRPCClient[T] {
             raise JsonRpcError(resp.error&.code,
                                f"Server returned error ({resp.error&.message}, {resp.error&.data})")
         }
-        return json.cast[T](&resp.result)
+        return resp.result&.cast[T]()
     }
 
     jsonrpc.addClientMethods!((submit, Exception, Void), #T)
@@ -180,11 +181,11 @@ pub class JSONRPCServer[T] {
         this.api = &&api
     }
 
-    func handle(method: __string, params: &const json.Value): RpcError | json.Value {
+    func handle(method: __string, params: &const Value): RpcError | Value {
         var id = hash(&method)
         switch(id) {
             #for(const member: T.members, member.isFunction && member.attributes.["api"]) {
-                case #{hash!(member.name)} =>
+                case #{hash!(member.name)} => {
                     if (method == __string(#{member.name})) {
                         var result = this.#{mk_ident!(member.name)}(params) catch {
                             if (var err = (ex!) as JsonRpcError) {
@@ -194,8 +195,9 @@ pub class JSONRPCServer[T] {
                                 return RpcError(CXY_JSON_RPC_INTERNAL_ERROR!, ex!.what())
                             }
                         }
-                        return json.toJSONValue(result)
+                        return build(&result)
                     }
+                }
             }
             default =>
         }
@@ -205,25 +207,24 @@ pub class JSONRPCServer[T] {
 
 
     @[static, inline]
-    func param[T](params: &const json.Value, name: String, idx: i32 = 0): !T {
+    func param[T](params: &const Value, name: String, idx: i32 = 0): !T {
         if (params.isArray()) {
-            var arr = (<&const json.Array>params)
-            if (idx >= arr.size()) {
+            if (idx >= params.size()) {
                 raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, "Invalid params index")
             }
-            return json.cast[T](arr.[idx]) catch {
+            return params.[idx as i32]&.cast[T]() catch {
                 raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
             }
         }
         else if (params.isObject()) {
-            var tmp = (<&const json.Object>params).[name]
+            var tmp = params.[name]
             if (!tmp) {
                 raise JsonRpcError(
                     CXY_JSON_RPC_INVALID_PARAMS!,
                     f"Missing required argument: '{name}'"
                 )
             }
-            return json.cast[T](*tmp) catch {
+            return tmp&.cast[T]() catch {
                 raise JsonRpcError(CXY_JSON_RPC_INVALID_PARAMS!, ex!.what())
             }
         }
@@ -232,16 +233,16 @@ pub class JSONRPCServer[T] {
         }
     }
 
-    func handleRequest(obj: &const json.Value): Response {
+    func handleRequest(obj: &const Value): Response {
         var resp = Response();
         resp.jsonrpc = String(CXY_JSON_RPC_VERSION!)
-        const req = json.cast[Request](obj) catch {
+        const req = obj.cast[Request]() catch {
             resp.error = RpcError(CXY_JSON_RPC_INVALID_REQUEST!, ex!.what())
             return &&resp
         };
 
         resp.id = req.id
-        if (resp.jsonrpc != CXY_JSON_RPC_VERSION!) {
+        if (req.jsonrpc != CXY_JSON_RPC_VERSION!) {
             resp.error = RpcError(
                 CXY_JSON_RPC_API_ERROR!,
                 f"Unsupported RCP version '{resp.jsonrpc}', expecting version '{CXY_JSON_RPC_VERSION!}'"
@@ -250,7 +251,7 @@ pub class JSONRPCServer[T] {
         }
 
         match (handle(req.method.str(), &req.params)) {
-            case json.Value as value => resp.result = <json.Value>value
+            case Value as value => resp.result = <Value>value
             case RpcError as err => resp.error = <RpcError>err
         }
 
@@ -278,7 +279,7 @@ pub class JSONRPCServer[T] {
                 break
         }
 
-        var reqObj = json.fromString[json.ShellObject](&s) catch {
+        var reqObj = json.parse[Value](s.__str()) catch {
             var os = BufferedSocketOutputStream(sock)
             var resp = Response();
             resp.jsonrpc = String(CXY_JSON_RPC_VERSION!)
@@ -287,13 +288,14 @@ pub class JSONRPCServer[T] {
             return
         }
 
-        if (reqObj&.isArray()) {
+        if (reqObj.isArray()) {
             var os = BufferedSocketOutputStream(sock);
             os << '['
-            for (const obj: <&const json.Array>*reqObj) {
-                if (obj.1 != 0)
+            for idx: 0..reqObj.size() {
+                if idx != 0 {
                     os << ", "
-                var resp = handleRequest(obj.0);
+                }
+                var resp = handleRequest(*reqObj.[idx as i32])
                 json.toJSON(&os, &resp)
             }
             os << ']'
@@ -301,7 +303,7 @@ pub class JSONRPCServer[T] {
         else {
             // Single request
             var os = BufferedSocketOutputStream(sock)
-            const resp = handleRequest(*reqObj);
+            const resp = handleRequest(&reqObj);
             json.toJSON(&os, &resp)
         }
     }
@@ -331,7 +333,7 @@ pub class JSONRPCServer[T] {
         DBG!("Server done")
     }
 
-    jsonrpc.addServerMethods!((json, api, param, Exception, Void), #T)
+    jsonrpc.addServerMethods!((Value, api, param, Exception, Void), #T)
 }
 
 @inline

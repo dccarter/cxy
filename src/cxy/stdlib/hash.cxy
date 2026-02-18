@@ -12,12 +12,9 @@ const HMAP_RIMES: [u64, HMAP_PRIMES_COUNT!] = [
 ];
 
 @poco
-struct HashMapNode[K, V] {
+struct HashMapNode[K] {
     hash: u64 = 0;
     key: K
-    #if (#V != #void) {
-        value: V
-    }
 
     func `init`() {}
 
@@ -32,7 +29,10 @@ struct HashMapNode[K, V] {
 }
 
 pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
-    - _data: ^HashMapNode[K, V] = null;
+    - _nodes: ^HashMapNode[K] = null;
+    #if (#V != #void) {
+        - _values: ^V = null;
+    }
     - _capacity: u64 = 0;
     - _size: u64 = 0;
 
@@ -60,19 +60,32 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     - func sizeRound(s: u64) => ((s + sizeof!(#^void)) / sizeof!(#^void)) * sizeof!(#^void)
 
     - func rehash(newCapacity: u64) {
-        var oldData = _data
+        var oldNodes = _nodes
         var oldCapacity = _capacity;
 
         _capacity = newCapacity
         _size = 0
-        _data = __calloc(sizeof!(#HashMapNode[K,V]) * newCapacity) !: ^HashMapNode[K,V]
+        _nodes = __calloc(sizeof!(#HashMapNode[K]) * newCapacity) !: ^HashMapNode[K]
 
-        for (const i: 0..oldCapacity) {
-            if (oldData.[i].hash != 0) {
-                insertInternal(&&oldData.[i], true)
+        #if (#V != #void) {
+            var oldValues = this._values
+            this._values = __calloc(sizeof!(#V) * newCapacity) !: ^V
+
+            for (const i: 0..oldCapacity) {
+                if (oldNodes.[i].hash != 0) {
+                    this.insertInternalWithValue(&&oldNodes.[i], &&oldValues.[i], true)
+                }
             }
+            free(oldNodes !: ^void)
+            free(oldValues !: ^void)
+        } else {
+            for (const i: 0..oldCapacity) {
+                if (oldNodes.[i].hash != 0) {
+                    insertInternal(&&oldNodes.[i], true)
+                }
+            }
+            free(oldNodes !: ^void)
         }
-        free(oldData !: ^void)
     }
 
     @inline
@@ -89,11 +102,11 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             rehash(newSize)
     }
 
-    - func insertInternal(item: HashMapNode[K, V], replace: bool): bool {
+    - func insertInternal(item: HashMapNode[K], replace: bool): bool {
         if (_capacity == 0) {
             _capacity = idealSize(1)
             if (_capacity > 0) {
-                _data = __calloc(sizeof!(#HashMapNode[K,V]) * _capacity) !: ^HashMapNode[K,V]
+                _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
             }
         }
 
@@ -101,28 +114,74 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         var j = 0`u64;
         item.hash = i + 1
         while {
-            const h = _data.[i].hash
+            const h = _nodes.[i].hash
             if (h == 0) {
                 _size++
-                _data.[i] = &&item
+                _nodes.[i] = &&item
                 return true
             }
 
-            if (Cmp{}(&_data.[i].key, &item.key)) {
+            if (Cmp{}(&_nodes.[i].key, &item.key)) {
                 if (replace)
-                    _data.[i] = &&item
+                    _nodes.[i] = &&item
                 return false
             }
 
             const p = probe(i, h)
             if (j > p) {
-                var sspace = &&_data.[i];
-                _data.[i] = &&item
+                var sspace = &&_nodes.[i]
+                _nodes.[i] = &&item
                 item = &&sspace
                 j = p
             }
             i = (i + 1) % _capacity
             j++
+        }
+    }
+
+    #if (#V != #void) {
+        - func insertInternalWithValue(item: HashMapNode[K], value: V, replace: bool): bool {
+            if (_capacity == 0) {
+                _capacity = idealSize(1)
+                if (_capacity > 0) {
+                    _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
+                    this._values = __calloc(sizeof!(#V) * _capacity) !: ^V
+                }
+            }
+
+            var i = Hasher{}(&item.key) % _capacity
+            var j = 0`u64;
+            item.hash = i + 1
+            while {
+                const h = _nodes.[i].hash
+                if (h == 0) {
+                    _size++
+                    _nodes.[i] = &&item
+                    this._values.[i] = &&value
+                    return true
+                }
+
+                if (Cmp{}(&_nodes.[i].key, &item.key)) {
+                    if (replace) {
+                        _nodes.[i] = &&item
+                        this._values.[i] = &&value
+                    }
+                    return false
+                }
+
+                const p = probe(i, h)
+                if (j > p) {
+                    var sspace = &&_nodes.[i];
+                    var vspace = &&this._values.[i];
+                    _nodes.[i] = &&item
+                    this._values.[i] = &&value
+                    item = &&sspace
+                    value = &&vspace
+                    j = p
+                }
+                i = (i + 1) % _capacity
+                j++
+            }
         }
     }
 
@@ -134,11 +193,11 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         var j = 0 as u64
 
         while {
-            var h = _data.[i].hash
+            var h = _nodes.[i].hash
             if (h == 0 || j > probe(i, h))
                 return null
 
-            if (Cmp{}(&_data.[i].key, &key))
+            if (Cmp{}(&_nodes.[i].key, &key))
                 return i
 
             i = (i + 1) % _capacity
@@ -154,11 +213,11 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         var j = 0 as u64
 
         while {
-            var h = _data.[i].hash
+            var h = _nodes.[i].hash
             if (h == 0 || j > probe(i, h))
                 return null
 
-            if (Cmp{}(&_data.[i].key, &key))
+            if (Cmp{}(&_nodes.[i].key, &key))
                 return i
 
             i = (i + 1) % _capacity
@@ -169,7 +228,10 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     func `init`(initialCapacity: u64 = 0) {
         _capacity = idealSize(initialCapacity)
         if (_capacity > 0) {
-            _data = __calloc(sizeof!(#HashMapNode[K,V]) * _capacity) !: ^HashMapNode[K,V]
+            _nodes = __calloc(sizeof!(#HashMapNode[K]) * _capacity) !: ^HashMapNode[K]
+            #if (#V != #void) {
+                this._values = __calloc(sizeof!(#V) * _capacity) !: ^V
+            }
         }
     }
 
@@ -181,11 +243,19 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     func clear(): void {
         if (_capacity) {
             for (const i: 0.._capacity) {
-                if (_data.[i].hash)
-                    delete _data.[i]
+                if (_nodes.[i].hash) {
+                    delete _nodes.[i]
+                    #if (#V != #void) {
+                        delete this._values.[i]
+                    }
+                }
             }
-            free(_data !: ^void)
-            _data = null
+            free(_nodes !: ^void)
+            #if (#V != #void) {
+                free(this._values !: ^void)
+                this._values = null
+            }
+            _nodes = null
             _capacity = 0
             _size = 0
         }
@@ -198,20 +268,28 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         var i = Hasher{}(&key) % _capacity
         var j = 0
         while {
-            const h =  _data.[i].hash
+            const h =  _nodes.[i].hash
             if (h == 0 || j > probe(i, h))
                 return
 
-            if (Cmp{}(&_data.[i].key, &key)) {
-                delete _data.[i]
-                zero!(ptrof _data.[i])
+            if (Cmp{}(&_nodes.[i].key, &key)) {
+                delete _nodes.[i]
+                zero!(ptrof _nodes.[i])
+                #if (#V != #void) {
+                    delete this._values.[i]
+                    zero!(ptrof this._values.[i])
+                }
 
                 while {
                     const ni = (i + 1) %_capacity
-                    const nh = &_data.[ni].hash
+                    const nh = &_nodes.[ni].hash
                     if (nh != 0 && probe(ni, nh) > 0) {
-                        _data.[i] = &&_data.[ni]
-                        zero!(ptrof _data.[ni])
+                        _nodes.[i] = &&_nodes.[ni]
+                        zero!(ptrof _nodes.[ni])
+                        #if (#V != #void) {
+                            this._values.[i] = &&this._values.[ni]
+                            zero!(ptrof this._values.[ni])
+                        }
                         i = ni
                     }
                     else {
@@ -243,8 +321,8 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
 
     #if (#V != #void) {
         func insert(key: K, value: V, replace: bool = true) {
-            var data = HashMapNode[K, V]{key: &&key, value: &&value}
-            const status = insertInternal(&&data, replace)
+            var data = HashMapNode[K]{key: &&key}
+            const status = this.insertInternalWithValue(&&data, &&value, replace)
             if (status)
                 resizeMore()
             return status
@@ -253,7 +331,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         func get(key: K) : Optional[&V] {
             const idx = getInternal(&&key)
             if (idx) {
-                return &_data.[*idx].value
+                return &this._values.[*idx]
             }
             return null
         }
@@ -261,7 +339,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         const func get(key: K) : Optional[&V] {
             const idx = getInternal(&&key)
             if (idx) {
-                return &_data.[*idx].value
+                return &this._values.[*idx]
             }
             return null
         }
@@ -279,9 +357,9 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var i = 0;
             return () : (K, V)? => {
                 while (i < _capacity) {
-                    if (_data.[i].hash != 0) {
+                    if (_nodes.[i].hash != 0) {
                         var j = i++
-                        return (_data.[j].key, _data.[j].value)
+                        return (_nodes.[j].key, this._values.[j])
                     }
                     i++
                 }
@@ -293,9 +371,9 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var i = 0;
             return () : (K, V)? => {
                 while (i < _capacity) {
-                    if (_data.[i].hash != 0) {
+                    if (_nodes.[i].hash != 0) {
                         var j = i++
-                        return (_data.[j].key, _data.[j].value)
+                        return (_nodes.[j].key, this._values.[j])
                     }
                     i++
                 }
@@ -306,8 +384,8 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         func each(fun: func(key: K, value: V) -> void) {
             var i = 0
             while (i < _capacity) {
-                if (_data.[i].hash != 0)
-                    fun(_data.[i].key, _data.[i].value)
+                if (_nodes.[i].hash != 0)
+                    fun(_nodes.[i].key, this._values.[i])
                 i++
             }
         }
@@ -316,15 +394,15 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var output = Vector[U]();
             var i = 0
             while (i < _capacity) {
-                if (_data.[i].hash != 0)
-                    output.push(transform(&_data.[i].key, &_data.[i].value))
+                if (_nodes.[i].hash != 0)
+                    output.push(transform(&_nodes.[i].key, &this._values.[i]))
             }
             return output
         }
     }
     else {
         func insert(item: K, replace: bool = true) {
-            var data = HashMapNode[K, V]{key: &&item};
+            var data = HashMapNode[K]{key: &&item};
             const idx = insertInternal(&&data, replace)
             if (idx)
                 resizeMore()
@@ -334,9 +412,9 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var i = 0;
             return () : K? => {
                 while (i < _capacity) {
-                    if (_data.[i].hash != 0) {
+                    if (_nodes.[i].hash != 0) {
                         var j = i++
-                        return _data.[j].key
+                        return _nodes.[j].key
                     }
                     i++
                 }
@@ -348,9 +426,9 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var i = 0;
             return () : K? => {
                 while (i < _capacity) {
-                    if (_data.[i].hash != 0) {
+                    if (_nodes.[i].hash != 0) {
                         var j = i++
-                        return _data.[j].key
+                        return _nodes.[j].key
                     }
                     i++
                 }
@@ -361,8 +439,8 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         func each(fun: func(item: K) -> void) {
             var i = 0;
             while (i < _capacity) {
-                if (_data.[i].hash != 0)
-                    fun(_data.[i].key)
+                if (_nodes.[i].hash != 0)
+                    fun(_nodes.[i].key)
                 i++
             }
         }
@@ -371,8 +449,8 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             var output = Vector[U]();
             var i = 0
             while (i < _capacity) {
-                if (_data.[i].hash != 0)
-                    output.push(transform(&_data.[i].key))
+                if (_nodes.[i].hash != 0)
+                    output.push(transform(&_nodes.[i].key))
             }
             return output
         }

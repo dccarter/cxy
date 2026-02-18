@@ -2575,6 +2575,9 @@ const char *getDeclarationName(const AstNode *node)
         return node->structField.name;
     case astException:
         return node->exception.name;
+    case astBackendCall:
+        if (node->backendCallExpr.func == bfiDeclare)
+            return getDeclarationName(node->backendCallExpr.args);
     default:
         csAssert(false, "%s is not a declaration", getAstNodeName(node));
     }

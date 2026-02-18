@@ -1,12 +1,766 @@
 module json
-import "./base64.cxy"
+
+import { Value, Null } from "./value.cxy"
 import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
+import "./base64.cxy"
 
-macro EOS  '\0'as char
+// JSON Tokens
+enum JsonToken {
+    String,
+    Number,
+    True,
+    False,
+    Null,
+    LeftBrace,      // {
+    RightBrace,     // }
+    LeftBracket,    // [
+    RightBracket,   // ]
+    Colon,          // :
+    Comma,          // ,
+    EOF,
+    Invalid
+}
 
+// JSON Errors
+exception JsonError(msg: String) => msg != null ? msg.str() : "JSON error"
+
+// JSON Lexer
+class JsonLexer {
+    - _input: __string;
+    - _position = 0 as u64;
+    - _line = 1 as u64;
+    - _column = 1 as u64;
+    - _tokenValue = String()
+
+    func `init`(input: __string) {
+        _input = input
+    }
+
+    func nextToken(): JsonToken {
+        this.skipWhitespace()
+
+        if this.isAtEnd() {
+            return JsonToken.EOF
+        }
+
+        var c = this.peek()
+
+        switch (c) {
+            case '{' as char => {
+                this.advance()
+                return JsonToken.LeftBrace
+            }
+            case '}' as char => {
+                this.advance()
+                return JsonToken.RightBrace
+            }
+            case '[' as char => {
+                this.advance()
+                return JsonToken.LeftBracket
+            }
+            case ']' as char => {
+                this.advance()
+                return JsonToken.RightBracket
+            }
+            case ':' as char => {
+                this.advance()
+                return JsonToken.Colon
+            }
+            case ',' as char => {
+                this.advance()
+                return JsonToken.Comma
+            }
+            case '"' as char => {
+                return this.scanString()
+            }
+            case 't' as char => {
+                return this.scanKeyword("true", JsonToken.True)
+            }
+            case 'f' as char => {
+                return this.scanKeyword("false", JsonToken.False)
+            }
+            case 'n' as char => {
+                return this.scanKeyword("null", JsonToken.Null)
+            }
+            default => {
+                if (this.isDigit(c) || c == '-' as char) {
+                    return this.scanNumber()
+                }
+                return JsonToken.Invalid
+            }
+        }
+    }
+
+    @inline
+    func getTokenValue() => &&_tokenValue
+
+    @inline
+    func getCurrentPosition() => (_line, _column)
+
+    // Private methods
+    - func peek(offset: u32 = 0): char {
+        var pos = _position + offset
+        if (pos >= _input.size()) {
+            return '\0' as char
+        }
+        return _input.[<u32>pos]
+    }
+
+    - func advance(): char {
+        if (this.isAtEnd()) return '\0' as char
+
+        var c = _input.[<u32>_position]
+        _position++
+
+        if (c == '\n' as char) {
+            _line++
+            _column = 1
+        } else {
+            _column++
+        }
+
+        return c
+    }
+
+    @inline
+    - func isAtEnd() : bool => _position >= _input.size()
+
+    - func skipWhitespace(): void {
+        while (!this.isAtEnd()) {
+            var c = this.peek()
+            if (c == ' ' as char || c == '\r' as char || c == '\t' as char || c == '\n' as char) {
+                this.advance()
+            } else {
+                break
+            }
+        }
+    }
+
+    - func scanString(): JsonToken {
+        _tokenValue = String()
+        this.advance() // Skip opening quote
+
+        while (!this.isAtEnd() && this.peek() != '"' as char) {
+            var c = this.advance()
+
+            if (c == '\\' as char) {
+                if (this.isAtEnd()) {
+                    return JsonToken.Invalid
+                }
+
+                var escaped = this.advance()
+                switch escaped {
+                    '"' as char => _tokenValue << "\""
+                    '\\' as char => _tokenValue << "\\"
+                    '/' as char => _tokenValue << "/"
+                    'b' as char => _tokenValue << "\b"
+                    'f' as char => _tokenValue << "\f"
+                    'n' as char => _tokenValue << "\n"
+                    'r' as char => _tokenValue << "\r"
+                    't' as char => _tokenValue << "\t"
+                    'u' as char => {
+                        // Unicode escape \uXXXX
+                        var codePoint = 0 as u32
+                        for (i: 0..4) {
+                            if (this.isAtEnd()) {
+                                return JsonToken.Invalid
+                            }
+                            var digit = this.advance()
+                            var hexValue = 0 as u32
+                            if (digit >= '0' && digit <= '9') {
+                                hexValue = (digit - '0') as u32
+                            } else if (digit >= 'a' && digit <= 'f') {
+                                hexValue = (digit - 'a' + 10) as u32
+                            } else if (digit >= 'A' && digit <= 'F') {
+                                hexValue = (digit - 'A' + 10) as u32
+                            } else {
+                                return JsonToken.Invalid
+                            }
+                            codePoint = (codePoint << 4) | hexValue
+                        }
+
+                        // Convert Unicode code point to UTF-8
+                        if (codePoint <= 0x7F) {
+                            _tokenValue << (codePoint as char)
+                        } else if (codePoint <= 0x7FF) {
+                            _tokenValue << ((0xC0 | (codePoint >> 6)) as char)
+                            _tokenValue << ((0x80 | (codePoint & 0x3F)) as char)
+                        } else if (codePoint <= 0xFFFF) {
+                            _tokenValue << ((0xE0 | (codePoint >> 12)) as char)
+                            _tokenValue << ((0x80 | ((codePoint >> 6) & 0x3F)) as char)
+                            _tokenValue << ((0x80 | (codePoint & 0x3F)) as char)
+                        }
+                    }
+                    default => return JsonToken.Invalid
+                }
+            } else {
+                _tokenValue << c
+            }
+        }
+
+        if (this.isAtEnd()) {
+            return JsonToken.Invalid
+        }
+
+        this.advance() // Skip closing quote
+        return JsonToken.String
+    }
+
+    - func scanNumber(): JsonToken {
+        _tokenValue = String()
+
+        if (this.peek() == '-' as char) {
+            _tokenValue << this.advance()
+        }
+
+        if (!this.isDigit(this.peek())) {
+            return JsonToken.Invalid
+        }
+
+        if (this.peek() == '0' as char) {
+            _tokenValue << this.advance()
+        } else {
+            while (this.isDigit(this.peek())) {
+                _tokenValue << this.advance()
+            }
+        }
+
+        if (this.peek() == '.' as char) {
+            _tokenValue << this.advance()
+
+            if (!this.isDigit(this.peek())) {
+                return JsonToken.Invalid
+            }
+
+            while (this.isDigit(this.peek())) {
+                _tokenValue << this.advance()
+            }
+        }
+
+        if (this.peek() == 'e' as char || this.peek() == 'E' as char) {
+            _tokenValue << this.advance()
+
+            if (this.peek() == '+' as char || this.peek() == '-' as char) {
+                _tokenValue << this.advance()
+            }
+
+            if (!this.isDigit(this.peek())) {
+                return JsonToken.Invalid
+            }
+
+            while (this.isDigit(this.peek())) {
+                _tokenValue << this.advance()
+            }
+        }
+
+        return JsonToken.Number
+    }
+
+    - func scanKeyword(expected: String, token: JsonToken): JsonToken {
+        for i: 0..expected.size() {
+            if (this.isAtEnd() || this.advance() != expected.[<u32>i]) {
+                return JsonToken.Invalid
+            }
+        }
+
+        _tokenValue = &&expected
+        return token
+    }
+
+    @inline
+    - func isDigit(c: char): bool {
+        return c >= '0' as char && c <= '9' as char
+    }
+}
+
+// JSON Parser
+class JsonParser {
+    - _lexer: JsonLexer;
+    - _currentToken: JsonToken = .Invalid;
+    - _tokenValue: String = null;
+    - _depth = 0 as u32;
+    - _maxDepth = 1000 as u32;
+
+    func `init`(input: __string) {
+        _lexer = JsonLexer(input)
+        this.advance()
+    }
+
+    func parse(): !Value {
+        var result = this.parseValue()
+
+        if (_currentToken != JsonToken.EOF) {
+            raise JsonError(f"Expected end of input, got unexpected token")
+        }
+
+        return &&result
+    }
+
+    // Core parsing methods
+    - func parseValue(): !Value {
+        this.checkDepth()
+
+        switch _currentToken {
+            .Null => {
+                this.advance()
+                return Value()
+            }
+            .True => {
+                this.advance()
+                return Value(true)
+            }
+            .False => {
+                this.advance()
+                return Value(false)
+            }
+            .Number => {
+                return this.parseNumber()
+            }
+            .String => {
+                var value = Value(&&_tokenValue)
+                this.advance()
+                return &&value
+            }
+            .LeftBracket => {
+                return this.parseArray()
+            }
+            .LeftBrace => {
+                return this.parseObject()
+            }
+            ... => {
+                raise JsonError(f"Unexpected token: {_currentToken}")
+            }
+        }
+    }
+
+    - func parseObject(): !Value {
+        _depth++
+        var obj = Value.Object()
+
+        this.advance() // Skip '{'
+
+        if (_currentToken == JsonToken.RightBrace) {
+            this.advance()
+            _depth--
+            return &&obj
+        }
+
+        while (true) {
+            if (_currentToken != JsonToken.String) {
+                raise JsonError("Expected string key in object")
+            }
+
+            var key = &&_tokenValue
+            this.advance()
+
+            if (_currentToken != JsonToken.Colon) {
+                raise JsonError("Expected ':' after object key")
+            }
+            this.advance()
+
+            var value = this.parseValue()
+            obj.set(&&key, &&value)
+
+            if (_currentToken == JsonToken.RightBrace) {
+                this.advance()
+                break
+            }
+
+            if (_currentToken != JsonToken.Comma) {
+                raise JsonError("Expected ',' or '}' in object")
+            }
+            this.advance()
+        }
+
+        _depth--
+        return &&obj
+    }
+
+    - func parseArray(): !Value {
+        _depth++
+        var arr = Value.Array()
+
+        this.advance() // Skip '['
+
+        if (_currentToken == JsonToken.RightBracket) {
+            this.advance()
+            _depth--
+            return &&arr
+        }
+
+        while (true) {
+            var value = this.parseValue()
+            arr.push(&&value)
+
+            if (_currentToken == JsonToken.RightBracket) {
+                this.advance()
+                break
+            }
+
+            if (_currentToken != JsonToken.Comma) {
+                raise JsonError("Expected ',' or ']' in array")
+            }
+            this.advance()
+        }
+
+        _depth--
+        return &&arr
+    }
+
+    - func parseNumber(): !Value {
+        var numStr = &&_tokenValue
+        this.advance()
+        return Value(numStr.__str().tof[f64]())
+    }
+
+    // Utility methods
+    - func advance(): void {
+        _currentToken = _lexer.nextToken()
+        _tokenValue = _lexer.getTokenValue()
+    }
+
+    - func checkDepth(): !void {
+        if (_depth >= _maxDepth) {
+            raise JsonError("Maximum nesting depth exceeded")
+        }
+    }
+
+    - func expectToken(expected: JsonToken): !void {
+        if (_currentToken != expected) {
+            raise JsonError(f"Expected token {expected}, got {_currentToken}")
+        }
+    }
+
+    // Public accessors for private fields
+    const func currentToken() => _currentToken
+    const func tokenValue() => &_tokenValue
+
+    func moveTokenValue() => &&_tokenValue
+
+    func expectString(): !String {
+        if (_currentToken != JsonToken.String) {
+            raise JsonError("Expected string")
+        }
+        var result = &&_tokenValue
+        this.advance()
+        return &&result
+    }
+
+
+
+    func consumeToken(expected: JsonToken): bool {
+        if (_currentToken == expected) {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    func tag() =>
+        _lexer.getCurrentPosition()
+
+    func skipValue(): !void {
+        // Skip over a complete JSON value - simplified implementation
+        switch (_currentToken) {
+            case JsonToken.String, JsonToken.Number, JsonToken.True, JsonToken.False, JsonToken.Null => {
+                this.advance()
+            }
+            case JsonToken.LeftBrace => {
+                this.advance()
+                var depth = 1
+                while (depth > 0 && _currentToken != JsonToken.EOF) {
+                    if (_currentToken == JsonToken.LeftBrace) {
+                        depth++
+                    } else if (_currentToken == JsonToken.RightBrace) {
+                        depth--
+                    }
+                    this.advance()
+                }
+            }
+            case JsonToken.LeftBracket => {
+                this.advance()
+                var depth = 1
+                while (depth > 0 && _currentToken != JsonToken.EOF) {
+                    if (_currentToken == JsonToken.LeftBracket) {
+                        depth++
+                    } else if (_currentToken == JsonToken.RightBracket) {
+                        depth--
+                    }
+                    this.advance()
+                }
+            }
+            default => {
+                raise JsonError(f"Cannot skip token: {_currentToken}")
+            }
+        }
+    }
+}
+
+// Field parsing function like existing json.cxy
+func fieldFromJSON[T](
+    parser: &JsonParser,
+    pos: (u64, u64),
+    @unused obj: &T,
+    key: __string,
+    partialAllowed: bool
+): !void {
+    #for (const member: T.members, member.isField) {
+        #const M = member.Tinfo;
+        if (__string(#{member.name}) == key) {
+            #const jsonAttr = member.attributes.["json"]
+            #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
+                require!(M.isClass, "JSON parser supports class string types only")
+                var jstr = parser.expectString()
+                var str = String()
+                base64.decode(&str, &jstr)
+                obj.#{mk_ident!(member.name)} = &&str
+            }
+            else {
+                obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
+            }
+            return
+        }
+    }
+
+    if (partialAllowed) {
+        parser.skipValue()
+        return
+    }
+
+    const typeName = #{T.name};
+    raise JsonError(f"{pos.0}:{pos.1} - JSON key '{key}' does not exist in type '{typeName}'")
+}
+
+// Generic type-specific parsing
+pub func fromJSON[T](parser: &JsonParser): !T {
+    #if (#T == #Value) {
+        return parser.parse()
+    }
+    else #if (T.isBoolean) {
+        if (parser.currentToken() == JsonToken.True) {
+            parser.advance()
+            return true
+        } else if (parser.currentToken() == JsonToken.False) {
+            parser.advance()
+            return false
+        } else {
+            raise JsonError("Expected boolean")
+        }
+    }
+    else #if (T.isNumber) {
+        if (parser.currentToken() == JsonToken.Number) {
+            var numStr = parser.tokenValue().__str()
+            parser.advance()
+            #if (T.isInteger) {
+                return <T>numStr.toi[i64]()
+            }
+            else {
+                return <T>numStr.tof[f64]()
+            }
+        } else {
+            raise JsonError("Expected number")
+        }
+    }
+    else #if (T.isString && T.isClass) {
+        if (parser.currentToken() == JsonToken.String) {
+            var result = parser.moveTokenValue()
+            parser.advance()
+            return &&result
+        } else {
+            raise JsonError("Expected string")
+        }
+    }
+    else #if (T.isOptional) {
+        #const M = T.targetType;
+        if (parser.currentToken() == JsonToken.Null) {
+            parser.advance()
+            return None[M]()
+        } else {
+            return Some(fromJSON[M](parser))
+        }
+    }
+    else #if (T.isStruct || T.isClass) {
+        #if (has_member!(#T, "fromJSON", #func(p: &JsonParser) -> !void)) {
+            var result = T()
+            result.fromJSON(parser)
+            return result
+        }
+        else #if (T.isStruct && T.attributes.["json"]) {
+            #const attrs = T.attributes.["json"];
+            #const pa = attrs.["partial"];
+            var result = T{}
+            parser.expectToken(JsonToken.LeftBrace)
+            parser.advance()
+
+            while (parser.currentToken() != JsonToken.RightBrace) {
+                var pos = parser.tag()
+                var key = parser.expectString().__str()
+                parser.expectToken(JsonToken.Colon)
+                parser.advance()
+                #if (pa)
+                    fieldFromJSON[T](parser, pos, &result, key, true)
+                else
+                    fieldFromJSON[T](parser, pos, &result, key, false)
+                parser.consumeToken(JsonToken.Comma)
+            }
+            parser.expectToken(JsonToken.RightBrace)
+            parser.advance()
+            return result
+        }
+        else #if (T.annotations.[:isVector]) {
+            var tmp = T()
+            parser.expectToken(JsonToken.LeftBracket)
+            parser.advance()
+            while (parser.currentToken() != JsonToken.RightBracket) {
+                if (tmp.size() != 0) {
+                    parser.expectToken(JsonToken.Comma)
+                    parser.advance()
+                }
+                tmp.push(fromJSON[T.ElementType](parser))
+            }
+            parser.expectToken(JsonToken.RightBracket)
+            parser.advance()
+            return tmp
+        }
+        else {
+            error!(
+                "type `{t}` cannot be implicitly parsed from json, implement `{t}::fromJSON(p: &JsonParser)",
+                #T, #T)
+        }
+    }
+    else {
+        error!("Unsupported fromJson target type '{t}'", #T)
+    }
+}
+
+// Convenience function that creates parser from string
+pub func parse[T](str: __string): !T {
+    var parser = JsonParser(str)
+    var result = fromJSON[T](&parser)
+    if (parser.currentToken() != JsonToken.EOF) {
+        raise JsonError("Unexpected tokens after parsing")
+    }
+    return &&result
+}
+
+@inline
+func getIndent(os: &OutputStream, level: u32) {
+    for (i: 0..level) {
+        os << "  "
+    }
+}
+
+func escapeJsonString(os: &OutputStream, s: &const String) {
+    for i: 0..s.size() {
+        var c = s.[i as u32]
+        switch (c) {
+            case '"' as char => os << "\\\""
+            case '\\' as char => os << "\\\\"
+            case '\b' as char => os << "\\b"
+            case '\f' as char => os << "\\f"
+            case '\n' as char => os << "\\n"
+            case '\r' as char => os << "\\r"
+            case '\t' as char => os << "\\t"
+            default => os << c
+        }
+    }
+}
+
+func serializeValue(
+    os: &OutputStream,
+    value: &const Value,
+    indent: u32,
+    pretty: bool
+): void {
+    match value.raw() {
+        Null as _ => {
+            os << "null"
+        }
+        bool as b => {
+            os << (b ? "true" : "false")
+        }
+        i64 as i => {
+            os << i
+        }
+        f64 as f => {
+            os << f
+        }
+        String as s => {
+            os << "\""
+            escapeJsonString(os, s)
+            os << "\""
+        }
+        Vector[Value] as &arr => {
+            os << "["
+            if (pretty && arr.size() > 0) {
+                os << "\n"
+            }
+
+            for item, i: arr {
+                if (pretty) {
+                    getIndent(os, indent + 1)
+                }
+                serializeValue(os, item, indent + 1, pretty)
+
+                if (i < arr.size() - 1) {
+                    os << ","
+                }
+                if (pretty) {
+                    os << "\n"
+                }
+            }
+
+            if (pretty && arr.size() > 0) {
+                getIndent(os, indent)
+            }
+            os << "]"
+        }
+        HashMap[String, Value] as &obj => {
+            os << "{"
+            if (pretty && obj.size() > 0) {
+                os << "\n"
+            }
+
+            var first = true
+            for key, val: obj {
+                if (!first) {
+                    os << ","
+                    if (pretty) {
+                        os << "\n"
+                    }
+                }
+                first = false
+
+                if pretty {
+                    getIndent(os, indent + 1)
+                }
+
+                os << "\""
+                escapeJsonString(os, &key)
+                os << "\":"
+                if (pretty) {
+                    os << " "
+                }
+
+                serializeValue(os, &val, indent + 1, pretty)
+            }
+
+            if (pretty && obj.size() > 0) {
+                os << "\n"
+                getIndent(os, indent)
+            }
+            os << "}"
+        }
+    }
+}
+
+// Generic serialization to OutputStream (exact copy from json.cxy)
 pub func toJSON[T](os: &OutputStream, it: &const T) : void {
-    #if (T.isChar) {
+    #if #T == #Value {
+        serializeValue(os, it, 0, false)
+    }
+    else #if (T.isChar) {
         os << <i64>it
     }
     else #if (T.isNumber || T.isBoolean) {
@@ -84,725 +838,58 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     }
 }
 
-exception JSONParserError(msg: String) => (msg != null)? msg.str() : ""
-exception JSONError(msg: String) => (msg != null)? msg.str() : ""
+// Test cases
+test "Basic JSON parsing" {
+    var json = parse[Value]("{\"name\": \"John\", \"age\": 30, \"active\": true}")
 
-pub class JSONParser {
-    - data: __string
-    - off = 0`u32;
-    - line = 1`u32;
-    - col = 1`u32;
-
-    func `init`(data: __string) {
-        this.data = &&data
-    }
-
-    func advance() {
-        off++
-        col++
-        if (data.[off] == '\n'`char) {
-            line++
-            col = 1
-        }
-    }
-
-    func skipWhitespace() {
-        var p = data.str();
-        while (!done() && isSpace!(p.[off]))
-            advance()
-    }
-
-    @inline
-    func consumeChar(c: char) {
-        skipWhitespace();
-        if (data.[off] == c) {
-            advance()
-            return true
-        }
-        return false
-    }
-
-    @inline
-    func done(): bool { return off >= data.size() }
-
-    func expectString(): !__string {
-        skipWhitespace();
-
-        if (data.[off] != '"'`char) {
-            println(data.substr(off, 10))
-            raise JSONParserError(f"{line}:{col} - expecting a string start token '\"'")
-        }
-        advance()
-        var start = off;
-        var p = data.str();
-        while (!done() && p.[off] != EOS!) {
-            if (p.[off] == '\\'`char && p.[off + 1] == '\"'`char) {
-                advance()
-                advance()
-                continue
-            }
-            if (p.[off] == '\"'`char)
-                break
-            advance()
-        }
-        if (p.[off] != '\"'`char)
-            raise JSONParserError(f"{line}:{col} - expecting a '\"' to terminate the string")
-        var str = data.substr(start, off-start);
-        advance()
-        return str
-    }
-
-    @inline func expectKey(): !__string {
-        return expectString()
-    }
-
-    func expectBool(): !bool {
-        skipWhitespace()
-        var l, c = (line, col);
-        var start = off;
-        var p = data.str();
-        while (!done() && isAlpha!(p.[off]))
-           advance()
-
-        var str = data.substr(start, off - start);
-        if (str == __string("true"))
-            return true
-        if (str == __string("false"))
-            return false
-
-        raise JSONParserError(f"{l}:{c} - expecting a boolean value (true|false) got '{str}'")
-    }
-
-    func expectFloat[T](): !T {
-        require!(T.isFloat, "expecting floating point type, got '{t}", #T)
-        skipWhitespace()
-        var l, c = (line, col);
-        var start = off;
-        var p = data.str();
-        if (p.[off] == '-'`char)
-            advance()
-        while (!done() && isDigit!(p.[off]))
-            advance()
-
-        if (p.[off] == '.'`char) {
-            advance()
-            while (!done() && isDigit!(p.[off]))
-                advance()
-        }
-
-        if (p.[off] == 'E'`char || p.[off] == 'e'`char) {
-            advance()
-            if (!consumeChar('-'))
-                consumeChar('+')
-            while (!done() && isDigit!(p.[off]))
-                advance()
-        }
-
-        if (start == off)
-            raise JSONParserError(f"{l}:{c} - expecting a number")
-
-        const str = data.substr(start, off - start);
-        var ep: ^const char = null;
-        var s = str.str() !: ^const char ;
-        var num = strtod(s , ptrof ep);
-        if ((ep - s) != (off - start))
-            raise JSONParserError(f"{l}:{c} - string '{str}' does not form a valid number");
-        return <T>num
-    }
-
-    func expectInteger[T](): !T {
-        require!(T.isInteger, "expecting integer type, got '{t}", #T)
-        return expectFloat[f64]() as T
-    }
-
-    func peekChar(): char {
-        skipWhitespace()
-        if (done())
-            return EOS!
-        return data.[off]
-    }
-
-    func expectChar(c: char): !void {
-        skipWhitespace()
-        if (done() || data.[off] != c)
-            raise JSONParserError(f"{line}:{col} - expected character '{c}' not found")
-        advance()
-    }
-
-    func matchNull(): bool {
-        skipWhitespace()
-        const end = off + 4;
-        if (end > data.size() || data.substr(off, 4) != __string("null"))
-            return false
-        off = end
-        return true
-    }
-
-    @inline func tag() => (line, col)
-
-    func expectNull(): !void {
-        var l, c = tag()
-        if (!matchNull())
-            raise JSONParserError(f"{l}:{c} - expected characters, expecting `null`")
-    }
-
-    func skipValue(): !void {
-        skipWhitespace()
-        if (data.[off] == '"'`char) {
-            expectString()
-        }
-        else if(data.[off] == 't'`char || data.[off] == 'f'`char) {
-            expectBool()
-        }
-        else if (data.[off] == 'n'`char) {
-            matchNull()
-        }
-        else if (isDigit!(data.[off])) {
-            expectFloat[f64]()
-        }
-        else if (consumeChar('{')) {
-            skipWhitespace()
-            while (data.[off] != '}'`char) {
-                expectString()
-                skipWhitespace()
-                expectChar(':')
-                skipValue()
-                skipWhitespace()
-                if (!consumeChar(','))
-                    break
-                skipWhitespace()
-            }
-            expectChar('}')
-        }
-        else if (consumeChar('[')) {
-            skipWhitespace()
-            while (data.[off] != ']'`char) {
-                skipValue()
-                skipWhitespace()
-                if (!consumeChar(','))
-                    break
-                skipWhitespace()
-            }
-            expectChar(']')
-        }
-    }
+    ok!(json.isObject())
+    var name = json.get("name")
+    ok!(!!name && name&.asString() == "John")
+    var age = json.get("age")
+    ok!(!!age && age&.asFloat() == 30)
+    var active = json.get("active")
+    ok!(!!active && active&.asBool() == true)
 }
 
-func fieldFromJSON[T](
-    p: &JSONParser,
-    pos: (u32, u32),
-    @unused obj: &T,
-    key: &__string,
-    partialAllowed: bool
-): !void {
-    #for(const member: T.members, member.isField) {
-        #const M = member.Tinfo;
-        if (__string(#{member.name}) == key) {
-            #const jsonAttr = member.attributes.["json"]
-            #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-                require!(M.isClass, "JSON parser supports class string types only")
-                var jstr = p.expectString()
-                var str = String();
-                base64.decode(&str, &jstr)
-                obj.#{mk_ident!(member.name)} = &&str
-            }
-            else {
-                obj.#{mk_ident!(member.name)} = parseJSON[M](p)
-            }
-            return
-        }
-    }
+test "Array parsing" {
+    var json = parse[Value]("[1, \"hello\", true, null]")
 
-    if (partialAllowed) {
-       p.skipValue()
-       return
-    }
-
-    const typeName = #{T.name};
-    raise JSONParserError(f"{pos.0}:{pos.1} - Json key '{key}' does not exist in type '{typeName}'")
+    ok!(json.isArray())
+    var arr = json.asArray()
+    ok!(arr.size() == 4)
+    var item0 = json.get(0)
+    ok!(!!item0 && item0&.asFloat() == 1)
+    var item1 = json.get(1)
+    ok!(!!item1 && item1&.asString() == "hello")
+    var item2 = json.get(2)
+    ok!(!!item2 && item2&.asBool() == true)
+    var item3 = json.get(3)
+    ok!(!!item3 && item3&.isNull())
 }
 
-func parseJSON[T](p: &JSONParser): !T {
-    #if (T.isBoolean)
-        return p.expectBool()
-    else #if (T.isInteger)
-        return p.expectInteger[T]()
-    else #if (T.isFloat)
-        return p.expectFloat[T]()
-    else #if (T.isString && T.isClass)
-        return String(p.expectString())
-    else #if (T.isTuple) {
-        var tmp: T = null;
-        p.expectChar( '[' )
-        #for (const i: 0..T.membersCount) {
-            #const M = typeat!(T, i);
-            #if (i != 0) {
-                p.expectChar(',')
-            }
-            tmp.#{i} = parseJSON[M](p)
-        }
-        p.expectChar( ']')
-        return &&tmp
-    }
-    else #if(T.isOptional) {
-        if (p.matchNull())
-            return None[#{T.targetType}]()
-        else
-            return Some(parseJSON[#{T.targetType}](p))
-    }
-    else #if (T.isClass || T.isStruct) {
-        #if (has_member!(#T, "fromJSON", #func(p: &JSONParser) -> !void)) {
-            var tmp = T();
-            tmp.fromJSON(p)
-            return &&tmp
-        }
-        else #if (T.isStruct && T.attributes.["json"]) {
-            #const attrs = T.attributes.["json"];
-            #const pa = attrs.["partial"];
-            var tmp = T{};
-            p.expectChar('{')
+test "Nested structure" {
+    var json = parse[Value]("{\"user\": {\"name\": \"Alice\", \"scores\": [95, 87, 92]}}")
 
-            while (p.peekChar() != '}'`char) {
-                var pos = p.tag();
-                var key = p.expectKey();
-                p.expectChar(':')
-                #if (pa)
-                    fieldFromJSON(p, pos, &tmp, &key, true)
-                else
-                    fieldFromJSON(p, pos, &tmp, &key, false)
-                p.consumeChar(',')
-            }
-            p.expectChar('}')
-            return &&tmp
-        }
-        else #if (T.annotations.[:isVector]) {
-            var tmp = T();
-            p.expectChar( '[' )
-            while(p.peekChar() != ']') {
-                if (tmp.size() != 0) {
-                    p.expectChar(',')
-                }
-                tmp.push(parseJSON[T.ElementType](p))
-            }
-            p.expectChar( ']')
-            return &&tmp
-        }
-        else {
-            error!(
-                "type `{t}` cannot be implicitly parsed from json, implement `{t}::fromJSON(p: &JSONParser)",
-                #T, #T)
-        }
-    }
-    else #if T.isString {
-        error!("cannot parse into native string type, consider using `{t}`", #String)
-    }
-    else {
-        error!("unsupported type `{t}`", #T)
-    }
+    var user = json.get("user")
+    ok!(!!user)
+    var name = user&.get("name")
+    ok!(!!name && name&.asString() == "Alice")
+    var scores = user&.get("scores")
+    ok!(!!scores)
+    var scoresArr = scores&.asArray()
+    ok!(scoresArr.size() == 3)
+    var score0 = scoresArr.[0]
+    ok!(score0.asFloat() == 95)
 }
 
-@inline
-pub func parse[T](p: &JSONParser): !T => parseJSON[T](p)
+test "Empty structures" {
+    var emptyObj = parse[Value]("{}")
+    ok!(emptyObj.isObject())
+    ok!(emptyObj.empty())
 
-@inline
-pub func fromString[T](s: &const String): !T {
-    var p = JSONParser(s.__str());
-    return parse[T](&p)
-}
-
-pub enum Tag {
-    @str("Unknown")
-    Unknown,
-    @str("Null")
-    Null,
-    @str("Boolean")
-    Boolean,
-    @str("Number")
-    Number,
-    @str("String")
-    String,
-    @str("Array")
-    Array,
-    @str("Object")
-    Object
-}
-
-pub class Value {
-    - tag: Tag
-    func `init`(tag: Tag = .Null) {
-        this.tag = tag
-    }
-
-    @inline
-    const func isNull() => tag == .Null
-
-    @inline
-    const func isBoolean() => tag == .Boolean
-
-    @inline
-    const func isNumber() => tag == .Number
-
-    @inline
-    const func isString() => tag == .String
-
-    @inline
-    const func isArray() => tag == .Array
-
-    @inline
-    const func isObject() => tag == .Object
-
-    virtual func fromJSON(p: &JSONParser): !void {
-        p.expectNull()
-    }
-
-    virtual const func toJSON(os: &OutputStream): void {
-        os << "null"
-    }
-
-    const func `==`(other: &Value) => (this !: ^const void) == (other !: ^const void)
-
-    const func `!!`() => this.tag != .Null
-
-    const func `str`(os: &OutputStream) {
-        toJSON(os)
-    }
-}
-
-class JSONString: Value {
-    value: String
-
-    func `init`(s: String = null) {
-        super(Tag.String)
-        value = &&s
-    }
-
-    func fromJSON(p: &JSONParser): !void {
-        var s = p.expectString()
-        if (!s.empty())
-            value = String(s)
-    }
-
-    const func toJSON(os: &OutputStream): void {
-        module.toJSON(os, &value)
-    }
-}
-
-class Number: Value {
-    value: f64
-    func `init`(value: f64 = 0) {
-        super(Tag.Number)
-        this.value = value
-    }
-
-    func `init`(value: i64 = 0) {
-        super(Tag.Number)
-        this.value = value
-    }
-
-    func fromJSON(p: &JSONParser): !void {
-        value = p.expectFloat[f64]()
-    }
-
-    const func toJSON(os: &OutputStream): void {
-        module.toJSON(os, value)
-    }
-}
-
-class Boolean: Value {
-    value: bool
-    func `init`(value: bool = false) {
-        super(Tag.Boolean)
-        this.value = value
-    }
-
-    func fromJSON(p: &JSONParser): !void {
-        value = p.expectBool()
-    }
-
-    const func toJSON(os: &OutputStream): void {
-        module.toJSON(os, value)
-    }
-}
-
-class Array: Value {
-    - elems = Vector[Value]()
-    func `init`() {
-        super(Tag.Array)
-    }
-
-    @inline
-    const func `..`() => elems.op__range()
-
-    @inline
-    func `[]`(idx: i32) => elems.[idx]
-    @inline
-    func `[]=`(idx: i32, value: Value) { elems.[idx] = &&value }
-
-    const func toJSON(os: &OutputStream) {
-        os << "["
-        for (const value, i: elems) {
-            if (i != 0)
-                os << ", "
-            value.toJSON(os)
-        }
-        os << "]"
-    }
-
-    func fromJSON(p: &JSONParser): !void {
-        p.expectChar('['`char)
-        if (p.peekChar() != ']') {
-            while {
-                var value: Value = null;
-                switch(p.peekChar()) {
-                    case 'n'`char => value = Value()
-                    case 'f'`char, 't'`char => value = Boolean()
-                    case '-'`char, '0'`char..'9'`char => value = Number() // Missing '-'
-                    case '"'`char => value = JSONString()
-                    case '['`char => value = This()
-                    case '{'`char => value = createObject()
-                    default => raise JSONParserError("")
-                }
-                value.fromJSON(p)
-                elems.push(&&value)
-                if (p.peekChar() == ']'`char)
-                    break
-                p.expectChar(','`char)
-            }
-        }
-        p.expectChar(']'`char)
-    }
-
-    @inline
-    func size() => elems.size()
-}
-
-class Object: Value {
-    - members = HashMap[String, Value]()
-    func `init`() {
-        super(Tag.Object)
-    }
-
-    @inline
-    const func `..`() => members.op__range()
-    @inline
-    func `[]`(name: String) => members.[&&name]
-    @inline
-    const func `[]`(name: String) => members.[&&name]
-    @inline
-    func `[]=`(name: String, value: Value) => members.[&&name] = &&value
-
-    func set[T](name: String, value: T) {
-        #if (T.isBoolean)
-            members.[&&name] = Boolean(value)
-        else #if (T.isChar || T.isNumber)
-            members.[&&name] = Number(value)
-        else #if (T.isString)
-            members.[&&name] = JSONString(value)
-        else {
-            members.[&&name] = &&value
-        }
-    }
-
-    func fromJSON(p: &JSONParser): !void {
-        p.expectChar('{'`char)
-        if (p.peekChar() != '}') {
-            while {
-                var name = p.expectKey();
-                p.expectChar(':'`char)
-
-                var value: Value = null;
-                switch(p.peekChar()) {
-                    case 'n'`char => value = Value()
-                    case 'f'`char, 't'`char => value = Boolean()
-                    case '-'`char, '0'`char..'9'`char => value = Number() // Merge '-' here
-                    case '"'`char => value = JSONString()
-                    case '['`char => value = Array()
-                    case '{'`char => value = This()
-                    default => raise JSONParserError(f"Unexpected character: {p.peekChar()}")
-                }
-                value.fromJSON(p)
-                members.[String(name)] = &&value
-
-                if (p.peekChar() == '}')
-                    break
-                p.expectChar(','`char)
-            }
-        }
-        p.expectChar('}'`char)
-    }
-
-    const func toJSON(os: &OutputStream): void {
-        os << "{"
-        var first = true;
-        for (const name, value: members) {
-            if (!first)
-                os << ", "
-            os << '"' << name << "\": "
-            value.toJSON(os)
-            first = false
-        }
-        os << "}"
-    }
-}
-
-func createObject(): Value{ return Object() }
-
-macro jsonRequireTag(value, kind) {
-    if (value!.tag != kind!)
-        raise JSONError(f"Expecting a '{kind!}' Value, got a '{value!.tag}'")
-}
-
-struct ShellObject {
-    - value: Value = null
-    func `init`() {}
-
-    func fromJSON(p: &JSONParser): !void {
-        if (p.peekChar() == EOS!)
-            raise JSONParserError("End of Stream")
-        switch(p.peekChar()) {
-            case 'n'`char => value = Value()
-            case 'f'`char, 't'`char => value = Boolean()
-            case '-'`char, '0'`char..'9'`char => value = Number()
-            case '"'`char => value = JSONString()
-            case '['`char => value = Array()
-            case '{'`char => value = Object()
-            default => raise JSONParserError("")
-        }
-        value.fromJSON(p)
-    }
-
-    const func toJSON(os: &OutputStream): void {
-        if (value != null)
-            value.toJSON(os)
-        else
-            os << "\"null\""
-    }
-
-    const func `!!`() => value != null
-
-    const func `&.`() {
-        assert!(value != null)
-        return &value
-    }
-
-    const func `deref`() {
-        assert!(value != null)
-        return &value
-    }
-}
-
-pub func cast[Target](src: &const Value): !Target {
-    #if (#Target == #Value) {
-        return <Target>src
-    }
-    else #if (#Target == #bool) {
-        jsonRequireTag!(src, Tag.Boolean)
-        return (<&const Boolean> src).value
-    }
-    else #if (Target.isNumber) {
-        jsonRequireTag!(src, Tag.Number)
-        return <Target>(<&const Number>src).value
-    }
-    else #if (Target.isString && Target.isClass) {
-        jsonRequireTag!(src, Tag.String)
-        return (<&const JSONString>src).value
-    }
-    else #if (Target.isOptional) {
-        #const M = Target.targetType;
-        if (src.tag == .Null)
-            return None[M]()
-        else
-            return Some(cast[M](src))
-    }
-    else #if (Target.isStruct || Target.isClass) {
-        jsonRequireTag!(src, Tag.Object)
-        var value = Target();
-        const obj = <&const Object>src;
-        #for (const member: Target.members) {
-            #if (member.isField) {{
-                #const M = member.Tinfo;
-                #const jsonAttr = member.attributes.["json"]
-                const val = obj.[#{member.name}];
-                #if (jsonAttr && jsonAttr.["optional"]) {
-                    if (val) {
-                        value.#{mk_ident!(member.name)} = cast[M](*val)
-                    }
-                }
-                else {
-                    #if (!M.isOptional) {
-                        if (!val) {
-                            var msg = String("Any.cast failed, missing required member ");
-                            msg << #{member.name}
-                            raise JSONParserError(&&msg)
-                        }
-                        value.#{mk_ident!(member.name)} = cast[M](*val)
-                    }
-                    else {
-                        if (val)
-                            value.#{mk_ident!(member.name)} = cast[M](*val)
-                    }
-                }
-            }}
-        }
-        return &&value
-    }
-    else {
-        error!("Unsupported cast target type '{t}'", #Target)
-    }
-}
-
-func toJSONValue[T](value: &const T): Value {
-    #if (#T == #bool) {
-        return Boolean(value)
-    }
-    else #if (T.isNumber) {
-        return Number(value)
-    }
-    else #if (T.isString) {
-        return JSONString(value)
-    }
-    else #if (T.isOptional) {
-        if (!value) {
-            return Value()
-        }
-        else {
-            return toJSONValue(*value)
-        }
-    }
-    else #if (T.isClass || T.isStruct) {
-        var obj = Object();
-        #for (const member: T.members) {
-            #if (member.isField) {{
-                #const M = member.Tinfo;
-                #const jsonAttr = member.attributes.["json"]
-                #if (!jsonAttr || !jsonAttr.["ignore"]) {
-                    const val = value.#{member.name};
-                    #if (jsonAttr && jsonAttr.["optional"]) {
-                        #if (M.isClass) {
-                            if (val != null) {
-                                obj.[#{member.name}] = toJSONValue(&val)
-                            }
-                        }
-                        else #if (M.isOptional) {
-                            if (!!val) {
-                                obj.[#{member.name}] = toJSONValue(&val)
-                            }
-                        }
-                        else {
-                            obj.[#{member.name}] = toJSONValue(&val)
-                        }
-                    }
-                    else {
-                        obj.[#{member.name}] = toJSONValue(&val)
-                    }
-                }
-            }}
-        }
-        return &&obj
-    }
-    else {
-        error!("Unsupported cast target type '{t}'", #T)
-    }
+    var emptyArr = parse[Value]("[]")
+    ok!(emptyArr.isArray())
+    ok!(emptyArr.empty())
 }
 
 test "Json encode" {

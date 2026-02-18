@@ -334,6 +334,7 @@ target_compile_definitions(cxy PRIVATE
 
 set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/native
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/args.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fetch.cxy
@@ -352,6 +353,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/thread.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/time.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/trie.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/value.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy
 )
 

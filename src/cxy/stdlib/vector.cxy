@@ -36,12 +36,18 @@ pub class Vector[T] {
     }
 
     @inline
-    func `deinit`() {
+    func clear() {
         #if (T.isDestructible) {
             for (const i: 0.._size) {
                 delete _data.[i]
             }
         }
+        _size = 0
+    }
+
+    @inline
+    func `deinit`() {
+        clear()
         free(_data !: ^void)
     }
 
@@ -202,7 +208,10 @@ pub class Vector[T] {
         }
     }
 
-    #if (!(T.isStruct || T.isClass) || has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)) {
+    #if ( !T.isUnresolved && (
+            !(T.isStruct || T.isClass) ||
+                has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
+    ) ) {
         const func `str`(sb: &OutputStream) {
             sb << '['
             for (var i: 0.._size) {
@@ -217,6 +226,7 @@ pub class Vector[T] {
     @inline const func capacity() => _capacity
     @inline const func size() => _size
     @inline const func empty() => _size == 0
+    @inline const func data() => Slice[T](_data, _size)
 }
 
 test "Vector[T]::push" {

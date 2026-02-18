@@ -5,6 +5,7 @@
 #include "check.h"
 
 #include "lang/frontend/flag.h"
+#include "lang/frontend/strings.h"
 
 static void spreadTupleExpr(AstVisitor *visitor,
                             const Type *operand,
@@ -228,6 +229,8 @@ void checkPointerOfExpr(AstVisitor *visitor, AstNode *node)
     }
 
     node->flags |= node->unaryExpr.operand->flags;
+    if (isReferenceType(operand) && !findAttribute(node, S_forced))
+        operand = stripReference(operand);
     node->type = makePointerType(ctx->types, operand, node->flags);
 }
 
