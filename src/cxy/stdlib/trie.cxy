@@ -1,6 +1,7 @@
 module trie
 
 import { HashMap } from "stdlib/hash.cxy"
+import { Vector } from "stdlib/vector.cxy"
 
 struct TrieNode[T] {
     - children: HashMap[wchar, ^This] = null;
@@ -19,16 +20,22 @@ struct TrieNode[T] {
         }
 
         var node = __calloc(sizeof!(This)) !: ^This;
-        node.op__init()
+        node.op__init(c)
         children.[c] = node
         return node
     }
 
     func `deinit`(): void {
-        if (!isnull(&children)) {
-            for (var node: children) {
-                delete *node.1
-                free(node.1 !: ^void)
+        if children != null {
+            var nodes = Vector[^This]()
+            for node in children {
+                nodes.push(node.1)
+            }
+            children.clear()
+
+            for node, _ in nodes {
+                delete *node
+                free(node !: ^void)
             }
         }
     }
@@ -55,7 +62,7 @@ pub class Trie[Data] {
         if (found) {
             var idx, data = *found;
             if (idx == size)
-                return &data
+                return data
         }
         return null
     }

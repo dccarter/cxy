@@ -183,6 +183,7 @@ typedef struct Type {
 
         struct {
             const Type *pointed;
+            bool isAllocated;
         } pointer;
 
         struct {

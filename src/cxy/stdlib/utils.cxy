@@ -1,0 +1,99 @@
+module utils
+
+import Vector from "./vector.cxy"
+
+func _hexCharToValue(c: char): i8 {
+    if (c >= '0' && c <= '9') {
+        return (c - '0') as i8
+    } else if (c >= 'a' && c <= 'f') {
+        return (c - 'a' + 10) as i8
+    } else if (c >= 'A' && c <= 'F') {
+        return (c - 'A' + 10) as i8
+    }
+    return -1
+}
+
+/*
+ * Read a hexadecimal escape sequence from a string
+ *
+ * Parameters:
+ *   s: string to read from
+ *   start: starting position in the string
+ *   digits: number of hex digits to read (e.g., 2 for \xNN, 4 for \uNNNN)
+ *
+ * Returns: (value, newPosition) where value is the parsed hex value
+ *          and newPosition is the position after the hex digits
+ *
+ * Throws: InvalidArgumentError if invalid hex digit or not enough digits
+ */
+pub func readHexEscape(s: __string, start: u64, digits: u32): !(u32, u64) {
+    var value: u32 = 0
+    var end = start + digits
+
+    for pos: start..end {
+        if pos >= s.size() {
+            raise InvalidArgumentError("Incomplete hex escape sequence")
+        }
+
+        var c = s.[pos]
+        var hexDigit = _hexCharToValue(c)
+
+        if hexDigit < 0 {
+            raise InvalidArgumentError("Invalid hex digit in escape sequence")
+        }
+
+        value = (value << 4) | <u32>hexDigit
+    }
+
+    return (value, end)
+}
+
+
+
+func fromHex(hexStr: __string, data: ^void, len: u64): !void {
+    var p = data !: ^u8
+    var size = hexStr.size()
+
+    // Hex string must have even length
+    if size % 2 != 0 {
+        raise InvalidArgumentError("Invalid hex string: odd length")
+    }
+
+    if len < size/2 {
+        raise InvalidArgumentError("Output buffer too small")
+    }
+
+    for i: 0..size {
+        if i % 2 == 0 {
+            var high = _hexCharToValue(hexStr.[i])
+            var low = _hexCharToValue(hexStr.[i + 1])
+
+            if high < 0 || low < 0 {
+                raise InvalidArgumentError("Invalid hex character")
+            }
+
+            var byte = <u8>((high << 4) | low)
+            p.[i/2] = byte;
+        }
+    }
+}
+
+pub func split(s: __string, delims: __string): Vector[__string] {
+    var parts = Vector[__string]()
+    var start = 0 as i64
+    var len = s.size() as i64
+    for i: 0..len {
+        if delims.contains(s.[i]) {
+            if start < i {
+                parts.push(s.substr(start, i - start))
+            }
+            start = i + 1
+        }
+    }
+
+    if start < len {
+        parts.push(s.substr(start, len - start))
+    }
+
+    return parts
+}

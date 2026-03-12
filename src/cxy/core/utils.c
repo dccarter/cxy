@@ -30,9 +30,10 @@ static inline bool isodigit(int c) { return c >= '0' && c <= '7'; }
 static size_t convertStrToCharOrd(const char *ptr, int base, u32 *res)
 {
     char *next = NULL;
+    errno = 0;
     unsigned int ord = strtoul(ptr, &next, base);
     *res = ord;
-    return ord <= 255 && !errno ? next - ptr : 0;
+    return (ord <= 255 && errno == 0) ? next - ptr : 0;
 }
 
 __uint128_t strtou128(const char *str, char **endptr, int base)
@@ -387,6 +388,10 @@ size_t escapeString(const char *str, size_t n, char *dst, size_t size)
                 i++;
                 break;
             }
+        case '\\':
+            dst[j++] = '\\';
+            i++;
+            break;
         default:
             dst[j++] = '\\';
             break;

@@ -1,6 +1,6 @@
 module types
 
-struct User {
+pub struct User {
     name: string
     age: i32
 }

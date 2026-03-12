@@ -6,6 +6,7 @@ import { Time } from "./time.cxy"
 import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
 import { Trie } from "./trie.cxy"
+import { split } from "./utils.cxy"
 
 import { Address, BufferedSocketOutputStream } from "./net.cxy"
 import { TcpSocket, TcpListener } from "./tcp.cxy"
@@ -404,16 +405,17 @@ pub class Request {
 
     - _headers = HeaderMap();
     - _params = HashMap[__string, __string]();
+    - _cookies = HashMap[__string, __string]();
     - _path: String = null;
     - _uri: String = null;
     - _body: String = null;
     - _s1: String = null;
     - _s2: String = null;
     - _isComplete = false;
+    - _cookiesParsed = false;
     - _parser: ^parser.llhttp_t = null;
     - _middlewareContexts: ^void = null;
     - _route: &Route
-
     @inline
     func `init`(settings: ^const parser.llhttp_settings_t) {
         _parser = parser.llhttp_alloc(parser.llhttp_type_t.HTTP_REQUEST, settings)
@@ -517,6 +519,33 @@ pub class Request {
         }
         return true
     }
+
+    func parseCookies() {
+        if _cookiesParsed {
+            return true
+        }
+        _cookiesParsed = true
+
+        var cookie = _headers.["Cookie"]
+        if !cookie {
+            return false
+        }
+        var pairs = split(cookie&.__str(), ";")
+        for pair, _ in pairs {
+            var kv = split(__copy!(pair), "=")
+            if kv.size() == 2 {
+                _cookies.[kv.[0].trim()] = kv.[1].trim()
+            }
+            else {
+                _cookies.[kv.[0].trim()] = __string()
+            }
+        }
+
+        return true
+    }
+
+    @inline
+    const func cookie(name: __string) => _cookies.[name]
 }
 
 func requestParserOnMessageBegin(p: ^parser.llhttp_t) {
@@ -606,7 +635,10 @@ const HTTP_PARSER_SETTINGS = parser.llhttp_settings_t{
 type HandlerFn = func(req: &const Request, res: &Response) -> void
 
 pub struct RouteAttrs {
-    isStatic = false;
+    isStatic = false
+    parseCookies = false
+    parseForm = false
+    replyType: String = null
 }
 
 class Route {
@@ -719,6 +751,11 @@ class Router {
         else {
             req.uri(String(args))
         }
+
+        if route.attrs().parseCookies {
+            req.parseCookies()
+        }
+
         route(req, resp)
     }
 
@@ -875,6 +912,11 @@ pub class Connection[Middlewares] {
             sendResponse()
             return;
         }
+
+        if route&.attrs().parseCookies {
+            req.parseCookies()
+        }
+
         invokeRouteHandler(*route)
 
         sendResponse()

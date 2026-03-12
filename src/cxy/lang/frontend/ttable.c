@@ -82,6 +82,7 @@ static HashCode hashType(HashCode hash, const Type *type)
     case typString:
         break;
     case typPointer:
+        hash = hashUint8(hash, type->pointer.isAllocated);
         hash = hashType(hash, type->pointer.pointed);
         break;
     case typReference:
@@ -265,7 +266,8 @@ bool compareTypes(const Type *lhs, const Type *rhs)
     case typPrimitive:
         return left->primitive.id == right->primitive.id;
     case typPointer:
-        return compareTypes(left->pointer.pointed, right->pointer.pointed);
+        return compareTypes(left->pointer.pointed, right->pointer.pointed) &&
+            left->pointer.isAllocated == right->pointer.isAllocated;
     case typReference:
         return compareTypes(left->reference.referred,
                             right->reference.referred);
@@ -401,7 +403,7 @@ static GetOrInset getOrInsertTypeScoped(TypeTable *table, const Type *type)
     if (found)
         return (GetOrInset){true, *found};
 
-    Type *newType = New(table->memPool, Type);
+    Type *newType = __New(table->memPool, Type);
     memcpy(newType, type, sizeof(Type));
 
     if (!insertInHashTable(
@@ -441,7 +443,7 @@ static Type *replaceTypeScoped(TypeTable *table,
         removeFromTypeTable(table, *found);
     }
     else {
-        newType = New(table->memPool, Type);
+        newType = __New(table->memPool, Type);
         newType->index = table->typeCount++;
     }
 
@@ -817,6 +819,18 @@ const Type *makePointerType(TypeTable *table, const Type *pointed, u64 flags)
                      .flags = flags,
                      .pointer = {.pointed = pointed});
 
+    return getOrInsertType(table, &type).s;
+}
+
+const Type *makeAllocatedPointerType(TypeTable *table,
+                                     const Type *pointed,
+                                     u64 flags)
+{
+    pointed = flattenWrappedType(pointed, &flags);
+    Type type = make(Type,
+                     .tag = typPointer,
+                     .flags = flags,
+                     .pointer = {.pointed = pointed, .isAllocated = true});
     return getOrInsertType(table, &type).s;
 }
 

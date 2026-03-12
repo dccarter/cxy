@@ -376,7 +376,7 @@ macro __async(CALL, NAME) {
         var cr = sched.prologue(NAME!, file!, line!);
         __cxy_coro_setsp!(cr !: ^void)
         CALL!
-        sched.epilogue()
+        module.__get_scheduler().epilogue()
     }
 }
 

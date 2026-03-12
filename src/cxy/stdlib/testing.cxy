@@ -1,0 +1,17 @@
+module testing
+
+test {
+
+    macro assertThrows(expr, EX) {
+        var result = ((): !bool => {
+            expr! catch {
+                #const T = typeof!(EX!)
+                const name = #{EX!.name}
+                ok!(ex! is EX!, f"Expected exception type {ex!.name} but got {name}")
+                return true
+            }
+            return false
+        })()
+    }
+
+}

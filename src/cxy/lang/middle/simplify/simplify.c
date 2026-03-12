@@ -512,6 +512,8 @@ bool isRedundantStatement(AstNode *node)
 
 static bool isDiscardedExpressionReturn(const AstNode *node)
 {
+    if (node == NULL)
+        return false;
     const AstNode *parent = node->parentScope;
     if (nodeIs(parent, GroupExpr))
         return isDiscardedExpressionReturn(parent);

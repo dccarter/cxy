@@ -118,7 +118,10 @@ static void transformClosureToStructExpr(AstVisitor *visitor,
                 value->flags,
                 value,
                 NULL,
-                makeReferenceType(ctx->types, fieldType, fieldType->flags));
+                makeReferenceType(
+                    ctx->types,
+                    fieldType,
+                    fieldType->flags & ~(flgReferenceMembers|flgImplementsDeinit)));
 
         insertAstNode(
             &stmts,
@@ -392,7 +395,8 @@ void checkClosureExpr(AstVisitor *visitor, AstNode *node)
         if (isClassOrStructType(fieldType) || isUnionType(fieldType) ||
             isTupleType(fieldType))
             fieldType = makeReferenceType(
-                ctx->types, capture->node->type, capture->node->type->flags);
+                ctx->types, capture->node->type,
+                capture->node->type->flags & ~(flgReferenceMembers|flgImplementsDeinit));
 
         field->structField.type =
             makeTypeReferenceNode(ctx->pool, fieldType, &capture->node->loc);

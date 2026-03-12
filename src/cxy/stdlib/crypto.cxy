@@ -1,0 +1,174 @@
+module crypto
+
+import { encodeBuffer } from "./base64.cxy"
+
+import "openssl/err.h" as OpenSSLErr
+import "openssl/sha.h" as OpenSSLSHA
+import "openssl/evp.h" as OpenSSLEVP
+import "openssl/core.h" as OpenSSLCore
+import "openssl/params.h" as OpenSSLParams
+
+@__cc:clib "crypto"
+
+pub exception CryptoError(code: u64, msg: String = null) {
+    if msg == null {
+        var buf : [char, 1024] = []
+        OpenSSLErr.ERR_error_string_n(code, buf, 1024)
+        msg = String(buf !: string)
+    }
+    return msg.str()
+}
+
+pub struct SHA256Digest {
+    hash: [u8, SHA256_DIGEST_LENGTH!] = null
+
+    const func toString(os: &OutputStream, b64: bool) {
+        if b64 {
+            encodeBuffer(os, hash, SHA256_DIGEST_LENGTH!)
+        } else {
+            toHexString(os, hash, SHA256_DIGEST_LENGTH!)
+        }
+    }
+
+    @inline
+    const func `str`(os: &OutputStream) {
+        toString(os, false)
+    }
+
+    const func b64(): String {
+        var str = String()
+        toString(&str, true)
+        return &&str
+    }
+
+    const func hex(): String {
+        var str = String()
+        toString(&str, false)
+        return &&str
+    }
+}
+
+pub struct SHA512Digest {
+    hash: [u8, SHA512_DIGEST_LENGTH!] = null
+
+    func toString(os: &OutputStream, b64: bool) {
+        if b64 {
+            encodeBuffer(os, hash, SHA512_DIGEST_LENGTH!)
+        } else {
+            toHexString(os, hash, SHA512_DIGEST_LENGTH!)
+        }
+    }
+
+    @inline
+    const func `str`(os: &OutputStream) {
+        toString(os, false)
+    }
+
+    const func b64(): String {
+        var str = String()
+        toString(&str, true)
+        return &&str
+    }
+
+    const func hex(): String {
+        var str = String()
+        toString(&str, false)
+        return &&str
+    }
+}
+
+pub func SHA256(digest: &SHA256Digest, data: ^const void, len: u64): !void {
+    var ctx = OpenSSLSHA.SHA256_CTX{}
+    if OpenSSLSHA.SHA256_Init(ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA256_Update(ptrof ctx, data, len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA256_Final(digest.hash, ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+}
+
+pub func SHA512(digest: &SHA512Digest, data: ^const void, len: u64): !void {
+    var ctx = OpenSSLSHA.SHA512_CTX{}
+    if OpenSSLSHA.SHA512_Init(ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA512_Update(ptrof ctx, data, len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLSHA.SHA512_Final(digest.hash, ptrof ctx) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+}
+
+pub func HMAC_256(digest: &SHA256Digest, key: __string, data: ^const void, len: u64): !void {
+    var digestLen = SHA256_DIGEST_LENGTH!
+
+    var mac = OpenSSLEVP.EVP_MAC_fetch(null, "HMAC", null)
+    if mac == null {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+    defer OpenSSLEVP.EVP_MAC_free(mac)
+
+    var ctx = OpenSSLEVP.EVP_MAC_CTX_new(mac)
+    if ctx == null {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+    defer OpenSSLEVP.EVP_MAC_CTX_free(ctx)
+
+    var params: [OpenSSLCore.OSSL_PARAM, 2] = []
+    params.[0] = OpenSSLParams.OSSL_PARAM_construct_utf8_string("digest", "SHA256" !: ^char, 0)
+    params.[1] = OpenSSLParams.OSSL_PARAM_construct_end()
+
+    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as ^const u8, key.size(), params) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLEVP.EVP_MAC_update(ctx, data as ^const u8, len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLEVP.EVP_MAC_final(ctx, digest.hash, ptrof digestLen , SHA512_DIGEST_LENGTH!) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+}
+
+pub func HMAC_512(digest: &SHA512Digest, key: __string, data: ^const void, len: u64): !void {
+    var mac: ^OpenSSLEVP.EVP_MAC = null
+    var ctx: ^OpenSSLEVP.EVP_MAC_CTX = null
+    var digestLen = SHA512_DIGEST_LENGTH!
+
+    mac = OpenSSLEVP.EVP_MAC_fetch(null, "HMAC", null)
+    if mac == null {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+    defer OpenSSLEVP.EVP_MAC_free(mac)
+
+    ctx = OpenSSLEVP.EVP_MAC_CTX_new(mac)
+    if ctx == null {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+    defer OpenSSLEVP.EVP_MAC_CTX_free(ctx)
+
+    var params: [OpenSSLCore.OSSL_PARAM, 2] = []
+    params.[0] = OpenSSLParams.OSSL_PARAM_construct_utf8_string("digest", "SHA512" !: ^char, 0)
+    params.[1] = OpenSSLParams.OSSL_PARAM_construct_end()
+
+    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as ^const u8, key.size(), params) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLEVP.EVP_MAC_update(ctx, data as ^const u8, len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+
+    if OpenSSLEVP.EVP_MAC_final(ctx, digest.hash, ptrof digestLen , SHA512_DIGEST_LENGTH!) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+}

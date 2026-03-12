@@ -31,8 +31,8 @@ static const Type *checkNewInitializerOverload(AstVisitor *visitor,
                                                AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *init = node->newExpr.init;
-    AstNode *callee = init->callExpr.callee;
+    AstNode *expr = node->newExpr.expr;
+    AstNode *callee = expr->callExpr.callee;
 
     // turn new S(...) => ({ var tmp = new S{}; tmp.init(...); tmp; })
 
@@ -71,19 +71,19 @@ static const Type *checkNewInitializerOverload(AstVisitor *visitor,
     // tmp;
     AstNode *ret = makeExprStmt(
         ctx->pool,
-        &init->loc,
-        init->flags,
+        &expr->loc,
+        expr->flags,
         makeResolvedPath(
-            ctx->pool, &init->loc, name, flgNone, varDecl, NULL, NULL),
+            ctx->pool, &expr->loc, name, flgNone, varDecl, NULL, NULL),
         NULL,
         NULL);
 
     //     name.init(...); tmp
     varDecl->next = makeCallExpr(ctx->pool,
-                                 &init->loc,
+                                 &expr->loc,
                                  newCallee,
-                                 init->callExpr.args,
-                                 init->flags,
+                                 expr->callExpr.args,
+                                 expr->flags,
                                  ret,
                                  NULL);
 
@@ -91,7 +91,7 @@ static const Type *checkNewInitializerOverload(AstVisitor *visitor,
     clearAstBody(node);
     node->tag = astStmtExpr;
     node->stmtExpr.stmt =
-        makeBlockStmt(ctx->pool, &init->loc, varDecl, NULL, NULL);
+        makeBlockStmt(ctx->pool, &expr->loc, varDecl, NULL, NULL);
     node->stmtExpr.stmt->flags |= flgBlockReturns;
 
     return checkType(visitor, node);
@@ -100,34 +100,32 @@ static const Type *checkNewInitializerOverload(AstVisitor *visitor,
 static const Type *checkNewInitializerExpr(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *init = node->newExpr.init;
+    AstNode *expr = node->newExpr.expr;
 
-    if (isSupportedOnAuto(init))
-        return checkType(visitor, init);
-
-    if (nodeIs(init, CallExpr)) {
-        if (!hasFlag(init->callExpr.callee, TypeAst)) {
+    if (nodeIs(expr, CallExpr)) {
+        if (!hasFlag(expr->callExpr.callee, TypeAst)) {
             logError(ctx->L,
-                     &init->callExpr.callee->loc,
+                     &expr->callExpr.callee->loc,
                      "only types can be created using the new expression",
                      NULL);
 
             return NULL;
         }
 
-        const Type *callee = checkType(visitor, init->callExpr.callee);
+        const Type *callee = checkType(visitor, expr->callExpr.callee);
         if (typeIs(callee, Interface)) {
             logError(ctx->L,
-                     &init->callExpr.callee->loc,
+                     &expr->callExpr.callee->loc,
                      "cannot use `new` operator on type `{t}`, "
                      "interface's cannot be allocated",
                      (FormatArg[]){{.t = callee}});
             return NULL;
         }
-        else if (typeIs(callee, Struct)) {
+
+        if (typeIs(callee, Struct)) {
             if (!findStructMemberType(callee, S_InitOverload)) {
                 logError(ctx->L,
-                         &init->callExpr.callee->loc,
+                         &expr->callExpr.callee->loc,
                          "cannot use `new` constructor expression on type "
                          "'{t}', structure does not overload new operator",
                          (FormatArg[]){{.t = callee}});
@@ -136,26 +134,26 @@ static const Type *checkNewInitializerExpr(AstVisitor *visitor, AstNode *node)
             return checkNewInitializerOverload(visitor, node);
         }
         else {
-            if (init->callExpr.args == NULL) {
-                node->newExpr.init = NULL;
+            if (expr->callExpr.args == NULL) {
+                node->newExpr.expr = NULL;
                 return callee;
             }
-            if (init->callExpr.args->next) {
+            if (expr->callExpr.args->next) {
                 logError(ctx->L,
-                         &init->callExpr.args->next->loc,
+                         &expr->callExpr.args->next->loc,
                          "`new` initializer expression for type '{t}' accepts "
                          "only 1 parameter",
                          (FormatArg[]){{.t = callee}});
                 return NULL;
             }
-            node->newExpr.init = init->callExpr.args;
-            const Type *type = checkType(visitor, node->newExpr.init);
+            node->newExpr.expr = expr->callExpr.args;
+            const Type *type = checkType(visitor, node->newExpr.expr);
             if (typeIs(type, Error))
                 return NULL;
 
             if (!isExplicitConstructableFrom(ctx->L, callee, type)) {
                 logError(ctx->L,
-                         &init->callExpr.args->loc,
+                         &expr->callExpr.args->loc,
                          "type '{t}' cannot be constructed with value of "
                          "type '{t}'",
                          (FormatArg[]){{.t = callee}, {.t = type}});
@@ -174,18 +172,18 @@ void checkNewExpr(AstVisitor *visitor, AstNode *node)
     const Type *type = NULL, *init = NULL;
     u64 flags = flgNone;
 
-    if (node->newExpr.type) {
-        flags = node->newExpr.type->flags;
-        type = checkType(visitor, node->newExpr.type);
+    if (node->newExpr.allocator) {
+        flags = node->newExpr.allocator->flags;
+        type = checkType(visitor, node->newExpr.allocator);
         if (typeIs(type, Error)) {
             node->type = ERROR_TYPE(ctx);
             return;
         }
     }
 
-    if (node->newExpr.init) {
+    if (node->newExpr.expr) {
         if (flags == flgNone)
-            flags = node->newExpr.init->flags;
+            flags = node->newExpr.expr->flags;
 
         init = checkNewInitializerExpr(visitor, node);
         if (init == NULL) {
@@ -215,5 +213,5 @@ void checkNewExpr(AstVisitor *visitor, AstNode *node)
     }
 
     node->flags = flags;
-    node->type = makePointerType(ctx->types, type, type->flags);
+    node->type = makeAllocatedPointerType(ctx->types, type, type->flags);
 }

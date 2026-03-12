@@ -451,8 +451,8 @@ pub class Socket {
 
     func send[T](data: T, timeout: u64 = 0) {
         #if (T.isString) {
-            #if (T.isStruct) {
-                return sendBuffer(data.str !: ^void, len!(data), timeout)
+            #if (T.isStruct ||  T.isClass) {
+                return sendBuffer(data.data() !: ^void, data.size(), timeout)
             }
             else {
                 return sendBuffer(data !: ^void, len!(data), timeout)

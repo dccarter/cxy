@@ -1,0 +1,16 @@
+module yaml_common
+
+/// YAML parsing and serialization error
+pub exception YamlError(
+    msg: String,
+    line: u64 = 0,
+    column: u64 = 0,
+    _msg: String = null) {
+    if (_msg == null) {
+        _msg = msg == null ? String("YAML error") : &&msg
+        if (line > 0) {
+            _msg << " at line " << line << ", column " << column
+        }
+    }
+    return _msg.str()
+}

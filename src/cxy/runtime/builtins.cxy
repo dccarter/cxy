@@ -24,6 +24,7 @@ pub extern func toupper(c: i32): i32
 pub extern func isspace(c: i32): i32
 pub extern func isdigit(c: i32): i32
 pub extern func isalpha(c: i32): i32
+pub extern func isalnum(c: i32): i32
 pub extern func iscntrl(c: i32): i32
 pub extern func sysconf(name: i32): i64
 
@@ -31,6 +32,7 @@ macro isSpace(X) =(isspace(<i32>X!) != 0)
 macro isDigit(X) =(isdigit(<i32>X!) != 0)
 macro isAlpha(X) =(isalpha(<i32>X!) != 0)
 macro isCntrl(X) =(iscntrl(<i32>X!) != 0)
+macro isAlnum(X) =(isalnum(<i32>X!) != 0)
 
 macro alloca(T) =( mk_bc!(bfiAlloca!, #^void, T!) )
 macro zero(V) { mk_bc!(bfiZeromem!, #void, V!) }
@@ -109,6 +111,9 @@ pub func __bswap64(x: u64) => (
     | ((x & 0x000000000000ff00`u64) << 40)
     | ((x & 0x00000000000000ff`u64) << 56)
 )
+
+@[pure, inline]
+pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 
 pub type sptr = ^void
 
@@ -202,9 +207,6 @@ pub func __smart_ptr_drop_trace(ptr: sptr, path: string, line: u64) {
 }
 
 }
-
-@[pure, inline]
-pub func __calloc(size: u64) => memset(malloc(size), 0, size)
 
 /* Builtin Optional Type */
 pub struct Optional[T] {
@@ -565,6 +567,16 @@ pub struct __string {
         return !!indexOf(ch)
     }
 
+    @inline
+    const func contains(s: __string) : bool {
+        return !!find(s)
+    }
+
+    @inline
+    const func contains(s: string) : bool {
+        return !!find(s)
+    }
+
     const func rIndexOf(ch: char) : Optional[u64] {
         if (_size == 0)
             return None[u64]()
@@ -892,7 +904,7 @@ pub class String : OutputStream {
     }
 
     func resize(newSize: u64) {
-        assert!(_capacity <= newSize)
+        assert!(_capacity > newSize)
         _size = newSize
         _data.[_size] = '\0'`char
     }
@@ -928,9 +940,30 @@ pub class String : OutputStream {
         }
     }
 
+    func trimLeft(ch: char) {
+        var i = 0`u64
+        while (i < _size && _data.[i] == ch)
+            i++
+        if (i != 0) {
+            var p = ptroff!(this._data + i);
+            memmove(_data, p, _size - i)
+            _size = _size - i
+        }
+    }
+
     func trimRight() {
         while (_size > 0) {
             if (!isSpace!(_data.[_size - 1]))
+                break
+            _size--
+        }
+        if (_capacity > 0)
+            _data.[_size] = '\0'
+    }
+
+    func trimRight(ch: char) {
+        while (_size > 0) {
+            if (_data.[_size - 1] != ch)
                 break
             _size--
         }
@@ -942,6 +975,12 @@ pub class String : OutputStream {
     func trim() {
         trimLeft()
         trimRight()
+    }
+
+    @inline
+    func trim(ch: char) {
+        trimLeft(ch)
+        trimRight(ch)
     }
 
     const func indexOf(ch: char) : Optional[u64] {
@@ -1011,6 +1050,10 @@ pub class String : OutputStream {
         compare(other !: ^const char, strlen(other))
 
     @inline
+    const func compare(other: const __string) =>
+        compare(other.data(), other.size())
+
+    @inline
     const func `==`(other: &const String) => compare(other) == 0
 
     @inline
@@ -1047,6 +1090,24 @@ pub class String : OutputStream {
     const func `>=`(other: const string) => compare(other) >= 0
 
     @inline
+    const func `==`(other: const __string) => compare(other) == 0
+
+    @inline
+    const func `!=`(other: const __string) => compare(other) != 0
+
+    @inline
+    const func `<`(other: const __string) => compare(other) < 0
+
+    @inline
+    const func `>`(other: const __string) => compare(other) > 0
+
+    @inline
+    const func `<=`(other: const __string) => compare(other) <= 0
+
+    @inline
+    const func `>=`(other: const __string) => compare(other) >= 0
+
+    @inline
     const func `[]`(idx: u32) {
         assert!(idx < _size)
         return this._data.[idx]
@@ -1075,6 +1136,12 @@ pub class String : OutputStream {
     @inline const func startswith(suffix: String) =>  __str().startswith(suffix.__str())
     @inline const func startswith(suffix: __string) => __str().startswith(suffix)
     @inline const func startswith(suffix: string) =>  __str().startswith(suffix)
+    @inline const func find(substr: __string) => __str().find(substr)
+    @inline const func find(substr: string) => __str().find(substr)
+    @inline const func rfind(substr: __string) => __str().rfind(substr)
+    @inline const func rfind(substr: string) => __str().rfind(substr)
+    @inline const func contains(ch: __string) => __str().contains(ch)
+    @inline const func contains(ch: string) => __str().contains(ch)
 }
 
 pub class BufferedOutputStream: OutputStream {
@@ -1193,7 +1260,7 @@ pub struct Slice[T] {
         return This(ptroff!(data + start), count)
     }
 
-    #if (!T.isUnresolved &&
+    #if (!T.isPointer && !T.isUnresolved &&
             ( !(T.isStruct || T.isClass) ||
               has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
             )
@@ -1206,6 +1273,26 @@ pub struct Slice[T] {
                 sb << (data.[i])
             }
             sb.appendChar(']')
+        }
+    }
+}
+
+pub func toHexString(os: &OutputStream, data: ^const void, len: u64, caps: bool = false) {
+    const p = data !: ^const u8
+    const hexCharsCaps = "0123456789ABCDEF"
+    const hexChars = "0123456789abcdef"
+    if caps {
+        for i : 0..len {
+            var c = p.[i]
+            os << hexCharsCaps.[(c >> 4) & 0xF]
+               << hexCharsCaps.[c & 0xF]
+        }
+    }
+    else {
+        for i : 0..len {
+            var c = p.[i]
+            os << hexChars.[(c >> 4) & 0xF]
+               << hexChars.[c & 0xF]
         }
     }
 }
@@ -1395,7 +1482,7 @@ pub func update[Lhs, Rhs](@unused lhs: &Lhs, @unused rhs: Rhs) {
             require!(M.isField, "member {s} must be a field", M.name)
             require!(has_member!(#Lhs, M.name, #T),
                      "target does not have a member named '{s}' of type {t}", M.name, #T)
-            lhs.#{mk_ident!(M.name)} = rhs.#{mk_ident!(M.name)}
+            lhs.#{mk_ident!(M.name)} = && rhs.#{mk_ident!(M.name)}
         }
     }
 }
@@ -1521,7 +1608,17 @@ pub class OutOfRangeException: Exception {
         super( "OutOfRangeException" )
     }
 
-    func what() => msg == null? "test failed" : msg.str()
+    func what() => msg == null? name : msg.str()
+}
+
+pub class InvalidArgumentError: Exception {
+    msg: String = null;
+
+    func `init`(msg: String = null) {
+        super( "InvalidArgumentError" )
+    }
+
+    func what() => msg == null? name : msg.str()
 }
 
 pub struct Void{}

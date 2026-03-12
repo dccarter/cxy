@@ -1,0 +1,388 @@
+module yaml_serializer
+
+import { Value } from "stdlib/value.cxy"
+
+pub class YamlSerializer {
+    _output: &OutputStream
+    _indent: u32
+    _currentIndent: u32 = 0
+
+    func `init`(output: &OutputStream, indent: u32 = 2) {
+        _output = output
+        _indent = indent
+    }
+
+    func serialize(value: &const Value): void {
+        _serializeValue(value)
+    }
+
+    // Private serialization methods
+
+    func _serializeValue(value: &const Value): void {
+        if value.isNull() || value.isBool() || value.isInt() || value.isFloat() {
+            _output << value
+        }
+        else if value.isString() {
+            _serializeScalar(value)
+        }
+        else if value.isArray() {
+            _serializeArray(value)
+        }
+        else if value.isObject() {
+            _serializeObject(value)
+        }
+    }
+
+    func _serializeObject(obj: &const Value): void {
+        var hashMap = obj.getObject()
+
+        if hashMap.size() == 0 {
+            _output << "{}"
+            return
+        }
+
+        var first = true
+        for it in hashMap {
+            if !first {
+                _output << '\n'
+            }
+            first = false
+
+            _writeIndent()
+
+            // Write key
+            if _needsQuoting(&it.0) {
+                _output << '"'
+                _escapeString(&it.0)
+                _output << '"'
+            } else {
+                _output << it.0
+            }
+
+            // Write value
+            var value = &it.1
+            // Check if it's a non-empty object or array (needs newline and indent)
+            var needsNewline = (value.isObject() && value.size() > 0) ||
+                               (value.isArray() && value.size() > 0)
+
+            if needsNewline {
+                _output << ":\n"
+                _currentIndent += _indent
+                _serializeValue(value)
+                _currentIndent -= _indent
+            } else {
+                _output << ": "
+                _serializeValue(value)
+            }
+        }
+    }
+
+    func _serializeArray(arr: &const Value): void {
+        if arr.size() == 0 {
+            _output << "[]"
+            return
+        }
+        const arrObj = arr.getArray()
+        for item in arrObj {
+            if item.1 > 0 {
+                _output << '\n'
+            }
+
+            _writeIndent()
+            _output << "- "
+
+            if item.0.isObject() {
+                // Nested object - indent properly
+                if item.0.size() == 0 {
+                    _output << "{}"
+                } else {
+                    _output << '\n'
+                    _currentIndent += _indent
+                    _serializeValue(&item.0)
+                    _currentIndent -= _indent
+                }
+            }
+            else if item.0.isArray() {
+                // Nested array
+                _output << '\n'
+                _currentIndent += _indent + 2
+                _serializeValue(&item.0)
+                _currentIndent -= _indent + 2
+            }
+            else {
+                _serializeValue(&item.0)
+            }
+        }
+    }
+
+    func _serializeScalar(value: &const Value): void {
+        var str = value.getString()
+        if !str {
+            _output << "null"
+            return
+        }
+
+        if _needsQuoting(*str) {
+            _output << '"'
+            _escapeString(*str)
+            _output << '"'
+        } else {
+            _output << *str
+        }
+    }
+
+    // Helper methods
+
+    @inline
+    func _writeIndent(): void {
+        _output << Repeat(' ', _currentIndent)
+    }
+
+    func _isYamlIndicator(c: char): bool {
+        switch c {
+            '-', '?', ':', '{', '}', '[', ']', ',',
+            '&', '*', '#', '|', '>', '@', '!', '%',
+            '\'', '"', '`' => return true
+            ... => return false
+        }
+    }
+
+    func _needsQuoting(str: &const String): bool {
+        if str.size() == 0 {
+            return true
+        }
+
+        var first = str.[0]
+
+        // Check for YAML indicators at start
+        if _isYamlIndicator(first) {
+            return true
+        }
+
+        // Check for reserved words (YAML 1.2 spec only)
+        if str == "true" || str == "false" || str == "null" || str == "~" {
+            return true
+        }
+
+        // Scan for special characters
+        for c, i in str {
+            // Control characters need quotes
+            if c < <char>32 {
+                return true
+            }
+
+            // Special characters that need escaping
+            if c == '"' || c == '\\' {
+                return true
+            }
+
+            // Colon followed by space needs quotes
+            if c == ':' && i + 1 < str.size() && str.[<u32>(i + 1)] == ' ' {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func _escapeString(str: &const String): void {
+        for c, _ in str {
+            switch c {
+                '\n' => _output << "\\n"
+                '\t' => _output << "\\t"
+                '\r' => _output << "\\r"
+                '\\' => _output << "\\\\"
+                '"' => _output << "\\\""
+                ... => _output << c
+            }
+        }
+    }
+}
+
+// Tests
+
+test "Serializer - simple scalar" {
+    var value = Value("hello")
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&value)
+    ok!(output == "hello")
+}
+
+test "Serializer - boolean values" {
+    var obj = Value.Object()
+    obj.["enabled"] = Value(true)
+    obj.["disabled"] = Value(false)
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    // Note: HashMap iteration order is non-deterministic
+    const expected1 = """enabled: true
+disabled: false"""
+    const expected2 = """disabled: false
+enabled: true"""
+    ok!(output == expected1 || output == expected2)
+}
+
+test "Serializer - numeric values" {
+    var obj = Value.Object()
+    obj.["count"] = Value(42)
+    obj.["price"] = Value(19.99)
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    const expected1 = """count: 42
+price: 19.99"""
+    const expected2 = """price: 19.99
+count: 42"""
+    ok!(output == expected1 || output == expected2)
+}
+
+test "Serializer - null value" {
+    var obj = Value.Object()
+    obj.["empty"] = Value()
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    ok!(output == "empty: null")
+}
+
+test "Serializer - simple array" {
+    var arr = Value.Array()
+    arr.push(Value("apple"))
+    arr.push(Value("banana"))
+    arr.push(Value("orange"))
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&arr)
+
+    const expected = """- apple
+- banana
+- orange"""
+    ok!(output == expected)
+}
+
+test "Serializer - empty collections" {
+    var obj = Value.Object()
+    obj.["empty_obj"] = Value.Object()
+    obj.["empty_arr"] = Value.Array()
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    const expected1 = """empty_obj: {}
+empty_arr: []"""
+    const expected2 = """empty_arr: []
+empty_obj: {}"""
+    ok!(output == expected1 || output == expected2)
+}
+
+test "Serializer - nested object" {
+    var obj = Value.Object()
+    var config = Value.Object()
+    config.["port"] = Value(8080)
+    config.["debug"] = Value(true)
+    obj.["config"] = &&config
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    const expected1 = """config:
+  port: 8080
+  debug: true"""
+    const expected2 = """config:
+  debug: true
+  port: 8080"""
+    ok!(output == expected1 || output == expected2)
+}
+
+test "Serializer - array of objects" {
+    var arr = Value.Array()
+
+    var user1 = Value.Object()
+    user1.["name"] = Value("John")
+    user1.["age"] = Value(30)
+    arr.push(&&user1)
+
+    var user2 = Value.Object()
+    user2.["name"] = Value("Jane")
+    user2.["age"] = Value(25)
+    arr.push(&&user2)
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&arr)
+
+    // Check for basic structure - exact match depends on HashMap order
+    ok!(output.contains("- \n"))
+    ok!(output.contains("name:"))
+    ok!(output.contains("age:"))
+}
+
+test "Serializer - string with quotes" {
+    var obj = Value.Object()
+    obj.["text"] = Value("Hello \"World\"")
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    ok!(output == "text: \"Hello \\\"World\\\"\"")
+}
+
+test "Serializer - string with newline" {
+    var obj = Value.Object()
+    obj.["text"] = Value("Line1\nLine2")
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    ok!(output == "text: \"Line1\\nLine2\"")
+}
+
+test "Serializer - reserved words quoted" {
+    var obj = Value.Object()
+    obj.["value"] = Value("true")
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    ok!(output == "value: \"true\"")
+}
+
+test "Serializer - yaml indicators quoted" {
+    var obj = Value.Object()
+    obj.["dash"] = Value("-value")
+
+    var output = String()
+    var serializer = YamlSerializer(&output)
+    serializer.serialize(&obj)
+
+    ok!(output == "dash: \"-value\"")
+}
+
+test "Serializer - custom indent" {
+    var obj = Value.Object()
+    var nested = Value.Object()
+    nested.["key"] = Value("value")
+    obj.["nested"] = &&nested
+
+    var output = String()
+    var serializer = YamlSerializer(&output, 4)
+    serializer.serialize(&obj)
+
+    const expected = """nested:
+    key: value"""
+    ok!(output == expected)
+}

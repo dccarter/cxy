@@ -1,0 +1,19 @@
+import { RedisDb, RedisConfig } from "stdlib/redis.cxy"
+
+func main() : !void {
+  var db = RedisDb()
+  db.setup({
+    host: "127.0.0.1".S,
+    port: 6379 as u16,
+    keepAlive: 5000 as i64
+  })
+  {
+    var cli = db.connection()
+    cli&.ping()
+    cli&.set("key", "value")
+    var value = cli&.get("key")
+    println(value)
+  }
+  sleepAsync(30000)
+  println("We are done")
+}

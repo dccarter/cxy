@@ -65,6 +65,151 @@ pub struct List[T] {
     const func empty() => _head == null
 }
 
+@poco
+struct ListItem[T] {
+    prev: ^This = null;
+    next: ^This = null;
+    value: T
+}
+
+pub class LinkedList[T] {
+    type Iterator = ^ListItem[T]
+    _head: ^ListItem[T] = null
+    _tail: ^ListItem[T] = null
+    _size: u64 = 0
+
+    func `init`(){}
+
+    func `deinit`() {
+        while (_head != null) {
+            var item = _head
+            #if T.isDestructible {
+                delete item.value
+            }
+            _head = item.next
+            free(item)
+        }
+    }
+
+    func insert(value: T, it: Iterator = null) {
+        var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
+        item.value = &&value
+        if (_head == null) {
+            _head = item
+            _tail = item
+        } else if (it == null) {
+            item.next = _head
+            _head.prev = item
+            _head = item
+        } else {
+            item.next = it.next
+            item.prev = it
+            it.next = item
+            if (item.next != null)
+                item.next.prev = item
+            else
+                _tail = item
+        }
+        _size += 1
+    }
+
+    func shift() : T {
+        if (_head == null)
+            return null
+        else {
+            var item = _head
+            _head = item.next
+            if (_head != null)
+                _head.prev = null
+            var tmp = &&item.value
+            free(item)
+            return &&tmp
+        }
+    }
+
+    func push(value: T) {
+        var item = __calloc(sizeof!(#ListItem[T])) as ^ListItem[T]
+        item.value = &&value
+        if (_tail == null) {
+            _head = item
+            _tail = item
+        } else {
+            item.prev = _tail
+            _tail.next = item
+            _tail = item
+        }
+        _size += 1
+    }
+
+    func pop() : T {
+        if (_tail == null)
+            return null
+        else {
+            var item = _tail
+            _tail = item.prev
+            if (_tail != null)
+                _tail.next = null
+            _size -= 1
+            var tmp = &&item.value
+            free(item)
+            return &&tmp
+        }
+    }
+
+    func `..`() {
+        var item = _head
+        var idx = 0 as u64
+        return (): (&T, u64)? => {
+            if (item == null)
+                return null
+            var tmp = &item.value
+            item = item.next
+            return (tmp, idx++)
+        }
+    }
+
+    const func `..`() {
+        var item = _head
+        var idx = 0 as u64
+        return (): (&const T, u64)? => {
+            if (item == null)
+                return null
+            var tmp = &item.value
+            item = item.next
+            return (tmp, idx++)
+        }
+    }
+
+    @inline
+    const func size() => _size
+
+    @inline
+    const func empty() => _size == 0
+
+    @inline
+    func begin() => _head
+    @inline
+    const func begin() => _head
+
+    func erase(it: Iterator) {
+        if (it == null)
+            return
+        var prev = it.prev
+        var next = it.next
+        if (prev != null)
+            prev.next = next
+        if (next != null)
+            next.prev = prev
+        if (_head !: ^const void == it !: ^const void)
+            _head = next
+        if (_tail !: ^const void == it !: ^const void)
+            _tail = prev
+        _size -= 1
+        delete it.value
+        free(it)
+    }
+}
+
 test {
     struct Item {
         link: ^This = null;

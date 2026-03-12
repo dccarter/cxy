@@ -16,7 +16,19 @@ LABEL build=${BUILD_ID}
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
-    git
+    git curl jq cron
 
-# Install cxy compiler
-RUN bash -c "$(wget https://raw.githubusercontent.com/dccarter/cxy/refs/tags/$RELEASE_TAG/src/tools/download-cxy.sh -O -)"
+# Copy release script
+COPY src/tools/git-release /usr/local/bin/git-release
+RUN chmod +x /usr/local/bin/git-release
+
+# Copy the update checker script
+COPY src/tools/cxy-check-updates /usr/local/bin/cxy-check-updates
+RUN chmod +x /usr/local/bin/cxy-check-updates
+
+# Copy download script
+COPY src/tools/cxy-download /usr/local/bin/cxy-download
+RUN chmod +x /usr/local/bin/cxy-download
+
+# Download and install cxy compiler
+RUN cxy-download

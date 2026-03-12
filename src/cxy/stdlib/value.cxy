@@ -170,30 +170,16 @@ pub struct Value {
         }
     }
 
-    func getArray(): Vector[Value] {
-        match (_value) {
-            Vector[Value] as arr => return arr
-            ... => return null
-        }
-    }
-
     const func getArray(): const Vector[Value] {
         match (_value) {
-            Vector[Value] as arr => return arr
-            ... => return null
-        }
-    }
-
-    func getObject(): HashMap[String, Value] {
-        match (_value) {
-            HashMap[String, Value] as obj => return obj
+            Vector[Value] as arr => return __copy!(arr)
             ... => return null
         }
     }
 
     const func getObject(): const HashMap[String, Value] {
         match (_value) {
-            HashMap[String, Value] as obj => return obj
+            HashMap[String, Value] as obj => return __copy!(obj)
             ... => return null
         }
     }
@@ -288,6 +274,33 @@ pub struct Value {
                 return null
             }
             ... => return null
+        }
+    }
+
+    func contains(key: String): bool {
+        match (_value) {
+            HashMap[String, Value] as obj => {
+                return obj.contains(key)
+            }
+            ... => return false
+        }
+    }
+
+    func contains(key: &const String): bool {
+        match (_value) {
+            HashMap[String, Value] as obj => {
+                return obj.contains(key)
+            }
+            ... => return false
+        }
+    }
+
+    func contains(idx: i32): bool {
+        match (_value) {
+            Vector[Value] as arr => {
+                return idx >= 0 && idx < arr.size()
+            }
+            ... => return false
         }
     }
 

@@ -155,7 +155,7 @@ pub func urlEncodeBuffer(os: &OutputStream, buf: ^const void, size: u64) {
         os << <char>(b64tableU.[((p.[i] & 0x3) << 4) | (p.[i + 1] & 0xF0) >> 4] )
         os << <char>(b64tableU.[((p.[i + 1] & 0xF) << 2) | (p.[i + 2] & 0xC0) >> 6] )
         os << <char>(b64tableU.[p.[i + 2] & 0x3F] )
-        i +=2
+        i +=3
     }
 
     if (i < size) {

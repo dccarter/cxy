@@ -343,11 +343,13 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/http.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/json.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/jsonrpc.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/jwt.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/list.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/log.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/net.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/os.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/path.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/redis.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/ssl.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/tcp.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/thread.cxy
@@ -355,6 +357,9 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/trie.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/value.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/vector.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/lexer.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/parser.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/yaml/serializer.cxy
 )
 
 set(CXY_STDLIB_PLUGINS
@@ -483,9 +488,9 @@ foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
         continue()
     endif ()
 
-    get_filename_component(_FILE ${CXY_SRC} NAME)
+    file(RELATIVE_PATH _FILE ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
     message(STATUS "Adding stdlib test case ${CXY_SRC}")
-    add_test(NAME "stdlib/${_FILE}"
+    add_test(NAME "${_FILE}"
              COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
 endforeach ()
 

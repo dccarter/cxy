@@ -77,6 +77,10 @@ const Type *makeStringType(TypeTable *table);
 
 const Type *makePointerType(TypeTable *table, const Type *pointed, u64 flags);
 
+const Type *makeAllocatedPointerType(TypeTable *table,
+                                     const Type *pointed,
+                                     u64 flags);
+
 const Type *makeReferenceType(TypeTable *table,
                               const Type *referred,
                               u64 flags);

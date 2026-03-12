@@ -1,0 +1,38 @@
+import "stdlib/yaml.cxy"
+
+func main(): !void {
+    var config = yaml.parse("""
+database:
+  host: localhost
+  port: 5432
+  credentials:
+    user: admin
+    password: secret
+users:
+  - name: John
+    email: john@example.com
+  - name: Jane
+    email: jane@example.com
+""")
+
+    // Navigate dynamic data safely
+    var dbConfig = config.["database"]
+    if dbConfig&.isObject() {
+        var host = dbConfig&.get("host")
+        var port = dbConfig&.get("port")
+
+        if !!host && !!port {
+            println("DB: ", host, ":", port)
+        }
+    }
+
+    // Handle arrays
+    var users = config.["users"]
+    if !!users && users&.isArray() {
+        for user, _ : users&.getArray() {
+            if user.isObject() {
+                println("User: ", user)
+            }
+        }
+    }
+}

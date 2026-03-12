@@ -68,7 +68,7 @@ static AstNode *makeReturnExceptionBlock(TypingContext *ctx,
                     ctx->fun,
                     makeStringLitOrNull(
                         ctx,
-                        ctx->path,
+                        var->loc.fileName ?: ctx->path,
                         makeUnsignedIntegerLiteral(
                             ctx->pool,
                             builtinLoc(),

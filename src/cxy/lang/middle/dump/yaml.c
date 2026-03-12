@@ -623,9 +623,9 @@ static void visitNewExpr(ConstAstVisitor *visitor, const AstNode *node)
     YamlDumpContext *ctx = getConstAstVisitorContext(visitor);
     nodeAddHeader(visitor, node);
 
-    nodeToYaml(visitor, "newType", node->newExpr.type);
+    nodeToYaml(visitor, "allocator", node->newExpr.allocator);
 
-    nodeToYaml(visitor, "init", node->newExpr.init);
+    nodeToYaml(visitor, "expr", node->newExpr.expr);
 }
 
 static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)

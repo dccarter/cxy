@@ -547,11 +547,13 @@ Token advanceLexer(Lexer *lexer)
             }
 
             Token token = makeToken(lexer, &begin, tokCharLiteral);
-            if (!acceptChar(lexer, '\'') ||
-                convertEscapeSeq(
-                    ptr, getCurPtr(lexer) - ptr - 1, &token.cVal) != charCount)
-                return makeInvalidToken(
-                    lexer, &begin, "invalid character literal");
+            if (acceptChar(lexer, '\'')) {
+                u32 consumed = convertEscapeSeq(
+                   ptr, getCurPtr(lexer) - ptr - 1, &token.cVal);
+                if (consumed != charCount)
+                    return makeInvalidToken(
+                        lexer, &begin, "invalid character literal");
+            }
             return token;
         }
 

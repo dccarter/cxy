@@ -1,0 +1,825 @@
+module redis
+
+import { Address, Socket, getRemoteAddress } from "./net.cxy"
+import { tcpConnect, TcpSocket } from "./tcp.cxy"
+import { Vector } from "./vector.cxy"
+import { HashMap } from "./hash.cxy"
+import { split } from "./utils.cxy"
+import { LinkedList } from "./list.cxy"
+import { Channel, yld } from "./coro.cxy"
+
+pub exception RedisError(msg: String) => msg.empty() ? "Redis error" : msg.str()
+
+pub struct RedisConfig {
+    host: String = "127.0.0.1".S
+    port =  6379 as u16
+    password: String = null
+    database = 0 as i32
+    timeout = 5000 as i64
+    keepAlive = 0 as i64
+    maxRetries = 3 as i32
+    retryDelay = 100 as i64
+}
+
+enum RedisType {
+    @str("+") Value,
+    @str("-") Error,
+    @str(":") Integer,
+    @str(",") Double,
+    @str("#") Boolean,
+    @str("$") String,
+    @str("*") Array,
+    @str("[]") Special,
+}
+
+struct ArgumentFormat[T] {
+    require!(T.isNumber || T.isBoolean, "type {t} must be a number or boolean", #T)
+    value: T
+    func `init`(value: T) {
+        this.value = value
+    }
+
+    const func `str`(os: &OutputStream) {
+        var tmp: [char, 256] = []
+        var count = snprintf(tmp, 256, "%g", value)
+        os << RedisType.String << count << "\r\n"
+           << __string(tmp !: string, count)
+    }
+}
+
+struct RedisCommand {
+    os: String
+    func `init`(command: __string, ...args: auto) {
+        os = String()
+        os << RedisType.Array << 1 + len!(args) << "\r\n"
+        addArgument(&command)
+        #for arg: args {
+            addArgument(&#{arg})
+        }
+    }
+
+    @inline
+    func addArgument[T](arg: &const T): void {
+        #if T.isNumber || T.isBoolean {
+            os << ArgumentFormat[T](__copy!(arg))
+               << "\r\n"
+        } else #if T.isString {
+            os << RedisType.String << arg.size() << "\r\n"
+               << arg << "\r\n"
+        } else {
+            error!("Unsupported type for Redis argument")
+        }
+    }
+}
+
+struct Reply {
+    _buffer: String = null
+    _data: __string
+    _prefix: RedisType = .Value
+
+    func `init`(prefix: char, buffer: String, data: __string) {
+        _prefix = getPrefix(prefix)
+        _buffer = &&buffer
+        _data = data
+    }
+
+    func `init`(prefix: RedisType, data: __string) {
+        _prefix = prefix
+        _data = data
+    }
+
+    @[static]
+    func getPrefix(data: wchar): RedisType {
+        switch data as wchar {
+            '+' => return RedisType.Value
+            '-' => return RedisType.Error
+            ':' => return RedisType.Integer
+            ',' => return RedisType.Double
+            '#' => return RedisType.Boolean
+            '$' => return RedisType.String
+            '*' => return RedisType.Array
+            ']', '[' => return RedisType.Special
+            ... => return RedisType.Value
+        }
+    }
+
+    const func `!!`() {
+        if _prefix == .Error {
+            return false
+        }
+        return (_prefix == .Array) || !_data.empty()
+    }
+
+    const func status(expect: __string) =>
+        (_prefix == .Value || _prefix == .String) && _data == expect
+
+    @inline
+    const func special() => _prefix == .Special
+    @inline
+    const func isNumber() => _prefix == .Integer || _prefix == .Double
+    @inline
+    const func isString() => _prefix == .Value || _prefix == .String
+
+    const func asString() => _data
+    const func asNumber(): !f64 {
+        if isNumber() && !_data.empty() {
+            return _data.tof[f64]()
+        }
+        raise RedisError(f"invalid number value: {_data}")
+    }
+
+    const func asBool(): !bool {
+        if _data.empty() {
+            return false
+        }
+        if _prefix == .Boolean {
+            if 't' != _data.[0] && 'f' != _data.[0] {
+                raise RedisError(f"invalid boolean value: {_data}")
+            }
+            return 't' == _data.[0]
+        }
+        if _prefix == .Integer {
+            if _data.[0] != '0' && _data.[0] != '1' {
+                raise RedisError(f"invalid boolean value: {_data}")
+            }
+            return '1' == _data.[0]
+        }
+        raise RedisError(f"invalid data type: {_data}")
+    }
+
+    func get[T](): !T {
+        #if T.isNumber {
+            return <T>asNumber()
+        }
+        else #if T.isBoolean {
+            return asBool()
+        }
+        else #if T.isString {
+            #if T.isStruct {
+                return _data
+            }
+            else #if T.isClass {
+                if _buffer != _data.str() {
+                    // Copy the data into a new buffer
+                    _buffer = String(_data.data(), _data.size())
+                    _data = _buffer.__str()
+                }
+                return _buffer
+            }
+            else {
+                error!("native string type is unsupported")
+            }
+        }
+        else {
+            error!("type {t} is unsupported", #T)
+        }
+    }
+
+    const func buffer() => _buffer
+}
+
+struct Response {
+    buffer = String()
+    entries = Vector[Reply]()
+
+    func `init`() {}
+
+    func `init`(reply: Reply) {
+        entries.push(&&reply)
+    }
+
+    func `init`(buffer: String, entries: Vector[Reply]) {
+        this.buffer = &&buffer
+        this.entries = &&entries
+    }
+
+    @inline
+    const func `!!`() => entries != null && entries.size() > 0
+
+    func get[T](idx: i32 = 0): !T {
+        if idx >= entries.size() {
+            raise RedisError("index out of range")
+        }
+        return entries.[idx].get[T]()
+    }
+
+    @inline
+    func `[]`(idx: i32 = 0) => entries.[idx]
+
+    @inline
+    const func status(expect: __string = "OK".s) =>
+        entries.empty()? false: entries.[0].status(expect)
+}
+
+struct ServerInfo {
+    version = __string()
+    data: HashMap[__string, __string] = null
+    _buffer: String = null
+    func `init`() {}
+    func `init`(buffer: String) {
+        _buffer = &&buffer
+        data = HashMap[__string, __string]()
+    }
+
+    @inline
+    const func `!!`() => !version.empty()
+}
+
+pub class RedisClient {
+    _sock: Socket = null
+    _timeout: i64
+
+    func `init`(sock: Socket, timeout: i64) {
+        _sock = &&sock
+        _timeout = timeout
+    }
+
+    virtual func close() {
+        _sock.close()
+    }
+
+    func _send(cmd: RedisCommand, nrps: u32 = 1): !Response {
+        var nsent = _sock.send(cmd.os, _timeout)
+        if nsent != cmd.os.size() {
+            raise RedisError(f"send failed: {strerr()}")
+        }
+
+        var resp = Response()
+        while nrps > 0 {
+            _receive(&resp)
+            nrps -= 1
+        }
+
+        return &&resp
+    }
+
+    func _receive(resp: &Response): !void {
+        var prefix: [char, 1] = []
+        if _sock.receive(prefix, 1, _timeout) != 1 {
+            raise RedisError(f"recv failed: {strerr()}")
+        }
+
+        var start = resp.buffer.size()
+        switch prefix.[0] as wchar {
+            '+', '-', ':', '#' => {
+                _receiveLine(&resp.buffer)
+                var data = resp.buffer.substr(start)
+                resp.entries.push(
+                    Reply(prefix.[0], resp.buffer, data)
+                )
+            }
+            case '$' => {
+                var len = _receiveLen()
+                if len > 0 {
+                    var size = len + 2
+                    var tmp = String()
+                    tmp.reserve(size)
+                    var nread = _sock.receive(tmp.data() !: ^void, size, _timeout)
+                    if nread != size {
+                        raise RedisError(f"recv failed: {strerr()}")
+                    }
+                    tmp.resize(len)
+                    var data = tmp.__str()
+                    resp.entries.push(
+                        Reply('$', &&tmp, data)
+                    )
+                }
+                else {
+                    // This will just be an empty string reply
+                    resp.entries.push(
+                        Reply(RedisType.String, __string())
+                    )
+                }
+            }
+            case '*' => {
+                var count = _receiveLen()
+                for _ in 0..count {
+                    _receive(resp)
+                }
+            }
+            ... =>
+                raise RedisError(f"unsupported reply type: {prefix.[0]}")
+        }
+    }
+
+    func _receiveLine(buffer: &String): !void {
+        buffer.reserve(255)
+        var cap = buffer.capacity()
+        var p = ptrof buffer.data().[buffer.size()]
+
+        var bytes = 0 as u64
+        while true {
+            if bytes >= cap {
+                cap *= 2
+                buffer.resize(bytes + buffer.size())
+                buffer.reserve(cap)
+                p = ptrof buffer.data().[buffer.size()]
+            }
+
+            if _sock.receive(ptroff!(p + bytes), 1, _timeout) != 1 {
+                raise RedisError(f"receive failed: {strerr()}")
+            }
+            bytes += 1
+            if p.[bytes - 1] == '\r' {
+                if _sock.receive(ptroff!(p + bytes), 1, _timeout) != 1 {
+                    raise RedisError(f"receive failed: {strerr()}")
+                }
+                bytes += 1
+                if p.[bytes - 1] == '\n' {
+                    break
+                }
+            }
+        }
+        buffer.resize(buffer.size() + bytes - 2)
+    }
+
+    func _receiveLen(): !u64 {
+        var buffer = String()
+        _receiveLine(&buffer)
+        return buffer.__str().toi[u64]()
+    }
+
+    func info(): !ServerInfo {
+        var resp = send("INFO")
+        if !resp {
+            return ServerInfo()
+        }
+
+        var reply = resp.[0]
+        var parts = split(reply.get[__string](), "\r")
+        // We need to keep reference to buffer, helps avoid unncessary copying
+        var info = ServerInfo(reply.buffer())
+        for part, _ : parts {
+            if part.empty() {
+                continue
+            }
+            var line = __copy!(part)
+            if line.[0] == '\n' {
+                line = part.substr(1)
+            }
+            if line.empty() || line.[0] == '#' {
+                continue
+            }
+            var pos = line.indexOf(':')
+            if !pos {
+                raise RedisError("invalid info line: {line}")
+            }
+            var key = line.substr(0, (*pos) as i64)
+            var value = line.substr(*pos+1)
+            if key == "redis_version" {
+                info.version = value
+            }
+            else {
+                info.data.[key] = value
+            }
+        }
+
+        return &&info
+    }
+
+    func send(cmd: __string, ...args: auto): !Response {
+        var command = RedisCommand(cmd, ...&&args)
+        return _send(command)
+    }
+
+    @inline
+    func `()`(cmd: __string, ...args: __string): !Response =>
+        send(cmd, ...&&args)
+
+    func auth(password: __string): !bool {
+        var resp = send("AUTH", password)
+        return resp.status()
+    }
+
+    func ping(): !bool {
+        var resp = send("PING")
+        return resp.status("PONG")
+    }
+
+    func incr(key: __string): !u64 {
+        var resp = send("INCR", key)
+        return resp.get[u64]()
+    }
+
+    func decr(key: __string): !u64 {
+        var resp = send("DECR", key)
+        return resp.get[u64]()
+    }
+
+    func incrby(key: __string, value: i64): !u64 {
+        var resp = send("INCRBY", key, value)
+        return resp.get[u64]()
+    }
+
+    func decrby(key: __string, value: i64): !u64 {
+        var resp = send("DECRBY", key, value)
+        return resp.get[u64]()
+    }
+
+    func incrbyfloat(key: __string, value: f64): !f64 {
+        var resp = send("INCRBYFLOAT", key, value)
+        return resp.get[f64]()
+    }
+
+    func decrbyfloat(key: __string, value: f64): !f64 {
+        var resp = send("DECRBYFLOAT", key, value)
+        return resp.get[f64]()
+    }
+
+    func exists(key: __string): !bool {
+        var resp = send("EXISTS", key)
+        return resp.get[bool]()
+    }
+
+    func substr(key: __string, start: i64, end: i64): !String {
+        var resp = send("SUBSTR", key, start, end)
+        // We get the allocated string
+        return resp.get[String]()
+    }
+
+    func get(key: __string): !String {
+        var resp = send("GET", key)
+        // We get the allocated string
+        return resp.get[String]()
+    }
+
+    func set(key: __string, value: __string): !bool {
+        var resp = send("SET", key, value)
+        return resp.status()
+    }
+
+    func del(key: __string): !bool {
+        var resp = send("DELETE", key)
+        return resp.get[bool]()
+    }
+
+    func keys(pattern: __string): !Vector[String] {
+        var resp = send("KEYS", pattern)
+        var keys = Vector[String]()
+        for item, _ in resp.entries {
+            keys.push(item.get[String]())
+        }
+        return &&keys
+    }
+
+    func expire(key: __string, seconds: u64): !bool {
+        var resp = send("EXPIRE", key, seconds)
+        return resp.get[bool]()
+    }
+
+    func ttl(key: __string): !i64 {
+        var resp = send("TTL", key)
+        return resp.get[i64]()
+    }
+
+    func llen(key: __string): !i64 {
+        var resp = send("LLEN", key)
+        return resp.get[i64]()
+    }
+
+    func rpush(key: __string, ...args: auto): !bool {
+        var resp = send("RPUSH", key, ...&&args)
+        return resp.get[bool]()
+    }
+
+    func lpush(key: __string, ...args: auto): !bool {
+        var resp = send("LPUSH", key, ...&&args)
+        return resp.get[bool]()
+    }
+
+    func lrange[T](key: __string, start: i64, end: i64 = -1): !Vector[T] {
+        require!(!(T.isString && T.isStruct),
+            "If T is a string, it must be an allocated string String"
+        )
+        var resp = send("LRANGE", key, start, end)
+        var values = Vector[T]()
+        for item, _ in resp.entries {
+            values.push(item.get[T]())
+        }
+        return &&values
+    }
+
+    func ltrim(key: __string, start: i64, end: i64): !bool {
+        var resp = send("LTRIM", key, start, end)
+        return resp.get[bool]()
+    }
+
+    func lindex[T](key: __string, index: i64): !T {
+        require!(!(T.isString && T.isStruct),
+            "If T is a string, it must be an allocated string String"
+        )
+        var resp = send("LINDEX", key, index)
+        return resp.get[T]()
+    }
+
+    func hdel(key: __string, field: __string): !bool {
+        var resp = send("HDEL", key, field)
+        return resp.get[bool]()
+    }
+
+    func hexists(key: __string, field: __string): !bool {
+        var resp = send("HEXISTS", key, field)
+        return resp.get[bool]()
+    }
+
+    func hkeys(key: __string): !Vector[String] {
+        var resp = send("HKEYS", key)
+        var values = Vector[String]()
+        for item, _ in resp.entries {
+            values.push(item.get[String]())
+        }
+        return &&values
+    }
+
+    func hget[T](key: __string, field: __string): !T {
+        var resp = send("HGET", key, field)
+        return resp.get[T]()
+    }
+
+    func hset[T](key: __string, field: __string, value: T): !bool {
+        var resp = send("HSET", key, field, &&value)
+        return resp.get[bool]()
+    }
+
+    func hlen(key: __string): !u64 {
+        var resp = send("HLEN", key)
+        return resp.get[u64]()
+    }
+
+    func sadd[T](key: __string, value: T): !bool {
+        var resp = send("SADD", key, &&value)
+        return resp.get[bool]()
+    }
+
+    func smembers[T](key: __string): !Vector[T] {
+        var resp = send("SMEMBERS", key)
+        var values = Vector[T]()
+        for item, _ in resp.entries {
+            values.push(item.get[T]())
+        }
+        return &&values
+    }
+
+    func spop[T](key: __string): !T {
+        var resp = send("SPOP", key)
+        return resp.get[T]()
+    }
+
+    func scard(key: __string): !i64 {
+        var resp = send("SCARD", key)
+        return resp.get[i64]()
+    }
+}
+
+pub class RedisTransaction {
+    _client: RedisClient = null
+    _inMulti = false
+
+    func `init`(client: RedisClient) {
+        _client = &&client
+        _inMulti = multi()
+    }
+
+    func `deinit`() {
+        if _inMulti {
+            Discard()
+        }
+    }
+
+    func multi(): bool {
+        var resp = _client.send("MULTI") catch {
+            return false
+        }
+        return resp.status()
+    }
+
+    func exec(): Response? {
+        if !_inMulti {
+            return null
+        }
+        _inMulti = false
+        var resp = _client.send("EXEC") catch {
+            return null
+        }
+        return resp
+    }
+
+    func Discard(): bool {
+        _inMulti = false
+        var resp = _client.send("DISCARD") catch {
+            return false
+        }
+        return resp.status()
+    }
+
+    func `()`(cmd: __string, ...args: auto): !bool {
+        var resp = _client.send(cmd, ...&&args)
+        return resp.status("QUEUED")
+    }
+}
+
+class CachedClient: RedisClient {
+    type OnClose = lambda_of!(#func(_: &This) -> void)
+    _onClose: OnClose
+
+    alive: i64 = 0
+    handle: ^void = null
+    db: u64 = 0
+
+    func `init`(sock: Socket, timeout: i64, onClose: OnClose) {
+        super(sock, timeout)
+        _onClose = onClose
+    }
+
+    @override
+    func close() {
+        if _onClose != null {
+            _onClose(this)
+            handle = null
+        }
+    }
+}
+
+type Cache = LinkedList[CachedClient]
+
+pub struct RedisConnection {
+    _client: RedisClient
+    func `init`(client: RedisClient) {
+        _client = &&client
+    }
+
+    func `deinit`() {
+        if _client != null {
+            _client.close()
+        }
+    }
+
+    @inline
+    func `&.`() { return &_client }
+    @inline
+    const func `&.`() { return &_client }
+
+    func `()`(cmd: __string, ...args: auto) => _client(cmd, ...&&args)
+}
+
+pub class RedisDb {
+    _config: RedisConfig
+    _addr: Address
+    _serverInfo = ServerInfo()
+    _cache: Cache = null
+    _notify = Channel[bool]()
+    _cleaning  = false
+
+    func `init`(config: RedisConfig = RedisConfig{}) {
+        _addr = getRemoteAddress(config.host.str(), config.port)
+        _config = &&config
+        if _config.keepAlive {
+            _cache = Cache()
+        }
+    }
+
+    func _newConnection(): !RedisClient {
+        if !_addr {
+            raise RedisError("no address")
+        }
+
+        var fd = tcpConnect(_addr, _config.timeout)
+        if fd < 0 {
+            raise RedisError(f"failed to connect to {_addr}: {strerr()}")
+        }
+
+        var sock = TcpSocket(fd, _addr)
+        var client = RedisClient(&&sock, _config.timeout)
+
+        if _config.password {
+            client.auth(_config.password.__str())
+        }
+        return client
+    }
+
+    func _newCachedConnection(): !CachedClient {
+        if !_addr {
+            raise RedisError("no address")
+        }
+
+        var fd = tcpConnect(_addr, _config.timeout)
+        if fd < 0 {
+            raise RedisError(f"failed to connect to {_addr}: {strerr()}")
+        }
+
+        var sock = TcpSocket(fd, _addr)
+        var client = CachedClient(&&sock, _config.timeout, (cli: &CachedClient) => {
+            this._returnConnection(cli)
+        })
+
+        if _config.password {
+            client.auth(_config.password.__str())
+        }
+        return client
+    }
+
+    func connection(db: u64 = 0): !RedisConnection {
+        var client: RedisClient = null
+        var selectDb = db != 0
+        if _config.keepAlive > 0 {
+            var cachedClient: CachedClient = null
+            if _cache.empty() {
+                cachedClient = _newCachedConnection()
+            } else {
+                cachedClient = _cache.shift()
+            }
+            cachedClient.handle = this
+            selectDb = cachedClient.db != db
+            cachedClient.db = db
+            client = &&cachedClient
+        }
+        else {
+            client = _newConnection()
+        }
+
+        if selectDb {
+            var resp = client("SELECT", db)
+            if !resp.status() {
+                var msg = resp.get[__string]()
+                raise RedisError(f"failed to select db {db}: {msg}")
+            }
+        }
+        return RedisConnection(&&client)
+    }
+
+    func info(): &ServerInfo {
+        if !_serverInfo {
+            _loadServerInfo() catch {
+                _serverInfo.version = "NotFound".s
+            }
+        }
+        return &_serverInfo
+    }
+
+    func setup[Cfg](cfg: Cfg) {
+        // Just update the configuration
+        update(&_config, &&cfg)
+        if _config.keepAlive > 0 {
+            _cache = Cache()
+        }
+    }
+
+    func _loadServerInfo(): !void {
+        var client = connection()
+        _serverInfo = client&.info()
+    }
+
+    func _returnConnection(client: &CachedClient): void {
+        client.handle = null
+        client.alive = timestamp() + _config.keepAlive
+        _cache.push(__copy!(client))
+        if !_cleaning {
+            async cleanup()
+        }
+    }
+
+    func cleanup(): void {
+        if _cache.empty() {
+            return
+        }
+
+        _cleaning = true
+        while !_cache.empty() {
+            var it = _cache.begin()
+            // We want to cleanup expired connections and that will expire
+            // in the near future, so we scan up to 500ms ahead to avoid
+            // thrashing.
+            var t = timestamp() + 500
+            var prunned = 0 as u64
+            while it != null {
+                var client = &it.value
+                if client.alive <= t {
+                    _cache.erase(it)
+                    it = _cache.begin()
+                }
+                else {
+                    // Connection is still alive, break because all next connections
+                    // will also be alive.
+                    break
+                }
+
+                if ++prunned % 100 == 0 {
+                    // Yield to avoid blocking the event loop for too long.
+                    yld()
+                }
+            }
+
+            if it != null {
+                // Ensure that the cleanup routine will be rescheduled after at least 3 seconds
+                var expires = it.value.alive - t
+                var status = _notify.receive(expires)
+                if !!status && !*status {
+                    // We we explicitly cancelled
+                    break
+                }
+            }
+        }
+
+        _cleaning = false
+    }
+}

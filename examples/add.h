@@ -1,6 +1,6 @@
 //
 // Created by Carter Mbotho on 2024-04-26.
 //
-#include <sys/stat.h>
+#include <openssl/stat.h>
 
 int fs_stat(const char *path, struct stat *st);

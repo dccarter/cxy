@@ -1,0 +1,1451 @@
+module yaml_lexer
+
+import { Vector } from "stdlib/vector.cxy"
+import { YamlError } from "./common.cxy"
+import { readHexEscape } from "stdlib/utils.cxy"
+
+// YAML token types
+pub enum YamlToken {
+    // Scalar values
+    String,      // unquoted string or identifier
+    Number,      // numeric literal
+    True,        // true/yes/on
+    False,       // false/no/off
+    Null,        // null/~/empty
+
+    // Structure
+    Colon,       // :
+    Dash,        // -
+    Newline,     // \n (significant in YAML)
+    Indent,      // indentation increase
+    Dedent,      // indentation decrease
+
+    // Documents
+    DocStart,    // ---
+    DocEnd,      // ...
+
+    // References
+    Anchor,      // &anchor_name
+    Alias,       // *alias_name
+
+    EOF,
+    Invalid
+}
+
+// YAML lexer for tokenizing YAML input
+pub class YamlLexer {
+    _input: __string
+    _position: u64 = 0
+    _line: u64 = 1
+    _column: u64 = 1
+    _tokenValue = String()
+    _indentStack = Vector[u64]()
+    _atLineStart = true
+    _pendingDedents: i32 = 0
+    _flowDepth: i32 = 0
+    _flowContext = Vector[char]()
+    _pendingDash = false
+
+    func `init`(input: __string) {
+        _input = input
+        _indentStack.push(0)
+    }
+
+    func nextToken(): !YamlToken {
+        // Handle pending dash first (for flow array first item)
+        if _pendingDash {
+            _pendingDash = false
+            return YamlToken.Dash
+        }
+
+        // Handle pending dedents
+        if _pendingDedents > 0 {
+            _pendingDedents -= 1
+            return YamlToken.Dedent
+        }
+
+        // Skip empty lines and comments only when at line start
+        if _atLineStart {
+            this._skipEmptyLines()
+        }
+
+        // Check for EOF
+        if _isAtEnd() {
+            // Emit dedents for remaining indentation levels
+            if _indentStack.size() > 1 {
+                _indentStack.pop()
+                return YamlToken.Dedent
+            }
+            return YamlToken.EOF
+        }
+
+        // Handle indentation at line start
+        if _atLineStart && _flowDepth == 0 {
+            var indent = _measureIndent()
+            var currentIndent = _indentStack.[<i32>(_indentStack.size() - 1)]
+
+            if indent > currentIndent {
+                // Indent
+                _indentStack.push(indent)
+                _atLineStart = false
+                return YamlToken.Indent
+            } else if indent < currentIndent {
+                // Dedent - may need multiple
+                var dedentCount = 0
+                while _indentStack.size() > 1 {
+                    var level = _indentStack.[<i32>(_indentStack.size() - 1)]
+                    if level <= indent { break }
+                    _indentStack.pop()
+                    dedentCount += 1
+                }
+
+                // Check if we landed on valid indentation
+                var finalLevel = _indentStack.[<i32>(_indentStack.size() - 1)]
+                if finalLevel != indent {
+                    raise YamlError("Invalid indentation", _line, _column)
+                }
+
+                _atLineStart = false
+                if dedentCount > 1 {
+                    _pendingDedents = dedentCount - 1
+                }
+                return YamlToken.Dedent
+            }
+
+            _atLineStart = false
+        }
+
+        _skipWhitespace()
+
+        if _isAtEnd() {
+            return YamlToken.EOF
+        }
+
+        var c = _peek()
+
+        switch c {
+            '\n' => {
+                _advance()
+                _atLineStart = true
+                if _flowDepth > 0 {
+                    return this.nextToken()
+                }
+                return YamlToken.Newline
+            }
+            '#' => {
+                _skipComment()
+                return nextToken()
+            }
+            '-' => {
+                if _peek(1) == '-' && _peek(2) == '-' {
+                    _advance()
+                    _advance()
+                    _advance()
+                    return YamlToken.DocStart
+                }
+                // Check if it's a list item (dash followed by space)
+                if _peek(1) == ' ' || _peek(1) == '\n' || _isAtEnd() {
+                    _advance()
+                    return YamlToken.Dash
+                }
+                // Otherwise it's part of a scalar
+                return _readScalar()
+            }
+            '.' => {
+                if _peek(1) == '.' && _peek(2) == '.' {
+                    _advance()
+                    _advance()
+                    _advance()
+                    return YamlToken.DocEnd
+                }
+                // Otherwise it's part of a scalar
+                return _readScalar()
+            }
+            ':' => {
+                if _flowDepth > 0 || _peek(1) == ' ' || _peek(1) == '\n' || _isAtEnd() {
+                    _advance()
+                    return YamlToken.Colon
+                }
+                // Otherwise it's part of a scalar
+                return _readScalar()
+            }
+            '"', '\'' => {
+                return this._readQuotedString(c)
+            }
+            '{' => {
+                this._advance()
+                _flowDepth += 1
+                _flowContext.push('{')
+                return YamlToken.Indent
+            }
+            '}' => {
+                this._advance()
+                _flowDepth -= 1
+                _flowContext.pop()
+                return YamlToken.Dedent
+            }
+            '[' => {
+                this._advance()
+                _flowDepth += 1
+                _flowContext.push('[')
+                _pendingDash = true
+                return YamlToken.Indent
+            }
+            ']' => {
+                this._advance()
+                _flowDepth -= 1
+                _flowContext.pop()
+                return YamlToken.Dedent
+            }
+            ',' => {
+                if _flowDepth > 0 {
+                    this._advance()
+                    var context = _flowContext.[<i32>(_flowContext.size() - 1)]
+                    if context == '[' {
+                        return YamlToken.Dash
+                    } else {
+                        return YamlToken.Newline
+                    }
+                }
+                return this._readScalar()
+            }
+            '|', '>' => {
+                return this._readBlockScalar(c)
+            }
+            '&' => {
+                return this._readAnchor()
+            }
+            '*' => {
+                return this._readAlias()
+            }
+            ... => {}
+        }
+
+        // Read scalar (string, number, bool, null)
+        return _readScalar()
+    }
+
+    func tokenValue(): &const String => &_tokenValue
+
+    func moveValue(): String => &&_tokenValue
+
+    func line(): u64 => _line
+
+    func column(): u64 => _column
+
+    // Private helper methods
+
+    func _peek(offset: u64 = 0): char {
+        var pos = _position + offset
+        if (pos >= _input.size()) return '\0'
+        return _input.[pos]
+    }
+
+    func _advance(): char {
+        if _isAtEnd() {
+            return '\0'
+        }
+        var c = _input.[_position]
+        _position += 1
+        if c == '\n' {
+            _line += 1
+            _column = 1
+        } else {
+            _column += 1
+        }
+        return c
+    }
+
+    func _isAtEnd(): bool => _position >= _input.size()
+
+    func _skipWhitespace(): void {
+        while !_isAtEnd() {
+            var c = _peek()
+            if c == ' ' || c == '\t' {
+                _advance()
+            }
+            else {
+                break
+            }
+        }
+    }
+
+    func _skipComment(): void {
+        while !_isAtEnd() && _peek() != '\n' {
+            _advance()
+        }
+    }
+
+    func _skipEmptyLines(): void {
+        while !_isAtEnd() {
+            var c = _peek()
+            if c == '\n' {
+                _advance()
+                _atLineStart = true
+                continue
+            }
+            if c == ' ' || c == '\t' {
+                // Check if rest of line is empty or comment
+                var savedPos = _position
+                var savedCol = _column
+                _skipWhitespace()
+                if _isAtEnd() {
+                    break
+                }
+
+                var cc = _peek()
+                if cc == '\n' || cc == '#' {
+                    if cc == '#' {
+                        _skipComment()
+                    }
+                    if _peek() == '\n' {
+                        _advance()
+                    }
+                    _atLineStart = true
+                    continue
+                }
+
+                // Not empty, restore position
+                _position = savedPos
+                _column = savedCol
+                break
+            }
+
+            if c == '#' {
+                _skipComment()
+                if _peek() == '\n' {
+                    _advance()
+                }
+                _atLineStart = true
+                continue
+            }
+            break
+        }
+    }
+
+    func _measureIndent(max: u64 = 1000): !u64 {
+        var count: u64 = 0
+        while !_isAtEnd() && count < max {
+            var c = _peek()
+            if c == ' ' {
+                _advance()
+                count += 1
+            }
+            else if c == '\t' {
+                raise YamlError("Tabs not allowed for indentation", _line, _column)
+            }
+            else {
+                break
+            }
+        }
+        return count
+    }
+
+    func _readQuotedString(quote: char): !YamlToken {
+        _tokenValue = String()
+        _advance()  // Skip opening quote
+
+        while !_isAtEnd() && _peek() != quote {
+            var c = _peek()
+
+            if c == '\\' && quote == '"' {
+
+                _advance()
+                if _isAtEnd() {
+                    raise YamlError("Unterminated string", _line, _column)
+                }
+
+                var escaped = _advance()
+
+
+                switch escaped {
+                    // Basic escapes
+                    '0' => _tokenValue << '\0'      // null
+                    'a' => _tokenValue << <char>0x07    // bell
+                    'b' => _tokenValue << <char>0x08    // backspace
+                    't' => _tokenValue << '\t'      // tab
+                    'n' => _tokenValue << '\n'      // newline
+                    'v' => _tokenValue << <char>0x0b    // vertical tab
+                    'f' => _tokenValue << <char>0x0c    // form feed
+                    'r' => _tokenValue << '\r'      // carriage return
+                    'e' => _tokenValue << <char>0x1b    // escape
+
+                    // Whitespace
+                    ' ' => _tokenValue << ' '       // space
+
+                    // Quote characters
+                    '"' =>  _tokenValue << '"'
+                    '\'' => _tokenValue << '\''
+                    '\\' => _tokenValue << '\\'
+                    '/' =>  _tokenValue << '/'
+
+                    // Hex escape \x##
+                    'x' => {
+                        var result = readHexEscape(_input, _position, 2)
+                        _tokenValue << <char>result.0
+                        _position = result.1
+                        _column += 2
+                    }
+
+                    // Unicode escape \u####
+                    'u' => {
+                        var result = readHexEscape(_input, _position, 4)
+                        _tokenValue << (result.0 as wchar)
+                        _position = result.1
+                        _column += 4
+                    }
+
+                    // Unicode escape \U########
+                    'U' => {
+                        var result = readHexEscape(_input, _position, 8)
+                        _tokenValue << (result.0 as wchar)
+                        _position = result.1
+                        _column += 8
+                    }
+
+                    ... => {
+                        // Unknown escape - include backslash and character
+                        _tokenValue << '\\'
+                        _tokenValue << escaped
+                    }
+                }
+            } else {
+
+                _tokenValue << c
+                _advance()
+            }
+        }
+
+        if _isAtEnd() {
+            raise YamlError("Unterminated string", _line, _column)
+        }
+
+        _advance()  // Skip closing quote
+        return YamlToken.String
+    }
+
+    func _readScalar(): !YamlToken {
+        _tokenValue = String()
+        var isNumber = true
+        var hasDot = false
+        var hasE = false
+        var hasDigit = false
+        var i: u64 = 0
+
+        // Read until we hit a special character or whitespace
+        while !this._isAtEnd() {
+            var c = this._peek()
+            var done = false
+
+            switch c {
+                ' ', '\t', '\n', '#' => done = true
+                ',', '{', '}', '[', ']' => {
+                    if _flowDepth > 0 {
+                        done = true
+                    }
+                }
+                ':' => {
+                    if this._peek(1) == ' ' || this._peek(1) == '\n' || this._isAtEnd() {
+                        done = true
+                    }
+                }
+                ... => {}
+            }
+
+            if done {
+                break
+            }
+
+            _tokenValue << c
+            // Check if this character is valid for a number
+            if isNumber {
+                switch c {
+                    '+', '-' => {
+                        if i != 0 {
+                            var prev = _tokenValue.[<u32>(i - 1)]
+                            if i != 0 && (prev != 'e' && prev != 'E') {
+                                isNumber = false
+                            }
+                        }
+                    }
+                    '0'..'9' => {
+                        hasDigit = true
+                    }
+                    '.' => {
+                        if hasDot {
+                            isNumber = false
+                        }
+                        hasDot = true
+                    }
+                    'e', 'E' => {
+                        if hasE || !hasDigit {
+                            isNumber = false
+                        }
+                        hasE = true
+                    }
+                    ... => isNumber = false
+                }
+            }
+
+            _advance()
+            i += 1
+        }
+
+        // Trim trailing spaces
+        _tokenValue.trimRight()
+
+        if _tokenValue.empty() {
+            raise YamlError("Empty scalar", _line, _column)
+        }
+
+        // Check if it's a number
+        if isNumber && hasDigit {
+            return YamlToken.Number
+        }
+
+        if _tokenValue.size() > 5 {
+            // true, false, null, ~
+            return YamlToken.String
+        }
+
+        var str = _tokenValue.str()
+        if str == "null" || str == "~" {
+            return YamlToken.Null
+        }
+        if str == "true" {
+            return YamlToken.True
+        }
+        if str == "false" {
+            return YamlToken.False
+        }
+        return YamlToken.String
+    }
+
+    func _readBlockScalar(style: char): !YamlToken {
+        _tokenValue = String()
+        _advance()  // Skip | or >
+
+        // Read chomp indicator if present
+        var chomp = 'c'  // default: clip (single trailing newline)
+        switch _peek() {
+            '-', '+' => chomp = _advance()
+            ... => {}
+        }
+
+        // Skip to end of line
+        while !_isAtEnd() {
+            if _advance() == '\n' {
+                break
+            }
+        }
+
+        if _isAtEnd() {
+            return YamlToken.String  // No content
+        }
+
+        var baseIndent = _measureIndent()
+
+        var isFirstLine = true
+        while !_isAtEnd() {
+            // Consume up to baseIndent spaces
+            var lineIndent = _measureIndent(baseIndent)
+            // Check what's after base indentation
+            if _peek() == '\n' {
+                // Empty line
+                _tokenValue << '\n'
+                _advance()
+                continue
+            }
+            else if isFirstLine {
+                lineIndent = baseIndent
+            }
+
+            // Check if less indented with content
+            if lineIndent < baseIndent {
+                break  // End of block scalar
+            }
+
+            const lineStart = _position
+            // Find end of line
+            while !_isAtEnd() {
+                if _peek() == '\n' {
+                    break
+                }
+                _advance()
+            }
+            const line = _input.substr(lineStart, <i64>(_position - lineStart))
+
+            // Add to result based on style
+            if isFirstLine {
+                _tokenValue << line
+                isFirstLine = false
+            } else {
+                if style == '|' {
+                    _tokenValue << '\n'
+                } else {  // style == '>'
+                    // Check if we just added empty lines (paragraph break)
+                    var len = <u32>_tokenValue.size()
+                    if len < 1 || _tokenValue.[len-1] != '\n' {
+                        _tokenValue << ' '
+                    }
+                }
+
+                _tokenValue << line
+            }
+
+            // Skip newline at end of line
+            if _peek() == '\n' {
+                _advance()
+            }
+        }
+
+        // Step 3: Apply chomping
+        if chomp == '-' {
+            // Strip: remove all trailing newlines
+            _tokenValue.trimRight('\n')
+        }
+        else if chomp == 'c' {
+            // Clip: remove all trailing newlines, add single one
+            _tokenValue.trimRight('\n')
+            _tokenValue << '\n'
+        }
+
+        return YamlToken.String
+    }
+
+    func _readName(): !void {
+        _tokenValue = String()
+
+        // Read name (alphanumeric, underscore, hyphen)
+        while !_isAtEnd() {
+            var c = _peek()
+            if isAlnum!(c) || c == '_' || c == '-' {
+                _tokenValue << c
+                _advance()
+            } else {
+                break
+            }
+        }
+
+        if _tokenValue.size() == 0 {
+            raise YamlError("Empty name", _line, _column)
+        }
+    }
+
+    func _readAnchor(): !YamlToken {
+        _advance()  // Skip '&'
+        _readName()
+        return YamlToken.Anchor
+    }
+
+    func _readAlias(): !YamlToken {
+        _advance()  // Skip '*'
+        _readName()
+        return YamlToken.Alias
+    }
+}
+
+// Tests
+test "Lexer - simple scalar" {
+    var lexer = YamlLexer("hello")
+    var token = lexer.nextToken()
+
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "hello")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - boolean values" {
+    var lexer = YamlLexer("true false")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.True)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.False)
+}
+
+test "Lexer - null values" {
+    var lexer = YamlLexer("null ~")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Null)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Null)
+}
+
+test "Lexer - numbers" {
+    var lexer = YamlLexer("42 3.14 -10 2.5e-3")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Number)
+    ok!(lexer.tokenValue() == "42")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number)
+    ok!(lexer.tokenValue() == "3.14")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number)
+    ok!(lexer.tokenValue() == "-10")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number)
+    ok!(lexer.tokenValue() == "2.5e-3")
+}
+
+test "Lexer - key-value pair" {
+    var lexer = YamlLexer("name: John")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "name")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "John")
+}
+
+test "Lexer - list items" {
+    var lexer = YamlLexer("- apple\n- banana")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "apple")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "banana")
+}
+
+test "Lexer - quoted strings" {
+    var lexer = YamlLexer("\"hello world\" 'single quoted'")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "hello world")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "single quoted")
+}
+
+test "Lexer - indentation" {
+    var lexer = YamlLexer("parent:\n  child: value")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "parent")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "child")
+}
+
+test "Lexer - comments" {
+    var lexer = YamlLexer("key: value # this is a comment")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "value")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - flow style object" {
+    var lexer = YamlLexer("user: {name: John, age: 30}")
+
+    // user:
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "user")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    // { → Indent
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    // name: John
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "name")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "John")
+
+    // , → Newline (in object)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    // age: 30
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "age")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number && lexer.tokenValue() == "30")
+
+    // } → Dedent
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - flow style array" {
+    var lexer = YamlLexer("items: [apple, banana, orange]")
+
+    // items:
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "items")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    // [ → Indent
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    // First item has Dash before it
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "apple")
+
+    // , → Dash (separator)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "banana")
+
+    // , → Dash (separator)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "orange")
+
+    // ] → Dedent
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - nested flow style" {
+    var lexer = YamlLexer("data: [{x: 1}, {x: 2}]")
+
+    // data:
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "data")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    // [ → Indent (array)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    // Dash before first array item
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    // { → Indent (first object)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    // x: 1
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "x")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number && lexer.tokenValue() == "1")
+
+    // } → Dedent (end first object)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    // , → Dash (array separator)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    // { → Indent (second object)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    // x: 2
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "x")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number && lexer.tokenValue() == "2")
+
+    // } → Dedent (end second object)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    // ] → Dedent (end array)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - debug flow array tokens" {
+    var lexer = YamlLexer("[apple, banana]")
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "apple")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "banana")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+}
+
+test "Lexer - complex nested structure" {
+    var input = """
+name: MyApp
+version: 1.0
+config:
+  debug: true
+  port: 8080
+  hosts:
+    - localhost
+    - 0.0.0.0
+metadata:
+  author: John # comment
+  tags:
+    - web
+    - api
+"""
+    var lexer = YamlLexer(input)
+
+    // name: MyApp
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "name")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "MyApp")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    // version: 1.0
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "version")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number && lexer.tokenValue() == "1.0")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    // config:
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "config")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    //   debug: true
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "debug")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.True)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    //   port: 8080
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "port")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Number && lexer.tokenValue() == "8080")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    //   hosts:
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "hosts")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    //     - localhost
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "localhost")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    //     - 0.0.0.0
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "0.0.0.0")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    // Dedent back to config level
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    // Dedent back to root level
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+
+    // metadata:
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "metadata")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    //   author: John # comment
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "author")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "John")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    //   tags:
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "tags")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Indent)
+
+    //     - web
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "web")
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+
+    //     - api
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dash)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "api")
+
+    // Final newline and dedents
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Newline)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Dedent)
+    token = lexer.nextToken()
+    ok!(token == YamlToken.EOF)
+}
+
+test "Lexer - literal block scalar" {
+    var input = """key: |
+  line 1
+  line 2"""
+    var lexer = YamlLexer(input)
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String && lexer.tokenValue() == "key")
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.Colon)
+
+    token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "line 1\nline 2\n")
+}
+
+test "Lexer - folded block scalar" {
+    var input = """key: >
+  line 1
+  line 2"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // key
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "line 1 line 2\n")
+}
+
+test "Lexer - block scalar with strip chomp" {
+    var input = """key: |-
+  line 1
+  line 2"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // key
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "line 1\nline 2")
+}
+
+test "Lexer - literal block scalar basic" {
+    var input = """text: |
+  Line 1
+  Line 2
+  Line 3"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // text
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line 1\nLine 2\nLine 3\n")
+}
+
+test "Lexer - folded block scalar basic" {
+    var input = """text: >
+  Line 1
+  Line 2
+  Line 3"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // text
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line 1 Line 2 Line 3\n")
+}
+
+test "Lexer - literal with strip chomp" {
+    var input = """text: |-
+  Line 1
+  Line 2"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // text
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line 1\nLine 2")
+}
+
+test "Lexer - folded with empty line" {
+    var input = """text: >
+  Line 1
+
+  Line 2"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // text
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line 1\nLine 2\n")
+}
+
+test "Lexer - literal with empty lines" {
+    var input = """text: |
+  Line 1
+
+  Line 2
+
+  Line 3"""
+    var lexer = YamlLexer(input)
+
+    lexer.nextToken()  // text
+    lexer.nextToken()  // :
+
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line 1\n\nLine 2\n\nLine 3\n")
+}
+
+test "Lexer - simple anchor" {
+    var lexer = YamlLexer("&anchor")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "anchor")
+}
+
+test "Lexer - simple alias" {
+    var lexer = YamlLexer("*anchor")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Alias)
+    ok!(lexer.tokenValue() == "anchor")
+}
+
+test "Lexer - anchor with underscore and hyphen" {
+    var lexer = YamlLexer("&my-anchor_123")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "my-anchor_123")
+}
+
+test "Lexer - alias with underscore and hyphen" {
+    var lexer = YamlLexer("*my-alias_456")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.Alias)
+    ok!(lexer.tokenValue() == "my-alias_456")
+}
+
+test "Lexer - anchor before value" {
+    var lexer = YamlLexer("&id name: John")
+
+    var token1 = lexer.nextToken()
+    ok!(token1 == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "id")
+
+    var token2 = lexer.nextToken()
+    ok!(token2 == YamlToken.String)
+    ok!(lexer.tokenValue() == "name")
+
+    var token3 = lexer.nextToken()
+    ok!(token3 == YamlToken.Colon)
+
+    var token4 = lexer.nextToken()
+    ok!(token4 == YamlToken.String)
+    ok!(lexer.tokenValue() == "John")
+}
+
+test "Lexer - alias as value" {
+    var lexer = YamlLexer("name: *id")
+
+    var token1 = lexer.nextToken()
+    ok!(token1 == YamlToken.String)
+    ok!(lexer.tokenValue() == "name")
+
+    var token2 = lexer.nextToken()
+    ok!(token2 == YamlToken.Colon)
+
+    var token3 = lexer.nextToken()
+    ok!(token3 == YamlToken.Alias)
+    ok!(lexer.tokenValue() == "id")
+}
+
+test "Lexer - anchor stops at whitespace" {
+    var lexer = YamlLexer("&anchor value")
+
+    var token1 = lexer.nextToken()
+    ok!(token1 == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "anchor")
+
+    var token2 = lexer.nextToken()
+    ok!(token2 == YamlToken.String)
+    ok!(lexer.tokenValue() == "value")
+}
+
+test "Lexer - anchor stops at colon" {
+    var lexer = YamlLexer("&anchor: value")
+
+    var token1 = lexer.nextToken()
+    ok!(token1 == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "anchor")
+
+    var token2 = lexer.nextToken()
+    ok!(token2 == YamlToken.Colon)
+
+    var token3 = lexer.nextToken()
+    ok!(token3 == YamlToken.String)
+    ok!(lexer.tokenValue() == "value")
+}
+
+test "Lexer - anchor in flow array" {
+    var lexer = YamlLexer("[&a1 first, *a1]")
+
+    lexer.nextToken()  // Indent (from '[')
+
+    var token1 = lexer.nextToken()
+    ok!(token1 == YamlToken.Dash)  // First item dash
+
+    var token2 = lexer.nextToken()
+    ok!(token2 == YamlToken.Anchor)
+    ok!(lexer.tokenValue() == "a1")
+
+    var token3 = lexer.nextToken()
+    ok!(token3 == YamlToken.String)
+    ok!(lexer.tokenValue() == "first")
+
+    var token4 = lexer.nextToken()
+    ok!(token4 == YamlToken.Dash)  // Second item dash (from ',')
+
+    var token5 = lexer.nextToken()
+    ok!(token5 == YamlToken.Alias)
+    ok!(lexer.tokenValue() == "a1")
+}
+
+test "Lexer - empty anchor name error" {
+    var lexer = YamlLexer("& value")
+    var token = lexer.nextToken() catch YamlToken.Invalid
+    ok!(token == YamlToken.Invalid)
+}
+
+test "Lexer - empty alias name error" {
+    var lexer = YamlLexer("* value")
+    var token = lexer.nextToken() catch YamlToken.Invalid
+    ok!(token == YamlToken.Invalid)
+}
+
+test "Lexer - simple escape test" {
+    var lexer = YamlLexer("\"a\\tb\"")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    var value = lexer.tokenValue()
+    // YAML lexer processes \t escape to produce tab character
+    ok!(value.size() == 3)
+    ok!(value.[0] == 'a')
+    ok!(value.[1] == '\t')
+    ok!(value.[2] == 'b')
+}
+
+test "Lexer - basic escape sequences" {
+    var lexer = YamlLexer("\"\\a\\b\\t\\n\\v\\f\\r\\e\"")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    var value = lexer.tokenValue()
+    ok!(value.[0] == <char>0x07)  // bell
+    ok!(value.[1] == <char>0x08)  // backspace
+    ok!(value.[2] == '\t')
+    ok!(value.[3] == '\n')
+    ok!(value.[4] == <char>0x0b)  // vertical tab
+    ok!(value.[5] == <char>0x0c)  // form feed
+    ok!(value.[6] == '\r')
+    ok!(value.[7] == <char>0x1b)  // escape
+}
+
+test "Lexer - quote escapes" {
+    var lexer = YamlLexer("\"Hello \\\"World\\\"\"")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Hello \"World\"")
+}
+
+test "Lexer - backslash escape" {
+    var lexer = YamlLexer("\"path\\\\to\\\\file\"")
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "path\\to\\file")
+}
+
+test "Lexer - hex escape" {
+    var lexer = YamlLexer("\"\\x41\\x42\\x43\"")  // ABC
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "ABC")
+}
+
+test "Lexer - hex escape lowercase" {
+    var lexer = YamlLexer("\"\\x61\\x62\\x63\"")  // abc
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "abc")
+}
+
+test "Lexer - unicode escape 16-bit" {
+    var lexer = YamlLexer("\"\\u0041\\u0042\\u0043\"")  // ABC
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "ABC")
+}
+
+test "Lexer - unicode escape 32-bit" {
+    var lexer = YamlLexer("\"\\U00000041\\U00000042\"")  // AB
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "AB")
+}
+
+test "Lexer - mixed escapes" {
+    var lexer = YamlLexer("\"Line1\\nLine2\\tTab\\x21\"")  // ! is \x21
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "Line1\nLine2\tTab!")
+}
+
+test "Lexer - invalid hex escape" {
+    var input = String("\"")
+    input << "\\"
+    input << "xGG\""
+    var lexer = YamlLexer(input.str())
+    var token = lexer.nextToken() catch YamlToken.Invalid
+    ok!(token == YamlToken.Invalid)
+}
+
+test "Lexer - incomplete hex escape" {
+    var input = String("\"")
+    input << "\\"
+    input << "x4\""
+    var lexer = YamlLexer(input.str())
+    var token = lexer.nextToken() catch YamlToken.Invalid
+    ok!(token == YamlToken.Invalid)
+}
+
+test "Lexer - unknown escape passthrough" {
+    var lexer = YamlLexer("\"\\q\"")  // Unknown escape
+    var token = lexer.nextToken()
+    ok!(token == YamlToken.String)
+    ok!(lexer.tokenValue() == "\\q")
+}

@@ -1,0 +1,348 @@
+module yaml
+
+import { Value } from "stdlib/value.cxy"
+import { YamlParser } from "./yaml/parser.cxy"
+import { YamlSerializer } from "./yaml/serializer.cxy"
+import { YamlError as _YamlError } from "./yaml/common.cxy"
+
+// Re-export common types for user convenience
+pub type YamlError = _YamlError
+
+/*
+ * Parse a YAML string into a Value
+ *
+ * Returns a Value that can be:
+ * - Single document: the parsed value
+ * - Multiple documents: an array of Values
+ *
+ * Example:
+ *   var data = parse("name: John\nage: 30")
+ *   var name = data.["name"]
+ *
+ * Throws YamlError on parse errors
+ */
+pub func parse(str: __string): !Value {
+    var parser = YamlParser(str)
+    return parser.parse()
+}
+
+/*
+ * Parse a YAML string and cast to a specific type
+ *
+ * Similar to fromJson, parses YAML and casts the result to type T
+ *
+ * Example:
+ *   struct Config { name: String, port: i64 }
+ *   var config = fromYaml[Config]("name: MyApp\nport: 8080")
+ *
+ * Throws YamlError on parse errors or cast errors
+ */
+pub func fromYaml[T](str: __string): !T {
+    var value = parse(str)
+    return value.cast[T]()
+}
+
+/*
+ * Serialize a Value to YAML string
+ *
+ * Parameters:
+ *   value: The Value to serialize
+ *   indent: Number of spaces per indentation level (default: 2)
+ *
+ * Returns: YAML string representation
+ *
+ * Example:
+ *   var data = Value.Object()
+ *   data.["name"] = Value("MyApp")
+ *   var yaml = stringify(&data)
+ *   // Output: name: MyApp
+ */
+pub func stringify(value: &const Value, indent: u32 = 2): String {
+    var output = String()
+    var serializer = YamlSerializer(&output, indent)
+    serializer.serialize(value)
+    return &&output
+}
+
+/*
+ * Alias for stringify (matches common YAML libraries like PyYAML)
+ */
+pub func dump(value: &const Value, indent: u32 = 2): String {
+    return stringify(value, indent)
+}
+
+// Tests
+
+test {
+    struct Person {
+        func `init`(){}
+        name: String = null
+        age: i64 = 0
+    }
+
+    struct Config {
+        func `init`(){}
+
+        name: String = null
+        debug: bool = false
+        port: i64 = 0
+    }
+
+    struct App {
+        func `init`(){}
+        version: String = null
+        config = Config()
+    }
+}
+
+test "parse - simple scalar" {
+    var result = parse("hello")
+    ok!(result.isString())
+    ok!(result.asString() == "hello")
+}
+
+test "parse - simple object" {
+    var result = parse("name: John\nage: 30")
+    ok!(result.isObject())
+
+    var name = result.["name"]
+    ok!(!!name && name&.isString() && name&.asString() == "John")
+
+    var age = result.["age"]
+    ok!(!!age && age&.isFloat() && age&.asFloat() == 30)
+}
+
+test "parse - simple array" {
+    var result = parse("- apple\n- banana\n- orange")
+    ok!(result.isArray())
+    ok!(result.size() == 3)
+
+    var item0 = result.[0]
+    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
+}
+
+test "parse - nested structure" {
+    var input = """
+name: MyApp
+config:
+  debug: true
+  port: 8080
+"""
+    var result = parse(input)
+    ok!(result.isObject())
+
+    var config = result.["config"]
+    ok!(!!config && config&.isObject())
+
+    var debug = config&.get("debug")
+    ok!(!!debug && debug&.isBool() && debug&.asBool() == true)
+
+    var port = config&.get("port")
+    ok!(!!port && port&.isFloat() && port&.asFloat() == 8080)
+}
+
+test "parse - with anchors and aliases" {
+    var input = """
+default: &config
+  name: Default
+  port: 8080
+dev: *config
+prod: *config
+"""
+    var result = parse(input)
+    ok!(result.isObject())
+
+    var dev = result.["dev"]
+    ok!(!!dev && dev&.isObject())
+
+    var devName = dev&.get("name")
+    ok!(!!devName && devName&.asString() == "Default")
+
+    var prod = result.["prod"]
+    ok!(!!prod && prod&.isObject())
+
+    var prodPort = prod&.get("port")
+    ok!(!!prodPort && prodPort&.asFloat() == 8080)
+}
+
+test "parse - multiple documents" {
+    var input = """
+---
+name: First
+---
+name: Second
+"""
+    var result = parse(input)
+    ok!(result.isArray())
+    ok!(result.size() == 2)
+
+    var doc0 = result.[0]
+    ok!(!!doc0 && doc0&.isObject())
+    var name0 = doc0&.get("name")
+    ok!(!!name0 && name0&.asString() == "First")
+
+    var doc1 = result.[1]
+    ok!(!!doc1 && doc1&.isObject())
+    var name1 = doc1&.get("name")
+    ok!(!!name1 && name1&.asString() == "Second")
+}
+
+test "parse - flow style" {
+    var result = parse("user: {name: John, age: 30}")
+    ok!(result.isObject())
+
+    var user = result.["user"]
+    ok!(!!user && user&.isObject())
+
+    var name = user&.get("name")
+    ok!(!!name && name&.asString() == "John")
+}
+
+test "parse - multiline literal string" {
+    var input = """text: |
+  Line 1
+  Line 2
+  Line 3"""
+    var result = parse(input)
+    ok!(result.isObject())
+
+    var text = result.["text"]
+    ok!(!!text && text&.isString())
+    ok!(text&.asString() == "Line 1\nLine 2\nLine 3\n")
+}
+
+test "parse - invalid YAML error" {
+    var input = "value: *undefined_alias"
+    var result = parse(input) catch Value()
+    ok!(result.isNull())  // Should have failed
+}
+
+test "fromYaml - struct casting" {
+    var person = fromYaml[Person]("name: John\nage: 30")
+    ok!(person.name == "John")
+    ok!(person.age == 30)
+}
+
+test "fromYaml - nested struct" {
+    var input = """
+version: '1.0'
+config:
+  name: MyApp
+  debug: true
+  port: 8080
+"""
+
+    var app = fromYaml[App](input)
+    ok!(app.version == "1.0")
+    ok!(app.config.name == "MyApp")
+    ok!(app.config.debug == true)
+    ok!(app.config.port == 8080)
+}
+
+test "fromYaml - value type" {
+    var value = fromYaml[Value]("name: test")
+    ok!(value.isObject())
+
+    var name = value.["name"]
+    ok!(!!name && name&.asString() == "test")
+}
+
+test "stringify - simple scalar" {
+    var value = Value("hello")
+    var yaml = stringify(&value)
+    ok!(yaml == "hello")
+}
+
+test "stringify - simple object" {
+    var obj = Value.Object()
+    obj.["name"] = Value("MyApp")
+    obj.["version"] = Value(1.0)
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("name: MyApp"))
+    ok!(yaml.contains("version: 1"))
+}
+
+test "stringify - simple array" {
+    var arr = Value.Array()
+    arr.push(Value("apple"))
+    arr.push(Value("banana"))
+    arr.push(Value("orange"))
+
+    var yaml = stringify(&arr)
+    ok!(yaml.contains("- apple"))
+    ok!(yaml.contains("- banana"))
+    ok!(yaml.contains("- orange"))
+}
+
+test "stringify - nested object" {
+    var obj = Value.Object()
+    var config = Value.Object()
+    config.["port"] = Value(8080)
+    config.["debug"] = Value(true)
+    obj.["config"] = &&config
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("config:"))
+    ok!(yaml.contains("port: 8080"))
+    ok!(yaml.contains("debug: true"))
+}
+
+test "stringify - boolean values" {
+    var obj = Value.Object()
+    obj.["enabled"] = Value(true)
+    obj.["disabled"] = Value(false)
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("enabled: true"))
+    ok!(yaml.contains("disabled: false"))
+}
+
+test "stringify - null value" {
+    var obj = Value.Object()
+    obj.["empty"] = Value()
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("empty: null"))
+}
+
+test "stringify - empty collections" {
+    var obj = Value.Object()
+    obj.["empty_obj"] = Value.Object()
+    obj.["empty_arr"] = Value.Array()
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("empty_obj: {}"))
+    ok!(yaml.contains("empty_arr: []"))
+}
+
+test "stringify - string with quotes" {
+    var obj = Value.Object()
+    obj.["text"] = Value("Hello \"World\"")
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("text: \"Hello \\\"World\\\"\""))
+}
+
+test "stringify - string with newline" {
+    var obj = Value.Object()
+    obj.["text"] = Value("Line1\nLine2")
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("\"Line1\\nLine2\""))
+}
+
+test "stringify - reserved words get quoted" {
+    var obj = Value.Object()
+    obj.["value"] = Value("true")
+
+    var yaml = stringify(&obj)
+    ok!(yaml.contains("value: \"true\""))
+}
+
+test "dump - alias for stringify" {
+    var value = Value("test")
+    var yaml1 = stringify(&value)
+    var yaml2 = dump(&value)
+    ok!(yaml1 == yaml2)
+}

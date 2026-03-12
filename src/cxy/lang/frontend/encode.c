@@ -251,8 +251,8 @@ static void visitNewExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     nodePackHeader(visitor, node);
 
-    nodeToBinary(visitor, node->newExpr.type);
-    nodeToBinary(visitor, node->newExpr.init);
+    nodeToBinary(visitor, node->newExpr.allocator);
+    nodeToBinary(visitor, node->newExpr.expr);
 }
 
 static void visitCastExpr(ConstAstVisitor *visitor, const AstNode *node)

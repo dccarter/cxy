@@ -1383,7 +1383,15 @@ static void visitBackendBfiDeclare(ConstAstVisitor *visitor, const AstNode *node
 
     if (var->varDecl.init != NULL) {
         format(getState(ctx), " = ", NULL);
-        astConstVisit(visitor, var->varDecl.init);
+        if (nodeIs(var->varDecl.init, NullLit) &&
+            (isUnionType(type) || isStructType(type) || isTupleType(type))) {
+            format(getState(ctx), "(", NULL);
+            generateTypeName(ctx, getState(ctx), type);
+            format(getState(ctx), "){{}", NULL);
+        }
+        else {
+            astConstVisit(visitor, var->varDecl.init);
+        }
     }
     format(getState(ctx), ";", NULL);
 

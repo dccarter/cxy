@@ -447,9 +447,9 @@ static void visitNewExpr(ConstAstVisitor *visitor, const AstNode *node)
     cJSON *jsonNode = nodeCreateJSON(visitor, node);
 
     cJSON_AddItemToObject(
-        jsonNode, "newType", nodeToJson(visitor, node->newExpr.type));
+        jsonNode, "allocator", nodeToJson(visitor, node->newExpr.allocator));
     cJSON_AddItemToObject(
-        jsonNode, "init", nodeToJson(visitor, node->newExpr.init));
+        jsonNode, "expr", nodeToJson(visitor, node->newExpr.expr));
 
     Return(ctx, jsonNode);
 }

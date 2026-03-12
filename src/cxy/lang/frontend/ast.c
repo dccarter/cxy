@@ -1092,8 +1092,8 @@ AstNode *makeOperatorOverload(MemPool *pool,
 AstNode *makeNewExpr(MemPool *pool,
                      const FileLoc *loc,
                      u64 flags,
-                     AstNode *target,
-                     AstNode *init,
+                     AstNode *allocator,
+                     AstNode *expr,
                      AstNode *next,
                      const Type *type)
 {
@@ -1103,7 +1103,9 @@ AstNode *makeNewExpr(MemPool *pool,
                                   .type = type,
                                   .next = next,
                                   .flags = flags,
-                                  .newExpr = {.type = target, .init = init}});
+                                  .newExpr = {
+                                      .allocator = allocator,
+                                      .expr = expr}});
 }
 
 AstNode *makeStructExpr(MemPool *pool,

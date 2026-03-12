@@ -196,7 +196,7 @@ pub class Vector[T] {
         return null
     }
 
-    #if (!(T.isTuple || T.isUnion || T.isUnresolved) &&
+    #if (!(T.isTuple || T.isUnion || T.isUnresolved || T.isPointer) &&
          !((T.isStruct || T.isClass) || has_member!(#T, "op__eq", #const func(_: &const T) ->bool)))
     {
         const func indexOf(elem: T) : u64? {
@@ -208,7 +208,7 @@ pub class Vector[T] {
         }
     }
 
-    #if ( !T.isUnresolved && (
+    #if ( !T.isPointer && !T.isUnresolved && (
             !(T.isStruct || T.isClass) ||
                 has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
     ) ) {

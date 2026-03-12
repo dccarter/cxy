@@ -12,11 +12,17 @@ enum JsonToken {
     True,
     False,
     Null,
+    @str("{")
     LeftBrace,      // {
+    @str("}")
     RightBrace,     // }
+    @str("[")
     LeftBracket,    // [
+    @str("]")
     RightBracket,   // ]
+    @str(":")
     Colon,          // :
+    @str(",")
     Comma,          // ,
     EOF,
     Invalid
@@ -291,7 +297,7 @@ class JsonParser {
         var result = this.parseValue()
 
         if (_currentToken != JsonToken.EOF) {
-            raise JsonError(f"Expected end of input, got unexpected token")
+            raise JsonError(f"Expected end of input, got unexpected token '{_currentToken}'")
         }
 
         return &&result
@@ -516,6 +522,14 @@ func fieldFromJSON[T](
                 base64.decode(&str, &jstr)
                 obj.#{mk_ident!(member.name)} = &&str
             }
+            else #if jsonAttr && jsonAttr.[:optional] {
+                if parser.currentToken() != JsonToken.Null {
+                    obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
+                }
+                else {
+                    parser.advance()
+                }
+            }
             else {
                 obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
             }
@@ -535,7 +549,7 @@ func fieldFromJSON[T](
 // Generic type-specific parsing
 pub func fromJSON[T](parser: &JsonParser): !T {
     #if (#T == #Value) {
-        return parser.parse()
+        return parser.parseValue()
     }
     else #if (T.isBoolean) {
         if (parser.currentToken() == JsonToken.True) {
@@ -550,13 +564,13 @@ pub func fromJSON[T](parser: &JsonParser): !T {
     }
     else #if (T.isNumber) {
         if (parser.currentToken() == JsonToken.Number) {
-            var numStr = parser.tokenValue().__str()
+            var numStr = parser.moveTokenValue()
             parser.advance()
             #if (T.isInteger) {
-                return <T>numStr.toi[i64]()
+                return <T>numStr.__str().toi[i64]()
             }
             else {
-                return <T>numStr.tof[f64]()
+                return <T>numStr.__str().tof[f64]()
             }
         } else {
             raise JsonError("Expected number")
@@ -767,7 +781,14 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
         os << it
     }
     else #if (T.isString) {
-        os << '"' << it << '"'
+        #if T.isClass || #T == #string {
+            if (it == null)
+                os << "null"
+            else
+                os << '"' << it << '"'
+        }
+        else
+            os << '"' << it << '"'
     }
     else #if (T.isOptional) {
         if (it) {

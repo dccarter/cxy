@@ -135,6 +135,7 @@ extern "C" {
     f(Defined,   "defined")         \
     f(Test,      "test")            \
     f(Plugin,    "plugin")          \
+    f(New,       "new")             \
     f(CBuild,    "__cc")            \
     PRIM_TYPE_LIST(f)
 

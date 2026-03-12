@@ -1,0 +1,878 @@
+module yaml_parser
+
+import { Value } from "stdlib/value.cxy"
+import { Vector } from "stdlib/vector.cxy"
+import { HashMap } from "stdlib/hash.cxy"
+import { YamlLexer, YamlToken } from "./lexer.cxy"
+import { YamlError } from "./common.cxy"
+
+pub class YamlParser {
+    _lexer: YamlLexer
+    _lookAhead: [(YamlToken, String), 3]
+    _anchors = HashMap[String, Value]()
+
+    func `init`(input: __string) {
+        _lexer = YamlLexer(input)
+
+        // Initialize lookahead buffer
+        // [0] = previous (initially Invalid)
+        // [1] = current
+        // [2] = next
+        _lookAhead.[0] = (YamlToken.Invalid, null as String)
+        _lookAhead.[1] = (_nextToken(), _lexer.moveValue())
+        _lookAhead.[2] = (_nextToken(), _lexer.moveValue())
+    }
+
+    func _nextToken(): YamlToken {
+        return _lexer.nextToken() catch YamlToken.Invalid
+    }
+
+    func parse(): !Value {
+        // Skip leading whitespace and optional document start
+        _skipNewlines(YamlToken.DocStart)
+
+        // Parse first document
+        var value = parseValue()
+
+        // Skip trailing whitespace and optional end marker
+        _skipNewlines(YamlToken.DocEnd)
+
+        // Check if there are more documents
+        if currentToken() != .DocStart {
+            // Single document - verify we're at EOF
+            if currentToken() != .EOF {
+                raise YamlError(
+                    "Unexpected tokens after parsing",
+                    _lexer.line(),
+                    _lexer.column()
+                )
+            }
+            return &&value
+        }
+
+        // Multiple documents - create array and add first doc
+        var result = Value.Array()
+        result.push(&&value)
+
+        // Parse remaining documents
+        while currentToken() == .DocStart {
+            _anchors.clear()  // Clear anchors for new document
+
+            _skipNewlines(YamlToken.DocStart)
+
+            var doc = parseValue()
+            result.push(&&doc)
+
+            _skipNewlines(YamlToken.DocEnd)
+        }
+
+        // Should be at EOF
+        if currentToken() != YamlToken.EOF {
+            raise YamlError(
+                "Unexpected tokens after parsing",
+                _lexer.line(),
+                _lexer.column()
+            )
+        }
+
+        return &&result
+    }
+
+    func parseValue(): !Value {
+        // Check for anchor before value
+        var anchorName: String = null
+        if currentToken() == .Anchor {
+            anchorName = &&current().1
+            advance()
+        }
+
+        // Check for alias (reference to anchored value)
+        if currentToken() == .Alias {
+            var aliasName = &&current().1
+            advance()
+
+            // Look up anchored value
+            var anchored = _anchors.[aliasName]
+            if !anchored {
+                raise YamlError(
+                    f"Undefined alias '*{aliasName}'",
+                    _lexer.line(),
+                    _lexer.column()
+                )
+            }
+
+            // Return a copy of the anchored value
+            var tmp = *anchored
+            return __copy!(tmp)
+        }
+
+        // Parse the actual value
+        var value: Value = null
+        switch currentToken() {
+            .String => {
+                // Check if this is a key-value pair (object) or just a scalar
+                if nextToken() == .Colon {
+                    value = parseObject(false)  // Top-level object
+                } else {
+                    value = parseScalar()
+                }
+            }
+            .Number, .True, .False, .Null => {
+                value = parseScalar()
+            }
+            .Indent => {
+                advance()
+                // Look at current token to determine type
+                if currentToken() == .Dash {
+                    value = parseArray()
+                } else {
+                    value = parseObject(true)  // Nested object after Indent
+                }
+            }
+            .Dash => {
+                // Top-level array
+                value = parseArray()
+            }
+            .Newline => {
+                // Skip newline and parse the actual value
+                advance()
+                value = parseValue()
+            }
+            ... => {
+                raise YamlError("Unexpected token in parseValue", _lexer.line(), _lexer.column())
+            }
+        }
+
+        // Store anchor if one was specified
+        if anchorName != null {
+            _anchors.[&&anchorName] = value
+        }
+
+        return &&value
+    }
+
+    func parseScalar(): !Value {
+        switch currentToken() {
+            .String => {
+                var val = Value(&&current().1)
+                advance()
+                return &&val
+            }
+            .Number => {
+                var str = current().1.__str()
+                advance()
+                return Value(str.tof[f64]())
+            }
+            .True => {
+                advance()
+                return Value(true)
+            }
+            .False => {
+                advance()
+                return Value(false)
+            }
+            .Null => {
+                advance()
+                return Value()
+            }
+            ... => {
+                raise YamlError("Expected scalar value", _lexer.line(), _lexer.column())
+            }
+        }
+    }
+
+    func parseObject(isNested: bool = false, listItem: bool = false): !Value {
+        var obj = Value.Object()
+        var firstIteration = true
+
+        while currentToken() == .String {
+            // Read key
+            var key = &&current().1
+            advance()
+
+            // Expect colon
+            if currentToken() != .Colon {
+                raise YamlError("Expected ':' after object key", _lexer.line(), _lexer.column())
+            }
+            advance()
+
+            // Check if this is a merge key
+            if key == "<<" {
+                var mergeValue = parseValue()
+
+                // Only perform merge if value is object or array
+                if mergeValue.isObject() {
+                    _mergeObject(&obj, &mergeValue)
+                }
+                else if mergeValue.isArray() {
+                    _mergeArray(&obj, &&mergeValue)
+                }
+                else {
+                    // Treat as literal key
+                    obj.["<<"] = &&mergeValue
+                }
+            }
+            else {
+                // Normal key-value pair
+                var value = parseValue()
+                obj.[&&key] = &&value
+            }
+            // Check what's next
+            if currentToken() == .Newline {
+                advance()
+                // If this is the first key after a dash, consume one Indent
+                if listItem {
+                    if firstIteration && currentToken() == .Indent {
+                        advance()
+                    }
+                    else if !firstIteration && currentToken() == .Dedent {
+                        advance()
+                    }
+                }
+
+                firstIteration = false
+                continue
+            } else if currentToken() == .Dedent {
+                if isNested {
+                    advance()
+                    break
+                } else {
+                    advance()
+                    continue
+                }
+            } else if currentToken() == .EOF {
+                break
+            } else {
+                // Unexpected token
+                raise YamlError("Expected newline or dedent in object", _lexer.line(), _lexer.column())
+            }
+        }
+
+        return &&obj
+    }
+
+    func parseArray(): !Value {
+        var arr = Value.Array()
+
+        while currentToken() == .Dash {
+            advance()
+
+            // Check if this is an object after dash (key:value pattern)
+            var value: Value = null
+            if currentToken() == .String && nextToken() == .Colon {
+                value = parseObject(false, true)  // isNested=false, afterDash=true
+            } else {
+                value = parseValue()
+            }
+            arr.push(&&value)
+
+            // Check what's next
+            if currentToken() == .Newline {
+                advance()
+                continue
+            } else if currentToken() == .Dedent {
+                advance()
+                break
+            } else if currentToken() == .EOF {
+                break
+            } else if currentToken() == .Dash {
+                // Next array item, continue loop
+                continue
+            } else {
+                raise YamlError("Expected newline or dedent in array", _lexer.line(), _lexer.column())
+            }
+        }
+
+        return &&arr
+    }
+
+    // Helper methods
+
+    func advance(): void {
+        _lookAhead.[0] = &&_lookAhead.[1]
+        _lookAhead.[1] = &&_lookAhead.[2]
+        _lookAhead.[2] = (_nextToken(), _lexer.moveValue())
+    }
+
+    func _skipNewlines(marker: YamlToken = YamlToken.Newline): void {
+        if currentToken() == marker {
+            advance()
+        }
+        while currentToken() == .Newline {
+            advance()
+        }
+    }
+
+    func current(): &(YamlToken, String) => &_lookAhead.[1]
+
+    func currentToken(): YamlToken => _lookAhead.[1].0
+
+    func nextToken(): YamlToken => _lookAhead.[2].0
+
+    func prevToken(): YamlToken => _lookAhead.[0].0
+
+    func _mergeObject(target: &Value, source: &Value): !void {
+        // Get source object as HashMap
+        var sourceObj = source.asObject()
+
+        // Iterate over all keys in source
+        for it in sourceObj {
+            // Only add if key doesn't exist in target
+            // (keys already in target take precedence)
+            if !target.contains(&it.0) {
+                target.[&&it.0] = &&it.1
+            }
+        }
+    }
+
+    func _mergeArray(target: &Value, array: Value): !void {
+        // Iterate over array items
+        var arrayObj = array.asArray()
+        for item, _ in arrayObj {
+            if item.isObject() {
+                _mergeObject(target, item)
+            }
+            else {
+                raise YamlError(
+                    "Merge array must contain only objects",
+                    _lexer.line(),
+                    _lexer.column()
+                )
+            }
+        }
+    }
+}
+
+// Tests
+test "Parser - simple scalar" {
+    var parser = YamlParser("hello")
+    var value = parser.parse()
+
+    ok!(value.isString())
+    ok!(value.asString() == "hello")
+}
+
+test "Parser - simple object" {
+    var parser = YamlParser("name: John\nage: 30")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var name = value.["name"]
+    ok!(!!name && name&.isString() && name&.asString() == "John")
+
+    var age = value.["age"]
+    ok!(!!age && age&.isFloat() && age&.asFloat() == 30)
+}
+
+test "Parser - simple array" {
+    var parser = YamlParser("- apple\n- banana\n- orange")
+    var value = parser.parse()
+
+    ok!(value.isArray())
+    ok!(value.size() == 3)
+
+    var item0 = value.[0]
+    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
+}
+
+test "Parser - nested object" {
+    var parser = YamlParser("person:\n  name: John\n  age: 30")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var person = value.["person"]
+    ok!(!!person && person&.isObject())
+
+    var name = person&.get("name")
+    ok!(!!name && name&.asString() == "John")
+}
+
+test "Parser - flow style object" {
+    var parser = YamlParser("user: {name: John, age: 30}")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var user = value.["user"]
+    ok!(!!user && user&.isObject())
+
+    var name = user&.get("name")
+    ok!(!!name && name&.asString() == "John")
+
+    var age = user&.get("age")
+    ok!(!!age && age&.asFloat() == 30)
+}
+
+test "Parser - flow style array" {
+    var parser = YamlParser("items: [apple, banana, orange]")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var items = value.["items"]
+    ok!(!!items && items&.isArray())
+    ok!(items&.size() == 3)
+}
+
+test "Parser - complex nested structure" {
+    var input = """
+name: MyApp
+version: 1.0
+config:
+  debug: true
+  port: 8080
+  hosts:
+    - localhost
+    - 0.0.0.0
+metadata:
+  author: John
+  tags:
+    - web
+    - api
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    // Root should be object
+    ok!(value.isObject())
+
+    // name: MyApp
+    var name = value.["name"]
+    ok!(!!name && name&.isString() && name&.asString() == "MyApp")
+
+    // version: 1.0
+    var version = value.["version"]
+    ok!(!!version && version&.isFloat() && version&.asFloat() == 1.0)
+
+    // config object
+    var config = value.["config"]
+    ok!(!!config && config&.isObject())
+
+    // config.debug: true
+    var debug = config&.get("debug")
+    ok!(!!debug && debug&.isBool() && debug&.asBool() == true)
+
+    // config.port: 8080
+    var port = config&.get("port")
+    ok!(!!port && port&.isFloat() && port&.asFloat() == 8080)
+
+    // config.hosts array
+    var hosts = config&.get("hosts")
+    ok!(!!hosts && hosts&.isArray())
+    ok!(hosts&.size() == 2)
+
+    var host0 = hosts&.get(0)
+    ok!(!!host0 && host0&.isString() && host0&.asString() == "localhost")
+
+    var host1 = hosts&.get(1)
+    ok!(!!host1 && host1&.isString() && host1&.asString() == "0.0.0.0")
+
+    // metadata object
+    var metadata = value.["metadata"]
+    ok!(!!metadata && metadata&.isObject())
+
+    // metadata.author
+    var author = metadata&.get("author")
+    ok!(!!author && author&.isString() && author&.asString() == "John")
+
+    // metadata.tags array
+    var tags = metadata&.get("tags")
+    ok!(!!tags && tags&.isArray())
+    ok!(tags&.size() == 2)
+
+    var tag0 = tags&.get(0)
+    ok!(!!tag0 && tag0&.isString() && tag0&.asString() == "web")
+
+    var tag1 = tags&.get(1)
+    ok!(!!tag1 && tag1&.isString() && tag1&.asString() == "api")
+}
+
+
+test "Parser - document with start marker" {
+    var parser = YamlParser("""---
+name: test""")
+    var value = parser.parse()
+
+    ok!(value.isObject())
+    var name = value.["name"]
+    ok!(!!name && name&.asString() == "test")
+}
+
+test "Parser - multiple documents" {
+    var input = """
+---
+name: Alice
+age: 30
+...
+---
+items:
+  - apple
+  - banana
+...
+---
+active: true
+"""
+    var parser = YamlParser(input)
+    var value = parser.parse()
+
+    // Should return array of documents
+    ok!(value.isArray())
+    ok!(value.size() == 3)
+
+    // First document - object with name and age
+    var doc0 = value.[0]
+    ok!(!!doc0 && doc0&.isObject())
+    var name = doc0&.get("name")
+    ok!(!!name && name&.asString() == "Alice")
+    var age = doc0&.get("age")
+    ok!(!!age && age&.asFloat() == 30)
+
+    // Second document - object with array
+    var doc1 = value.[1]
+    ok!(!!doc1 && doc1&.isObject())
+    var items = doc1&.get("items")
+    ok!(!!items && items&.isArray())
+    ok!(items&.size() == 2)
+
+    // Third document - object with boolean
+    var doc2 = value.[2]
+    ok!(!!doc2 && doc2&.isObject())
+    var active = doc2&.get("active")
+    ok!(!!active && active&.asBool() == true)
+}
+
+test "Parser - simple anchor and alias" {
+    var input = """
+value: &anchor hello
+ref: *anchor
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var value = result.["value"]
+    ok!(!!value && value&.isString() && value&.asString() == "hello")
+
+    var ref = result.["ref"]
+    ok!(!!ref && ref&.isString() && ref&.asString() == "hello")
+}
+
+test "Parser - anchor on object" {
+    var input = """
+person: &default
+  name: John
+  age: 30
+admin: *default
+user: *default
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    // Original anchored object
+    var person = result.["person"]
+    ok!(!!person && person&.isObject())
+    var personName = person&.get("name")
+    ok!(!!personName && personName&.asString() == "John")
+    var personAge = person&.get("age")
+    ok!(!!personAge && personAge&.asFloat() == 30)
+
+    // First alias
+    var admin = result.["admin"]
+    ok!(!!admin && admin&.isObject())
+    var adminName = admin&.get("name")
+    ok!(!!adminName && adminName&.asString() == "John")
+    var adminAge = admin&.get("age")
+    ok!(!!adminAge && adminAge&.asFloat() == 30)
+
+    // Second alias
+    var user = result.["user"]
+    ok!(!!user && user&.isObject())
+    var userName = user&.get("name")
+    ok!(!!userName && userName&.asString() == "John")
+    var userAge = user&.get("age")
+    ok!(!!userAge && userAge&.asFloat() == 30)
+}
+
+test "Parser - anchor on array" {
+    var input = """
+items: &list
+  - apple
+  - banana
+  - orange
+copy: *list
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var items = result.["items"]
+    ok!(!!items && items&.isArray())
+    ok!(items&.size() == 3)
+
+    var copy = result.["copy"]
+    ok!(!!copy && copy&.isArray())
+    ok!(copy&.size() == 3)
+
+    var item0 = copy&.get(0)
+    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
+}
+
+test "Parser - anchor in array item" {
+    var input = """
+items:
+  - &first apple
+  - banana
+  - *first
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+    var items = result.["items"]
+    ok!(!!items && items&.isArray())
+    ok!(items&.size() == 3)
+
+    var item0 = items&.get(0)
+    ok!(!!item0 && item0&.isString() && item0&.asString() == "apple")
+
+    var item2 = items&.get(2)
+    ok!(!!item2 && item2&.isString() && item2&.asString() == "apple")
+}
+
+test "Parser - undefined alias error" {
+    var input = "value: *undefined"
+    var parser = YamlParser(input)
+
+    var result = parser.parse() catch Value()
+    ok!(result.isNull())  // Should have failed
+}
+
+test "Parser - alias before anchor error" {
+    var input = """
+ref: *anchor
+value: &anchor hello
+"""
+    var parser = YamlParser(input)
+
+    var result = parser.parse() catch Value()
+    ok!(result.isNull())  // Should have failed
+}
+
+test "Parser - anchors cleared between documents" {
+    var input = """
+---
+value: &anchor hello
+---
+ref: *anchor
+"""
+    var parser = YamlParser(input)
+
+    var result = parser.parse() catch Value()
+    ok!(result.isNull())  // Should have failed - anchor not defined in second doc
+}
+
+test "Parser - anchors work within same document" {
+    var input = """
+---
+value: &anchor hello
+ref: *anchor
+---
+value: &anchor world
+ref: *anchor
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isArray())
+    ok!(result.size() == 2)
+
+    // First document
+    var doc0 = result.[0]
+    ok!(!!doc0 && doc0&.isObject())
+    var ref0 = doc0&.get("ref")
+    ok!(!!ref0 && ref0&.isString() && ref0&.asString() == "hello")
+
+    // Second document
+    var doc1 = result.[1]
+    ok!(!!doc1 && doc1&.isObject())
+    var ref1 = doc1&.get("ref")
+    ok!(!!ref1 && ref1&.isString() && ref1&.asString() == "world")
+}
+
+test "Parser - nested structure with anchors" {
+    var input = """
+config: &config
+  debug: true
+  port: 8080
+  hosts:
+    - localhost
+    - 0.0.0.0
+dev: *config
+prod: *config
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    // Check dev copy
+    var dev = result.["dev"]
+    ok!(!!dev && dev&.isObject())
+    var devDebug = dev&.get("debug")
+    ok!(!!devDebug && devDebug&.asBool() == true)
+    var devPort = dev&.get("port")
+    ok!(!!devPort && devPort&.asFloat() == 8080)
+    var devHosts = dev&.get("hosts")
+    ok!(!!devHosts && devHosts&.isArray())
+    ok!(devHosts&.size() == 2)
+
+    // Check prod copy
+    var prod = result.["prod"]
+    ok!(!!prod && prod&.isObject())
+    var prodDebug = prod&.get("debug")
+    ok!(!!prodDebug && prodDebug&.asBool() == true)
+}
+
+test "Parser - anchor with flow style" {
+    var input = "items: &list [apple, banana]\ncopy: *list"
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var items = result.["items"]
+    ok!(!!items && items&.isArray())
+    ok!(items&.size() == 2)
+
+    var copy = result.["copy"]
+    ok!(!!copy && copy&.isArray())
+    ok!(copy&.size() == 2)
+}
+
+test "Parser - simple merge key" {
+    var input = """
+default: &default
+  host: localhost
+  port: 8080
+dev:
+  <<: *default
+  port: 3000
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var dev = result.["dev"]
+    ok!(!!dev && dev&.isObject())
+
+    // Should have merged host
+    var host = dev&.get("host")
+    ok!(!!host && host&.asString() == "localhost")
+
+    // Should have overridden port
+    var port = dev&.get("port")
+    ok!(!!port && port&.asFloat() == 3000)
+}
+
+test "Parser - merge multiple anchors" {
+    var input = """
+defaults: &defaults
+  timeout: 30
+auth: &auth
+  user: admin
+service:
+  <<: [*defaults, *auth]
+  endpoint: /api
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var service = result.["service"]
+    ok!(!!service && service&.isObject())
+
+    var timeout = service&.get("timeout")
+    ok!(!!timeout && timeout&.asFloat() == 30)
+
+    var user = service&.get("user")
+    ok!(!!user && user&.asString() == "admin")
+
+    var endpoint = service&.get("endpoint")
+    ok!(!!endpoint && endpoint&.asString() == "/api")
+}
+
+test "Parser - merge key as literal" {
+    var input = """
+obj:
+  <<: not_an_alias
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var obj = result.["obj"]
+    ok!(!!obj && obj&.isObject())
+
+    var merge = obj&.get("<<")
+    ok!(!!merge && merge&.asString() == "not_an_alias")
+}
+
+test "Parser - merge with override" {
+    var input = """
+base: &base
+  a: 1
+  b: 2
+  c: 3
+child:
+  a: 100
+  <<: *base
+  c: 300
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var child = result.["child"]
+    ok!(!!child && child&.isObject())
+
+    // Explicit keys should win
+    var a = child&.get("a")
+    ok!(!!a && a&.asFloat() == 100)
+
+    // Merged key
+    var b = child&.get("b")
+    ok!(!!b && b&.asFloat() == 2)
+
+    // Explicit key should win
+    var c = child&.get("c")
+    ok!(!!c && c&.asFloat() == 300)
+}
+
+test "Parser - merge with inline object" {
+    var input = """
+dev:
+  <<: {host: localhost, port: 8080}
+  port: 3000
+"""
+    var parser = YamlParser(input)
+    var result = parser.parse()
+
+    ok!(result.isObject())
+
+    var dev = result.["dev"]
+    ok!(!!dev && dev&.isObject())
+
+    // Should have merged host from inline object
+    var host = dev&.get("host")
+    ok!(!!host && host&.asString() == "localhost")
+
+    // Should have overridden port
+    var port = dev&.get("port")
+    ok!(!!port && port&.asFloat() == 3000)
+}

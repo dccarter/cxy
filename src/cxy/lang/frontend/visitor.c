@@ -118,8 +118,8 @@
         MODE##Visit(visitor, node->rangeExpr.step);                            \
         break;                                                                 \
     case astNewExpr:                                                           \
-        MODE##Visit(visitor, node->newExpr.type);                              \
-        MODE##Visit(visitor, node->newExpr.init);                              \
+        MODE##Visit(visitor, node->newExpr.expr);                              \
+        MODE##Visit(visitor, node->newExpr.allocator);                         \
         break;                                                                 \
     case astCastExpr:                                                          \
         MODE##Visit(visitor, node->castExpr.to);                               \

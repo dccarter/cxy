@@ -447,6 +447,9 @@ void printUtf8(FormatState *state, uint32_t chr, bool escaped)
         case '\\':
             writeStr(state, "\\\\");
             return;
+        case '\'':
+            writeStr(state, "\\'");
+            return;
         default:
             break;
         }

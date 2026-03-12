@@ -102,7 +102,7 @@ static inline const char *getTokenString(Parser *P, const Token *tok, bool trim)
     return makeStringSized(P->strPool, &tok->buffer->fileData[start], size);
 }
 
-static inline const char *getStringLiteral(Parser *P, const Token *tok)
+static const char *getStringLiteral(Parser *P, const Token *tok)
 {
     size_t start = tok->fileLoc.begin.byteOffset;
     size_t size = tok->fileLoc.end.byteOffset - start;
@@ -543,11 +543,12 @@ static inline AstNode *parseFloat(Parser *P, bool isNegative)
 static inline AstNode *parseString(Parser *P)
 {
     const Token tok = *consume0(P, tokStringLiteral);
+    cstring value = getStringLiteral(P, &tok);
     AstNode *node = newAstNode(
         P,
         &tok,
         &(AstNode){.tag = astStringLit,
-                   .stringLiteral.value = getStringLiteral(P, &tok)});
+                   .stringLiteral.value = value});
 
     if (match(P, tokDot)) {
         Token kind = *consume0(P, tokIdent);
@@ -851,7 +852,8 @@ static AstNode *prefix(Parser *P, AstNode *(parsePrimary)(Parser *, bool))
             &(AstNode){.tag = astPointerOf,
                        .unaryExpr = {.operand = operand, .op = opPtrof}});
     }
-    else if (isRefof) {
+
+    if (isRefof) {
         return newAstNode(P,
                           &tok,
                           &(AstNode){.tag = astReferenceOf,

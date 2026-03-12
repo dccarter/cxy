@@ -488,8 +488,8 @@ struct AstNode {
         } rangeExpr;
 
         struct {
-            AstNode *type;
-            AstNode *init;
+            AstNode *expr;
+            AstNode *allocator;
         } newExpr;
 
         struct {
@@ -1267,8 +1267,8 @@ AstNode *makeOperatorOverload(MemPool *pool,
 AstNode *makeNewExpr(MemPool *pool,
                      const FileLoc *loc,
                      u64 flags,
-                     AstNode *target,
-                     AstNode *init,
+                     AstNode *allocator,
+                     AstNode *expr,
                      AstNode *next,
                      const Type *type);
 

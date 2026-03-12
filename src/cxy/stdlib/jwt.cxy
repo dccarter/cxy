@@ -1,0 +1,241 @@
+module jwt
+
+import "./base64.cxy"
+import split from "./utils.cxy"
+import Value from "./value.cxy"
+import { parse, toJSON } from "./json.cxy"
+import { HMAC_256, SHA256Digest } from "./crypto.cxy"
+
+import test "./testing.cxy"
+
+pub exception JwtError(msg: String) => msg != null? msg.str() : "Invalid JWT"
+
+@json
+struct Header {
+    alg: String = null
+    typ: String = null
+}
+
+@json
+struct Payload {
+    @json(optional: true)
+    iss: String = null
+    @json(optional: true)
+    sub: String = null
+    @json(optional: true)
+    aud: String = null
+    @json(optional: true)
+    exp = 0 as u64
+    @json(optional: true)
+    nbf = 0 as u64
+    @json(optional: true)
+    iat = 0 as u64
+    @json(optional: true)
+    jti: String = null
+    @json(optional: true)
+    claims = Value()
+}
+
+pub struct Jwt {
+    _header = Header{}
+    _payload = Payload{}
+
+    func `init`(typ: String = "JWT".S, alg: String = "HS256".S) {
+        _header.typ = &&typ
+        _header.alg = &&alg
+    }
+
+    @inline
+    func claim(key: String, value: Value) {
+        _payload.claims.[&&key] = &&value
+    }
+
+    @inline
+    func claim(key: String) => _payload.claims.[&&key]
+
+    @inline
+    func claims() => &_payload.claims
+
+    @inline
+    func payload() => &_payload
+
+    @inline
+    const func typ() => &_header.typ
+
+    @inline
+    const func alg() => &_header.alg
+
+    @inline
+    const func claims() => &_payload.claims
+
+    @inline
+    const func header() => &_header
+
+    @inline
+    const func payload() => &_payload
+
+    func encode(secret: __string): !String {
+        var os = String()
+        var tmp = String()
+
+        // 1. Encode header as JSON string
+        toJSON(&tmp, &_header)
+        // 2. Get base64 of header
+        base64.urlEncode(&os, &tmp)
+        // 3. Append '.' seperator
+        os << '.'
+
+        // 4. Encode payload as JSON string
+        tmp.clear()
+        toJSON(&tmp, &_payload)
+        // 5. Get base64 of payload
+        base64.urlEncode(&os, &tmp)
+        // 7. Calculate signature
+        var digest = SHA256Digest{}
+        HMAC_256(&digest, secret, os.data(), os.size())
+        // 6. Append '.' seperator
+        os << '.'
+        // 8. Get base64 of signature
+        digest.toString(&os, true)
+
+        return &&os
+    }
+}
+
+pub func verify(token: __string, secret: __string): !bool {
+    var pos = token.rIndexOf('.')
+    if !pos {
+        raise JwtError("Invalid JWT")
+    }
+
+    var data = token.substr(0, <i64>*pos)
+    var digest = SHA256Digest{}
+    HMAC_256(&digest, secret, data.data(), data.size())
+    var signature = digest.b64()
+    return signature.__str() == token.substr(<i64>*pos + 1)
+}
+
+pub func decode(jwt: &Jwt, token: __string, secret: __string): !bool {
+    var pos = token.rIndexOf('.')
+    if !pos {
+        raise JwtError("Invalid JWT")
+    }
+    var parts = split(token, ".")
+    if parts.size() != 3 {
+        raise JwtError("Invalid JWT")
+    }
+
+    var data = token.substr(0, <i64>*pos)
+    var digest = SHA256Digest{}
+    HMAC_256(&digest, secret, data.data(), data.size())
+    var signature = digest.b64()
+    if signature.__str() != parts.[2] {
+        return false
+    }
+
+    var header = String()
+    var payload = String()
+
+    base64.urlDecode(&header, &parts.[0])
+    base64.urlDecode(&payload, &parts.[1])
+    jwt._header = parse[Header](header.__str())
+    jwt._payload = parse[Payload](payload.__str())
+
+    return true
+}
+
+test "Jwt::claims" {
+    var jwt = Jwt();
+    jwt.claim("user_id", Value("12345"))
+    jwt.claim("role", Value("admin"))
+
+    var userId = jwt.claim("user_id")
+    ok!(!!userId && userId&.asString() == "12345")
+    var role = jwt.claim("role")
+    ok!(!!role && role&.asString() == "admin")
+}
+
+test "Jwt::encode valid" {
+    var jwt = Jwt();
+    jwt.payload().sub = "test-user".S
+    jwt.claim("role", Value("user"))
+
+    var token = jwt.encode("secret");
+    var parts = split(token.__str(), ".");
+    ok!(parts.size() == 3)  // header.payload.signature
+}
+
+test "Jwt::verify correct secret" {
+    var jwt = Jwt();
+    jwt.payload().sub = "test-user".S
+    var secret = "test-secret";
+
+    var token = jwt.encode(secret);
+    ok!(verify(token.__str(), secret))
+}
+
+test "Jwt::verify incorrect secret" {
+    var jwt = Jwt();
+    jwt.payload().sub = "test-user".S
+
+    var token = jwt.encode("correct-secret");
+    ok!(!verify(token.__str(), "wrong-secret"))
+}
+
+test "Jwt::decode valid secret" {
+    var originalJwt = Jwt();
+    originalJwt.payload().iss = "test-issuer".S
+    originalJwt.payload().sub = "user123".S
+    originalJwt.claim("role", Value("admin"))
+
+    var secret = "test-secret".s;
+    var token = originalJwt.encode(secret);
+
+    var decodedJwt = Jwt();
+    var result = decode(&decodedJwt, token.__str(), secret);
+
+    ok!(result)
+    ok!(decodedJwt.payload().iss == "test-issuer")
+    ok!(decodedJwt.payload().sub == "user123")
+    ok!(decodedJwt.claim("role")&.asString() == "admin")
+}
+
+test "Jwt::decode with invalid token format" {
+    var jwt = Jwt();
+    assertThrows!(decode(&jwt, "invalid.token".s, "secret"), #JwtError)
+}
+
+test "Jwt::decode invalid signature" {
+    var originalJwt = Jwt();
+    originalJwt.payload().sub = "user123".S
+
+    var token = originalJwt.encode("correct-secret");
+    var decodedJwt = Jwt();
+    var result = decode(&decodedJwt, token.__str(), "wrong-secret");
+
+    ok!(!result)
+}
+
+test "Jwt::encode/decode claims" {
+    var originalJwt = Jwt()
+    originalJwt.payload().iss = "api.test.com".S
+    originalJwt.payload().sub = "user456".S
+    originalJwt.payload().exp = 999999999
+    originalJwt.claim("department", Value("engineering"))
+    originalJwt.claim("level", Value("senior"))
+    originalJwt.claim("active", Value(true))
+
+    var secret = "complex-secret-123".s
+    var token = originalJwt.encode(secret);
+
+    var decodedJwt = Jwt();
+    var success = decode(&decodedJwt, token.__str(), secret);
+
+    ok!(success)
+    ok!(decodedJwt.payload().iss == "api.test.com")
+    ok!(decodedJwt.payload().sub == "user456")
+    ok!(decodedJwt.payload().exp == 999999999)
+    ok!(decodedJwt.claim("department")&.asString() == "engineering")
+    ok!(decodedJwt.claim("level")&.asString() == "senior")
+    ok!(decodedJwt.claim("active")&.asBool() == true)
+}

@@ -173,8 +173,8 @@ static void unpackNodeBody(AstNodeUnpackContext *ctx, AstNode *node)
         node->rangeExpr.step = unpackNode(ctx);
         break;
     case astNewExpr:
-        node->newExpr.type = unpackNode(ctx);
-        node->newExpr.init = unpackNode(ctx);
+        node->newExpr.allocator = unpackNode(ctx);
+        node->newExpr.expr = unpackNode(ctx);
         break;
     case astCastExpr:
         node->castExpr.to = unpackNode(ctx);

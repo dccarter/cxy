@@ -228,7 +228,8 @@ void checkReferenceType(AstVisitor *visitor, AstNode *node)
         node->type = referred;
         return;
     }
-    else if (isReferable(referred)) {
+
+    if (isReferable(referred)) {
         node->type =
             makeReferenceType(ctx->types, referred, node->flags & flgConst);
     }

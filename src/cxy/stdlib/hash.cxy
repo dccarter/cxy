@@ -11,7 +11,6 @@ const HMAP_RIMES: [u64, HMAP_PRIMES_COUNT!] = [
     74093, 148073, 296099, 592019, 1100009, 2200013, 4400021, 8800019
 ];
 
-@poco
 struct HashMapNode[K] {
     hash: u64 = 0;
     key: K
@@ -205,11 +204,11 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
     }
 
-    - const func getInternal(key: K): u64? {
+    - const func getInternal(key: &const K): u64? {
         if (_size == 0)
             return null
 
-        var i = Hasher{}(&key) % _capacity
+        var i = Hasher{}(key) % _capacity
         var j = 0 as u64
 
         while {
@@ -217,7 +216,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
             if (h == 0 || j > probe(i, h))
                 return null
 
-            if (Cmp{}(&_nodes.[i].key, &key))
+            if (Cmp{}(&_nodes.[i].key, key))
                 return i
 
             i = (i + 1) % _capacity
@@ -308,7 +307,10 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
     }
 
     @inline
-    const func contains(key: K) => !!getInternal(&&key)
+    const func contains(key: K) => !!getInternal(&key)
+
+    @inline
+    const func contains(key: &const K) => !!getInternal(key)
 
     @inline
     const func size() => _size
@@ -329,7 +331,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
 
         func get(key: K) : Optional[&V] {
-            const idx = getInternal(&&key)
+            const idx = getInternal(&key)
             if (idx) {
                 return &this._values.[*idx]
             }
@@ -337,7 +339,7 @@ pub class HashMap[K, V, Hasher = Hash[K], Cmp = Equals[K]] {
         }
 
         const func get(key: K) : Optional[&V] {
-            const idx = getInternal(&&key)
+            const idx = getInternal(&key)
             if (idx) {
                 return &this._values.[*idx]
             }
