@@ -124,7 +124,12 @@ static bool expandSingleGlob(const char *packageDir,
 
         // Build full base directory path
         char fullBaseDir[2048];
-        snprintf(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
+        // If baseDir is already absolute, use it as-is
+        if (baseDir[0] == '/') {
+            snprintf(fullBaseDir, sizeof(fullBaseDir), "%s", baseDir);
+        } else {
+            snprintf(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
+        }
 
         // Recursively find all matching files
         size_t beforeCount = files->size;
@@ -149,7 +154,12 @@ static bool expandSingleGlob(const char *packageDir,
 
     // Standard glob pattern without **
     char fullPattern[2048];
-    snprintf(fullPattern, sizeof(fullPattern), "%s/%s", packageDir, pattern);
+    // If pattern is already absolute, use it as-is
+    if (pattern[0] == '/') {
+        snprintf(fullPattern, sizeof(fullPattern), "%s", pattern);
+    } else {
+        snprintf(fullPattern, sizeof(fullPattern), "%s/%s", packageDir, pattern);
+    }
 
     glob_t globResult;
     memset(&globResult, 0, sizeof(globResult));
@@ -201,7 +211,7 @@ bool expandInputGlobs(const DynArray *inputs,
 {
     for (u32 i = 0; i < inputs->size; i++) {
         cstring pattern = ((cstring *)inputs->elems)[i];
-        
+
         if (!expandSingleGlob(packageDir, pattern, expandedFiles, strings, log)) {
             return false;
         }
@@ -265,7 +275,7 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
         }
         pushOnDynArray(&substitutedInputs, &substituted);
     }
-    
+
     // Expand input globs to actual files
     DynArray inputFiles = newDynArray(sizeof(cstring));
     if (!expandInputGlobs(&substitutedInputs, packageDir, &inputFiles, strings, log)) {
@@ -301,7 +311,7 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
 
     for (u32 i = 0; i < inputFiles.size; i++) {
         cstring inputFile = ((cstring *)inputFiles.elems)[i];
-        
+
         char fullPath[2048];
         if (inputFile[0] == '/') {
             strncpy(fullPath, inputFile, sizeof(fullPath) - 1);
@@ -336,7 +346,7 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
 
     for (u32 i = 0; i < substitutedOutputs.size; i++) {
         cstring outputFile = ((cstring *)substitutedOutputs.elems)[i];
-        
+
         char fullPath[2048];
         if (outputFile[0] == '/') {
             strncpy(fullPath, outputFile, sizeof(fullPath) - 1);
@@ -380,11 +390,11 @@ bool checkScriptCache(const PackageScript *script,
     // No environment variables - call with empty arrays
     DynArray emptyEnv = newDynArray(sizeof(EnvVar));
     DynArray emptyBuiltins = newDynArray(sizeof(EnvVar));
-    
+
     bool result = checkScriptCacheWithEnv(script, packageDir, &emptyEnv, &emptyBuiltins, strings, log, isCached);
-    
+
     freeDynArray(&emptyEnv);
     freeDynArray(&emptyBuiltins);
-    
+
     return result;
 }
