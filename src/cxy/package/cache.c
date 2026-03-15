@@ -254,6 +254,8 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
 
     // Both inputs and outputs are specified - check cache
     
+    logInfo(log, NULL, "Checking cache for script '{s}'", (FormatArg[]){{.s = script->name}});
+    
     // Substitute environment variables in inputs
     DynArray substitutedInputs = newDynArray(sizeof(cstring));
     for (u32 i = 0; i < script->inputs.size; i++) {
@@ -278,9 +280,12 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
 
     // If no input files matched, consider cache invalid (run script)
     if (inputFiles.size == 0) {
+        logInfo(log, NULL, "Cache miss: no input files matched patterns", NULL);
         freeDynArray(&inputFiles);
         return true;
     }
+    
+    logInfo(log, NULL, "Found {u32} input file(s)", (FormatArg[]){{.u32 = inputFiles.size}});
     
     // Substitute environment variables in outputs
     DynArray substitutedOutputs = newDynArray(sizeof(cstring));
@@ -313,6 +318,7 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
         u64 mtime;
         if (!getFileModTime(fullPath, &mtime, log)) {
             // Input file doesn't exist - cache invalid
+            logInfo(log, NULL, "Cache miss: input file not found: {s}", (FormatArg[]){{.s = fullPath}});
             freeDynArray(&inputFiles);
             return true;
         }
@@ -348,6 +354,7 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
         u64 mtime;
         if (!getFileModTime(fullPath, &mtime, log)) {
             // Output file doesn't exist - cache invalid, need to run
+            logInfo(log, NULL, "Cache miss: output file not found: {s}", (FormatArg[]){{.s = fullPath}});
             freeDynArray(&substitutedOutputs);
             return true;
         }
@@ -366,6 +373,13 @@ bool checkScriptCacheWithEnv(const PackageScript *script,
 
     // Cache is valid if all outputs are newer than all inputs
     *isCached = (earliestOutputTime > latestInputTime);
+    
+    if (*isCached) {
+        logInfo(log, NULL, "Cache hit: outputs are up-to-date", NULL);
+    } else {
+        logInfo(log, NULL, "Cache miss: outputs older than inputs (earliest output: {u64}, latest input: {u64})", 
+                (FormatArg[]){{.u64 = earliestOutputTime}, {.u64 = latestInputTime}});
+    }
     
     freeDynArray(&substitutedOutputs);
     return true;
