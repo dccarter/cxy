@@ -1,0 +1,41 @@
+FROM suilteam/cxy-base:ubuntu AS builder
+
+# Build arguments
+ARG BUILD_ID=0
+
+# Setup cxy environment variables
+ENV BUILD_ID=${BUILD_ID}
+ENV CXY_ROOT=/usr/local
+ENV CXY_STDLIB_DIR="${CXY_ROOT}/lib/cxy/std"
+
+LABEL version=local
+LABEL build=${BUILD_ID}
+
+# Install packages
+RUN apt-get -y update && apt-get -y upgrade
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
+    git curl jq cron
+
+# Copy local source code
+COPY . /tmp/cxy-src
+
+# Build and install cxy compiler from local source
+WORKDIR /tmp/cxy-build
+
+RUN echo "Building cxy compiler from local sources..." && \
+    cmake -S /tmp/cxy-src -B /tmp/cxy-build \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DLLVM_ROOT_DIR=$(llvm-config --prefix) \
+        -DCMAKE_C_COMPILER=$(which clang) \
+        -DCMAKE_CXX_COMPILER=$(which clang++) \
+        -DCMAKE_INSTALL_PREFIX=${CXY_ROOT} \
+        -DCXY_VERSION=0.1.0 \
+        -DCXY_BUILD_ID=${BUILD_ID} && \
+    cmake --build /tmp/cxy-build --config Debug --parallel $(nproc) && \
+    cmake --install /tmp/cxy-build && \
+    rm -rf /tmp/cxy-src /tmp/cxy-build
+
+# Verify installation
+RUN cxy --version
+
+WORKDIR /workspace
