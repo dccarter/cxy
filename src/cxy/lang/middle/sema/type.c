@@ -85,6 +85,9 @@ const Type *checkTypeShallow(AstVisitor *visitor, AstNode *node, bool shallow)
             ctx->shallow = wasShallow;
             return node->type = ERROR_TYPE(ctx);
         }
+        if (nodeIs(node, Noop)) {
+            return makeVoidType(ctx->types);
+        }
     }
 
     if (node->type) {

@@ -100,6 +100,24 @@ set(CXY_CORE_SOURCES
         src/cxy/core/strpool.c
         src/cxy/core/utils.c)
 
+set(CXY_PACKAGE_SOURCES
+        src/cxy/package/types.c
+        src/cxy/package/cxyfile.c
+        src/cxy/package/validators.c
+        src/cxy/package/gitops.c
+        src/cxy/package/resolver.c
+        src/cxy/package/commands/create.c
+        src/cxy/package/commands/add.c
+        src/cxy/package/commands/build.c
+        src/cxy/package/commands/dispatch.c
+        src/cxy/package/commands/install.c
+        src/cxy/package/commands/update.c
+        src/cxy/package/commands/test.c
+        src/cxy/package/commands/run.c
+        src/cxy/package/commands/remove.c
+        src/cxy/package/commands/clean.c
+        src/cxy/package/commands/info.c)
+
 set(CXY_3RD_PARTY_SOURCES
         src/3rdParty/cJSON.c
         src/3rdParty/toml/toml.c)
@@ -271,6 +289,7 @@ set(CXY_PLUGIN_LIB_HEADERS
 add_library(cxy-core STATIC
         ${CXY_3RD_PARTY_SOURCES}
         ${CXY_CORE_SOURCES}
+        ${CXY_PACKAGE_SOURCES}
         ${CXY_FRONTEND_SOURCES}
         ${CXY_MIDDLE_SOURCES}
         ${CXY_LANG_BACKEND_SOURCES}
@@ -451,6 +470,13 @@ if(ENABLE_UNIT_TESTS)
         tests/lang/parser/test_switch_statement.cpp
         tests/lang/parser/parser_utils.cpp
         tests/unit/test_utils.cpp
+        tests/package/test_semver.cpp
+        tests/package/test_version_constraints.cpp
+        tests/package/test_cxyfile_parser.cpp
+        tests/package/test_scripts.cpp
+        tests/package/test_validators.cpp
+        tests/package/test_gitops.cpp
+        tests/package/test_resolver.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
         src/cxy/plugin/shared.c
     )
@@ -469,6 +495,7 @@ if(ENABLE_UNIT_TESTS)
     target_compile_definitions(cxy_unit_tests PRIVATE
         -DCXY_VERSION="${CXY_VERSION}"
         -DCXY_BUILD_ID="${CXY_BUILD_ID}"
+        -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"
     )
 
     # Add unit test to CTest

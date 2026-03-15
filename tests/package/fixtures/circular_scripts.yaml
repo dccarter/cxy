@@ -1,0 +1,23 @@
+# Cxyfile.yaml with circular script dependencies for testing
+package:
+  name: circular-test
+  version: 1.0.0
+  author: Test Author <test@example.com>
+
+dependencies: []
+
+scripts:
+  # a depends on b
+  a:
+    command: echo "Running a"
+    depends: [b]
+
+  # b depends on c
+  b:
+    command: echo "Running b"
+    depends: [c]
+
+  # c depends on a - creates cycle: a -> b -> c -> a
+  c:
+    command: echo "Running c"
+    depends: [a]

@@ -43,7 +43,28 @@ pub func fromYaml[T](str: __string): !T {
 }
 
 /*
+ * Serialize a Value to YAML, writing to an OutputStream
+ *
+ * Parameters:
+ *   os: Output stream to write YAML to
+ *   value: The Value to serialize
+ *   indent: Number of spaces per indentation level (default: 2)
+ *
+ * Example:
+ *   var data = Value.Object()
+ *   data.["name"] = Value("MyApp")
+ *   dump(&stdout, &data)
+ *   // Output: name: MyApp
+ */
+pub func dump(os: &OutputStream, value: &const Value, indent: u32 = 2) {
+    var serializer = YamlSerializer(os, indent)
+    serializer.serialize(value)
+}
+
+/*
  * Serialize a Value to YAML string
+ *
+ * Convenience wrapper around dump() that returns a String
  *
  * Parameters:
  *   value: The Value to serialize
@@ -59,16 +80,21 @@ pub func fromYaml[T](str: __string): !T {
  */
 pub func stringify(value: &const Value, indent: u32 = 2): String {
     var output = String()
-    var serializer = YamlSerializer(&output, indent)
-    serializer.serialize(value)
+    dump(&output, value, indent)
     return &&output
 }
 
 /*
- * Alias for stringify (matches common YAML libraries like PyYAML)
+ * Serialize a native type to YAML
+ *
+ * Parameters:
+ *   os: Output stream to write to
+ *   it: The value to serialize
+ *   indent: Indentation size (default: 2)
  */
-pub func dump(value: &const Value, indent: u32 = 2): String {
-    return stringify(value, indent)
+pub func toYaml[T](os: &OutputStream, it: &const T, indent: u32 = 2) : void {
+    var serializer = YamlSerializer(os, indent)
+    serializer.toYaml[T](it)
 }
 
 // Tests
@@ -340,9 +366,15 @@ test "stringify - reserved words get quoted" {
     ok!(yaml.contains("value: \"true\""))
 }
 
-test "dump - alias for stringify" {
+test "dump - writes to output stream" {
     var value = Value("test")
-    var yaml1 = stringify(&value)
-    var yaml2 = dump(&value)
-    ok!(yaml1 == yaml2)
+    var output = String()
+    dump(&output, &value)
+    ok!(output == "test")
+}
+
+test "stringify - calls dump internally" {
+    var value = Value("test")
+    var yaml = stringify(&value)
+    ok!(yaml == "test")
 }

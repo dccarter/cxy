@@ -7,6 +7,8 @@
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 #ifdef WIN32
 #define isatty _isatty
@@ -494,3 +496,422 @@ int exec(const char *command, FormatState *output)
 }
 
 #endif
+
+bool makeDirectory(const char *path, bool createParents)
+{
+    if (!path || path[0] == '\0') {
+        errno = EINVAL;
+        return false;
+    }
+
+    // Check if directory already exists
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            return true; // Already exists
+        }
+        errno = EEXIST; // Path exists but is not a directory
+        return false;
+    }
+
+    if (!createParents) {
+        // Simple case: create single directory
+        return mkdir(path, 0755) == 0;
+    }
+
+    // Create parent directories recursively
+    char *pathCopy = strdup(path);
+    if (!pathCopy) {
+        errno = ENOMEM;
+        return false;
+    }
+
+    bool success = true;
+    char *p = pathCopy;
+
+    // Skip leading slashes
+    if (*p == '/') p++;
+
+    for (; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+
+            // Try to create this level
+            if (mkdir(pathCopy, 0755) != 0 && errno != EEXIST) {
+                success = false;
+                break;
+            }
+
+            *p = '/';
+        }
+    }
+
+    // Create the final directory
+    if (success && mkdir(pathCopy, 0755) != 0 && errno != EEXIST) {
+        success = false;
+    }
+
+    free(pathCopy);
+    return success;
+}
+
+bool writeToFile(const char *path, const char *content, size_t size)
+{
+    if (!path || path[0] == '\0') {
+        errno = EINVAL;
+        return false;
+    }
+
+    FILE *file = fopen(path, "w");
+    if (!file) {
+        return false;
+    }
+
+    if (content && size > 0) {
+        size_t written = fwrite(content, 1, size, file);
+        if (written != size) {
+            fclose(file);
+            return false;
+        }
+    }
+
+    if (fclose(file) != 0) {
+        return false;
+    }
+
+    return true;
+}
+
+bool isDirectoryEmpty(const char *path)
+{
+    if (!path || path[0] == '\0') {
+        errno = EINVAL;
+        return false;
+    }
+
+    DIR *dir = opendir(path);
+    if (!dir) {
+        return false;
+    }
+
+    struct dirent *entry;
+    bool isEmpty = true;
+
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip . and ..
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        isEmpty = false;
+        break;
+    }
+
+    closedir(dir);
+    return isEmpty;
+}
+
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <time.h>
+
+// Spinner frames
+static const char *spinnerFrames[] = {
+    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+};
+static const int spinnerFrameCount = 10;
+
+// ANSI escape codes
+#define CLEAR_LINE "\033[2K"
+#define MOVE_UP "\033[1A"
+#define MOVE_TO_START "\r"
+
+typedef struct {
+    char *lines[2];  // Circular buffer for last 2 lines
+    int currentLine;
+    int lineCount;
+} OutputBuffer;
+
+static void initOutputBuffer(OutputBuffer *buf) {
+    buf->lines[0] = NULL;
+    buf->lines[1] = NULL;
+    buf->currentLine = 0;
+    buf->lineCount = 0;
+}
+
+static void addLineToBuffer(OutputBuffer *buf, const char *line) {
+    // Free old line if exists
+    if (buf->lines[buf->currentLine]) {
+        free(buf->lines[buf->currentLine]);
+    }
+
+    // Store new line
+    buf->lines[buf->currentLine] = strdup(line);
+
+    // Move to next slot
+    buf->currentLine = (buf->currentLine + 1) % 2;
+    if (buf->lineCount < 2) {
+        buf->lineCount++;
+    }
+}
+
+static void freeOutputBuffer(OutputBuffer *buf) {
+    if (buf->lines[0]) free(buf->lines[0]);
+    if (buf->lines[1]) free(buf->lines[1]);
+}
+
+static void clearLastNLines(int n) {
+    // Clear the current line first (where cursor is)
+    printf(CLEAR_LINE MOVE_TO_START);
+    // Then move up and clear each previous line
+    for (int i = 0; i < n; i++) {
+        printf(MOVE_UP CLEAR_LINE);
+    }
+    printf(MOVE_TO_START);
+    fflush(stdout);
+}
+
+static void printBufferedLines(OutputBuffer *buf) {
+    // Print in order (oldest first)
+    int start = buf->lineCount == 2 ? buf->currentLine : 0;
+    for (int i = 0; i < buf->lineCount; i++) {
+        int idx = (start + i) % 2;
+        if (buf->lines[idx]) {
+            printf("  %s\n", buf->lines[idx]);
+        }
+    }
+    fflush(stdout);
+}
+
+bool runCommandWithProgressFull(const char *header, const char *command, void *log, bool showOutput) {
+    (void)log; // Unused for now
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        return false;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return false;
+    }
+
+    if (pid == 0) {
+        // Child process
+        close(pipefd[0]);
+
+        // Redirect stdout and stderr to pipe
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
+        // Execute command
+        execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+        _exit(127);
+    }
+
+    // Parent process
+    close(pipefd[1]);
+
+    // Make pipe non-blocking
+    int flags = fcntl(pipefd[0], F_GETFL, 0);
+    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+
+    OutputBuffer outputBuf;
+    initOutputBuffer(&outputBuf);
+
+    char lineBuffer[4096] = {0};
+    int linePos = 0;
+
+    int spinnerFrame = 0;
+    struct timespec lastSpinnerUpdate = {0};
+    clock_gettime(CLOCK_MONOTONIC, &lastSpinnerUpdate);
+
+    bool commandRunning = true;
+    int linesShown = 0;
+    /* Track child's exit status if reaped by non-blocking wait (avoid double waitpid). */
+    int status = 0;
+    bool childExited = false;
+    int childStatus = 0;
+
+    // Initial display
+    if (showOutput) {
+        // Real-time mode: just show the header without spinner
+        printf(cCYN " ► " cDEF "%s\n", header);
+        fflush(stdout);
+        linesShown = 0; // Don't track lines in real-time mode
+    } else {
+        // Buffered mode: show spinner
+        printf("%s %s\n", spinnerFrames[spinnerFrame], header);
+        fflush(stdout);
+        linesShown = 1;
+    }
+
+    while (commandRunning) {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(pipefd[0], &readfds);
+
+        struct timeval timeout = {0, 100000}; // 100ms
+        int ret = select(pipefd[0] + 1, &readfds, NULL, NULL, &timeout);
+
+        if (ret > 0 && FD_ISSET(pipefd[0], &readfds)) {
+            char buf[1024];
+            ssize_t n = read(pipefd[0], buf, sizeof(buf) - 1);
+
+            if (n > 0) {
+                buf[n] = '\0';
+
+                // Process output character by character
+                for (ssize_t i = 0; i < n; i++) {
+                    if (buf[i] == '\n') {
+                        lineBuffer[linePos] = '\0';
+                        if (linePos > 0) {
+                            if (showOutput) {
+                                // Real-time mode: print immediately
+                                printf("%s\n", lineBuffer);
+                                fflush(stdout);
+                            }
+                            addLineToBuffer(&outputBuf, lineBuffer);
+                        }
+                        linePos = 0;
+
+                        if (!showOutput) {
+                            // Buffered mode: redraw display with spinner
+                            clearLastNLines(linesShown);
+                            printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
+                            printBufferedLines(&outputBuf);
+                            linesShown = 1 + outputBuf.lineCount;
+                        }
+                    } else if (linePos < (int)sizeof(lineBuffer) - 1) {
+                        lineBuffer[linePos++] = buf[i];
+                    }
+                }
+            } else if (n == 0) {
+                // EOF
+                commandRunning = false;
+            }
+        }
+
+        // Check if child process exited (non-blocking). Capture status to avoid double-wait.
+        pid_t result = waitpid(pid, &status, WNOHANG);
+        if (result > 0) {
+            /* Child exited; remember status for later and stop the loop. */
+            commandRunning = false;
+            childExited = true;
+            childStatus = status;
+        }
+
+        // Update spinner animation
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long long elapsed = (now.tv_sec - lastSpinnerUpdate.tv_sec) * 1000000000LL +
+                           (now.tv_nsec - lastSpinnerUpdate.tv_nsec);
+
+        if (elapsed > 100000000) { // 100ms
+            spinnerFrame = (spinnerFrame + 1) % spinnerFrameCount;
+            lastSpinnerUpdate = now;
+
+            if (!showOutput) {
+                clearLastNLines(linesShown);
+                printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
+                printBufferedLines(&outputBuf);
+                linesShown = 1 + outputBuf.lineCount;
+            }
+        }
+    }
+
+    // Read any remaining output and process any trailing partial line.
+    // Restore pipe to blocking mode and then drain fully to ensure we've captured
+    // all child output before waiting for its exit status. This avoids races
+    // where the child exits but the parent hasn't yet read the child's final bytes.
+    // Restore blocking mode on the pipe (remove O_NONBLOCK).
+    {
+        int curFlags = fcntl(pipefd[0], F_GETFL, 0);
+        if (curFlags != -1) {
+            fcntl(pipefd[0], F_SETFL, curFlags & ~O_NONBLOCK);
+        }
+    }
+
+    char buf[1024];
+    ssize_t rn;
+    // Blockingly read until EOF (read returns 0) so we drain the pipe fully.
+    while ((rn = read(pipefd[0], buf, sizeof(buf))) > 0) {
+        // Process the bytes similarly to the main loop: accumulate into lineBuffer,
+        // split on newlines and update the displayed buffered lines.
+        for (ssize_t i = 0; i < rn; i++) {
+            if (buf[i] == '\n') {
+                lineBuffer[linePos] = '\0';
+                if (linePos > 0) {
+                    if (showOutput) {
+                        // Real-time mode: print immediately
+                        printf("%s\n", lineBuffer);
+                        fflush(stdout);
+                    }
+                    addLineToBuffer(&outputBuf, lineBuffer);
+                }
+                linePos = 0;
+
+                if (!showOutput) {
+                    // Buffered mode: redraw display with latest buffered lines
+                    clearLastNLines(linesShown);
+                    printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
+                    printBufferedLines(&outputBuf);
+                    linesShown = 1 + outputBuf.lineCount;
+                }
+            } else if (linePos < (int)sizeof(lineBuffer) - 1) {
+                lineBuffer[linePos++] = buf[i];
+            }
+        }
+    }
+    // If there is a trailing partial line (no terminating newline), add it now
+    if (linePos > 0) {
+        lineBuffer[linePos] = '\0';
+        if (showOutput) {
+            // Real-time mode: print immediately
+            printf("%s\n", lineBuffer);
+            fflush(stdout);
+        }
+        addLineToBuffer(&outputBuf, lineBuffer);
+        linePos = 0;
+
+        if (!showOutput) {
+            clearLastNLines(linesShown);
+            printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
+            printBufferedLines(&outputBuf);
+            linesShown = 1 + outputBuf.lineCount;
+        }
+    }
+
+    // Close pipe and ensure we have the child's exit status.
+    // If we already captured it above (childExited), reuse it; otherwise blockingly wait.
+    close(pipefd[0]);
+
+    if (childExited) {
+        status = childStatus;
+    } else {
+        waitpid(pid, &status, 0);
+    }
+
+    bool success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+
+    if (!showOutput) {
+        // Buffered mode: clear progress display and show final result
+        clearLastNLines(linesShown);
+
+        if (success) {
+            // Show success (green check)
+            printf(cBGRN " ✔ " cDEF "%s\n", header);
+        } else {
+            // Show failure with output (red X)
+            printf(cBRED " ✗ " cDEF "%s\n", header);
+            printBufferedLines(&outputBuf);
+        }
+    }
+    fflush(stdout);
+
+    freeOutputBuffer(&outputBuf);
+    return success;
+}

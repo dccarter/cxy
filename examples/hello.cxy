@@ -1,19 +1,15 @@
-import { Server, Request, Response, Config } from "stdlib/http.cxy"
-import { Address } from "stdlib/net.cxy"
+
+func showField[NAME, T](obj: &const T) {
+    #const field = T.members.[NAME.value]
+    println(#{NAME.value}, " = ", obj.#{mk_ident!(NAME.value)})
+}
+
+struct User {
+    name: string = "Jane"
+    age: i32 = 0
+}
 
 func main(): !void {
-    var server = Server[()](Config{address: Address("0.0.0.0", 8004)});
-    server("/", (@unused req: &const Request, resp: &Response) => {
-        resp.body() << "Hello, World!"
-    })
-
-    server("/cookie", (req: &const Request, resp: &Response) => {
-        resp.body() << "Hello, World!"
-        var cookie = req.cookie("name")
-        if !!cookie {
-            resp.body() << "\nCookie... name: " << cookie
-        }
-    }).setAttrs({ parseCookies: true })
-
-    server.start()
+    var user = User{}
+    showField["name"](&user)
 }

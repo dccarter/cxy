@@ -13,7 +13,7 @@ void checkVarDecl(AstVisitor *visitor, AstNode *node)
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *type = node->varDecl.type, *init = node->varDecl.init,
             *name = node->varDecl.names;
-    if (hasFlag(name, Comptime) && !evaluate(ctx->evaluator, name)) {
+    if (hasFlag(node, Comptime) && !evaluate(ctx->evaluator, name)) {
         node->type = ERROR_TYPE(ctx);
         return;
     }

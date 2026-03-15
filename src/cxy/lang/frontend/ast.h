@@ -335,6 +335,7 @@ struct AstNode {
         struct {
             cstring name;
             Env *env;
+            bool isPackage;
         } moduleDecl;
 
         struct {
@@ -1554,6 +1555,7 @@ static inline bool isClassOrStructAstNode(const AstNode *node)
 u64 countAstNodes(const AstNode *node);
 
 u64 countProgramDecls(const AstNode *program);
+u64 countPackageExports(const AstNode *program);
 
 AstNode *getLastAstNode(AstNode *node);
 

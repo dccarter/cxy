@@ -97,6 +97,7 @@ void logWarningWithId(
 void logNote(Log *, const FileLoc *, const char *, const FormatArg *);
 void printStatus(Log *L, const char *fmt, ...);
 void printStatusAlways(Log *L, const char *fmt, ...);
+void printStatusSticky(Log *L, const char *fmt, ...);
 
 void printDiagnosticToConsole(const Diagnostic *diag, void *ctx);
 void printDiagnosticToMemory(const Diagnostic *diag, void *ctx);

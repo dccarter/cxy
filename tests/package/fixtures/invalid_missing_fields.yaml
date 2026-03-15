@@ -1,0 +1,10 @@
+# Invalid Cxyfile.yaml - missing required fields
+package:
+  name: invalid-package
+  # Missing version
+  # Missing author
+  description: This package is missing required fields
+
+dependencies: []
+
+tests: []

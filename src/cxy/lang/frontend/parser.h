@@ -35,6 +35,7 @@ typedef struct {
     bool inCase : 1;
     bool inTest : 1;
     bool testMode : 1;
+    bool isPackage : 1;
     Token ahead[TOKEN_BUFFER];
 } Parser;
 

@@ -1,0 +1,68 @@
+# Complete valid Cxyfile.yaml for testing
+package:
+  name: test-package
+  version: 1.2.3
+  description: A complete test package
+  author: Test Author <test@example.com>
+  license: MIT
+  repository: https://github.com/test/test-package
+  homepage: https://test-package.example.com
+
+dependencies:
+  - name: json-parser
+    repository: https://github.com/cxy-lang/json
+    version: ^2.1.0
+
+  - name: crypto
+    repository: https://github.com/cxy-lang/crypto
+    version: ~1.4.2
+
+  - name: utils
+    repository: https://github.com/username/cxy-utils
+    version: 1.2.3
+    tag: v1.2.3
+
+dev_dependencies:
+  - name: test-framework
+    repository: https://github.com/cxy-lang/test
+    version: ^3.0.0
+
+tests:
+  - src/lib.cxy
+  - src/client.cxy
+  - tests/integration_test.cxy
+
+scripts:
+  install: cxy package install
+
+  build:
+    command: cxy build src/lib.cxy -o build/test.so
+    depends: [install]
+
+  test:
+    command: cxy package test
+    depends: [build]
+
+  clean: rm -rf build/
+
+build:
+  entry: src/lib.cxy
+  c-libs:
+    - hiredis
+    - ssl
+  c-lib-dirs:
+    - /usr/local/lib
+  c-header-dirs:
+    - /usr/local/include
+  c-defines:
+    - _POSIX_C_SOURCE=200809L
+  c-flags:
+    - -Wall
+    - -Wextra
+  defines:
+    - TEST_MODE
+    - DEBUG=1
+  flags:
+    - -O2
+  plugins-dir: ./plugins
+  stdlib: /usr/local/lib/cxy/std

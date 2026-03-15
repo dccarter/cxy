@@ -2,6 +2,7 @@
 #include "core/utils.h"
 #include "driver/driver.h"
 #include "driver/options.h"
+#include "package/commands/commands.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,11 @@ int main(int argc, char **argv)
     if (!parseCommandLineOptions(
             &argc, argv, &strings, &driver.options, &log)) {
         status = false;
+        goto exit;
+    }
+
+    if (driver.options.cmd == cmdPackage) {
+        status = dispatchPackageCommand(&driver.options, &strings, &log);
         goto exit;
     }
 

@@ -9,10 +9,13 @@
  */
 
 #include "args.h"
+#include "array.h"
+#include "utils.h"
 
+#include <string.h>
 #include <ctype.h>
 #include <errno.h>
-#include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,7 +101,7 @@ static CmdFlag *cmdFindByName(CmdFlag *args,
 static CmdFlag *cmdFindByShortFormat(CmdFlag *args, u32 nargs, char sf)
 {
     for (int i = 0; i < nargs; i++) {
-        if (args[i].sf == '\0')
+        if (args[i].sf == '\0' || args[i].name == NULL)
             continue;
         if (args[i].sf == sf)
             return &args[i];
@@ -208,21 +211,39 @@ static void cmdShowCommandUsage(const CmdParser *P,
     if (cmd->nargs) {
         fputs("\nCommand options:\n", fp);
         for (int i = 0; i < cmd->nargs; i++) {
-            cmdShowCommandFlag(&cmd->args[i], cmd->la, cols, fp, false);
+            if (cmd->args[i].name != NULL)
+                cmdShowCommandFlag(&cmd->args[i], cmd->la, cols, fp, false);
         }
     }
 }
 
 static void vmInitializeCommand(CmdCommand *cmd, CmdFlag *gArgs, u32 ngArgs)
 {
+    if (cmd->interactive) {
+        CmdFlag *arg = &cmd->args[0];
+        arg->name = "interactive";
+        arg->sf = 'i';
+    }
+
     for (int i = 0; i < cmd->nargs; i++) {
         CmdFlag *arg = &cmd->args[i];
         memset(&arg->val, 0, sizeof(arg->val));
+        if (arg->name == NULL)
+            continue;
+
+        if (cmd->interactive) {
+            if (arg->prompt == NULL) {
+                arg->prompt = arg->help;
+            }
+        }
 
         for (int j = i + 1; j < cmd->nargs; j++) {
+            if (cmd->args[j].name == NULL)
+                continue;
+
             if (strcmp(arg->name, cmd->args[j].name) == 0) {
                 fprintf(stderr,
-                        "Duplicate duplicate flag name '%s' at index %d and %d "
+                        "Duplicate flag name '%s' at index %d and %d "
                         "on command '%s'!\n",
                         arg->name,
                         i,
@@ -244,6 +265,9 @@ static void vmInitializeCommand(CmdCommand *cmd, CmdFlag *gArgs, u32 ngArgs)
         }
 
         for (int j = 0; j < ngArgs; j++) {
+            if (gArgs[j].name == NULL)
+                continue;
+
             if (strcmp(arg->name, gArgs[j].name) == 0) {
                 fprintf(stderr,
                         "Flag name '%s' defined in command '%s' at index %d "
@@ -296,6 +320,16 @@ static bool cmdParseCommandArguments(CmdParser *P,
         if (cmdIsIgnoreArguments(arg)) {
             --argc;
             ++argv;
+            if (cmd->npos != 0 && cmdIsIgnoreArguments(cmd->pos[cmd->npos-1].name)) {
+                CmdPositional *pos = &cmd->pos[cmd->npos-1];
+                if (pos->isMany) {
+                    pos->val.state = cmdArray;
+                    pos->val.array = newDynArray(sizeof(cstring));
+                }
+                for (; argc > 0; --argc, ++argv) {
+                    pushStringOnDynArray(&pos->val.array, *argv);
+                }
+            }
             break;
         }
 
@@ -328,23 +362,59 @@ static bool cmdParseCommandArguments(CmdParser *P,
         else {
             if (cmd->npos == 0) {
                 (dst)[reWrite++] = (char *)arg;
+                npos++;
+                continue;
             }
-            else if (npos >= cmd->npos) {
-                sprintf(cmd->P->error,
-                        "error: unexpected number of positional arguments "
-                        "passed, expecting %u\n",
-                        cmd->npos);
-                return false;
+
+            CmdPositional *pos = NULL;
+            if (npos >= cmd->npos) {
+                pos = &cmd->pos[cmd->npos-1];
+                if (cmdIsIgnoreArguments(pos->name)) {
+                    if (cmd->npos >= 1) {
+                        // Go back one more flag
+                        pos = &cmd->pos[cmd->npos-2];
+                    }
+                    else {
+                        pos = NULL;
+                    }
+                }
+
+                if (!pos || !pos->isMany) {
+                    sprintf(cmd->P->error,
+                            "error: unexpected number of positional arguments "
+                            "passed, expecting %u\n",
+                            cmd->npos);
+                    return false;
+                }
             }
             else {
-                CmdPositional *pos = &cmd->pos[npos];
-                if (!pos->validator) {
+                pos = &cmd->pos[npos];
+            }
+
+            if (cmdIsIgnoreArguments(pos->name)) {
+                sprintf(cmd->P->error,
+                            "error: unexpected number of positional arguments "
+                            "passed, expecting at most %u, you can use '--' "
+                            "to capture rest of arguments\n",
+                            cmd->npos - 1);
+                return false;
+            }
+
+            if (!pos->validator) {
+                if (pos->isMany) {
+                    if (pos->val.array.elems == NULL) {
+                        pos->val.state = cmdArray;
+                        pos->val.array = newDynArray(sizeof(cstring));
+                    }
+                    pushStringOnDynArray(&pos->val.array, arg);
+                }
+                else {
                     pos->val.state = cmdString;
                     pos->val.str = arg;
                 }
-                else if (!pos->validator(P, &pos->val, arg, pos->name)) {
-                    return false;
-                }
+            }
+            else if (!pos->validator(P, &pos->val, arg, pos->name)) {
+                return false;
             }
             npos++;
             continue;
@@ -403,6 +473,51 @@ static void cmdHandleBuiltins(CmdCommand *cmd, bool def)
     if (help && help->num) {
         cmdShowUsage(P, def ? NULL : cmd->name, stdout);
         exit(EXIT_SUCCESS);
+    }
+}
+
+static bool promptUser(CmdParser *P, CmdFlag *flag)
+{
+    char buf[1024];
+    if (flag->validator == NULL) {
+        // No validator so this likely an option
+        printf("? %s (Y/n): ", flag->prompt);
+        if (fgets(buf, sizeof(buf), stdin) == NULL)
+            return false;
+        buf[strcspn(buf, "\n")] = '\0';
+        // We support [Yy]([eE][sS]) or empty for default, everything else is a no
+        flag->val.num = strlen(buf) == 0 || strcasecmp("yes", buf) == 0;
+        flag->val.state = cmdNumber;
+        printf("\033[A\r\033[K\r" cGRN "✔" cDEF " %s: " cCYN "%s" cDEF "\n",
+                flag->prompt, flag->val.num ? "Yes" : "No");
+        return true;
+    }
+    else {
+        // Validator present so this is likely a value
+        if (flag->def != NULL && flag->def[0] != '\0') {
+            printf("? %s: (%s): ", flag->prompt, flag->def);
+        }
+        else {
+            printf("? %s: ", flag->prompt);
+        }
+        if (fgets(buf, sizeof(buf), stdin) == NULL)
+            return false;
+        buf[strcspn(buf, "\n")] = '\0';
+        if (buf[0] == '\0' && flag->def == NULL) {
+            sprintf(P->error,
+                    "error: value required for '%s'\n",
+                    flag->name);
+            return false;
+        }
+
+        const char *finalValue = buf[0] == '\0' ? flag->def : buf;
+        bool valid = flag->validator(P, &flag->val, finalValue, flag->name);
+
+        if (valid) {
+            printf("\033[A\r\033[K\r" cGRN "✔" cDEF " %s: " cCYN "%s" cDEF "\n",
+                flag->prompt, finalValue);
+        }
+        return valid;
     }
 }
 
@@ -678,7 +793,7 @@ void cmdShowUsage(CmdParser *P, const char *name, FILE *fp)
         fputs("\nGlobal Flags:\n", fp);
         for (int i = 0; i < P->nargs; i++) {
             const CmdFlag *arg = &P->args[i];
-            if (arg->isAppOnly && cmd != NULL)
+            if (arg->name == NULL || (arg->isAppOnly && cmd != NULL))
                 continue;
             cmdShowCommandFlag(arg, P->la, cols, fp, true);
         }
@@ -693,8 +808,12 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P)
     for (int i = 0; i < P->nargs; i++) {
         CmdFlag *arg = &P->args[i];
         memset(&arg->val, 0, sizeof(arg->val));
+        if (arg->name == NULL)
+            continue;
 
         for (int j = i + 1; j < P->nargs; j++) {
+            if (P->args[j].name == NULL)
+                continue;
             if (strcmp(arg->name, P->args[j].name) == 0) {
                 fprintf(stderr,
                         "Duplicate flag name'%s' detected at index %d and %d! "
@@ -761,12 +880,19 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P)
         return -1;
 
     cmdHandleBuiltins(cmd, choseDef);
-
+    bool isInteractive = cmd->interactive && cmd->args[0].val.num != 0;
     // Validate that all required flags and positional arguments have been set
-    for (int i = 0; i < cmd->nargs; i++) {
+    for (int i = 1; i < cmd->nargs; i++) {
         CmdFlag *flag = &cmd->args[i];
         if (flag->val.state != cmdNoValue)
             continue;
+
+        if (isInteractive) {
+            if (!promptUser(P, flag))
+                return -1;
+            continue;
+        }
+
         if (flag->validator == NULL) {
             // flags that do not have a validator are considered optional
             flag->val.state = cmdNumber;

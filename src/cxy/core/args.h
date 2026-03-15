@@ -41,6 +41,7 @@ typedef struct CommandLineArgument {
     char sf;
     const char *help;
     const char *def;
+    const char *prompt;
     CmdFlagValue val;
     bool isAppOnly;
     bool (*validator)(struct CommandLineParser *,
@@ -53,6 +54,7 @@ typedef struct CommandLinePositional {
     const char *name;
     const char *help;
     const char *def;
+    bool isMany;
     CmdFlagValue val;
     bool (*validator)(struct CommandLineParser *,
                       CmdFlagValue *,
@@ -66,6 +68,7 @@ typedef struct CommandLineCommand {
     u32 nargs;
     u32 npos;
     CmdPositional *pos;
+    bool interactive;
     struct CommandLineParser *P;
     u16 lp;
     u16 la;
@@ -132,6 +135,8 @@ bool cmdParseBitFlags(CmdParser *P,
 #define Help(H) .help = H
 #define Type(V) .validator = V
 #define Def(D) .def = D
+#define Prompt(P) .prompt = P
+#define Many() .isMany = true
 #define BindArray(Arr) .val.array = Arr
 #define Positionals(...) {__VA_ARGS__}
 #define Opt(...) {__VA_ARGS__, .validator = NULL}
@@ -144,20 +149,37 @@ bool cmdParseBitFlags(CmdParser *P,
 #define Use(V, ...) {__VA_ARGS__, .validator = V}
 
 #define Sizeof(T, ...) (sizeof((T[]){__VA_ARGS__}) / sizeof(T))
+
+#define InteractiveCommand(N, H, P, ...)                                       \
+static int CMD_##N = 0;                                                    \
+typedef struct Cmd##N Cmd##N;                                              \
+static struct Cmd##N {                                                     \
+    CmdCommand meta;                                                       \
+    CmdFlag args[1 + Sizeof(CmdFlag, __VA_ARGS__)];                        \
+    CmdPositional pos[sizeof((CmdPositional[])P) / sizeof(CmdPositional)]; \
+} N = {.meta = {.name = #N,                                                \
+                .help = H,                                                 \
+                .interactive = true,                                       \
+                .nargs = 1 + Sizeof(CmdFlag, __VA_ARGS__),                 \
+                .npos =                                                    \
+                    (sizeof((CmdPositional[])P) / sizeof(CmdPositional))}, \
+        .args = {Opt(Help("Run in interactive mode")), ##__VA_ARGS__},     \
+        .pos = P}
+
 #define Command(N, H, P, ...)                                                  \
     static int CMD_##N = 0;                                                    \
     typedef struct Cmd##N Cmd##N;                                              \
     static struct Cmd##N {                                                     \
         CmdCommand meta;                                                       \
-        CmdFlag args[Sizeof(CmdFlag, __VA_ARGS__)];                            \
+        CmdFlag args[1 + Sizeof(CmdFlag, __VA_ARGS__)];                            \
         CmdPositional pos[sizeof((CmdPositional[])P) / sizeof(CmdPositional)]; \
     } N = {.meta = {.name = #N,                                                \
                     .help = H,                                                 \
-                    .nargs = Sizeof(CmdFlag, __VA_ARGS__),                     \
+                    .nargs = 1 + Sizeof(CmdFlag, __VA_ARGS__),                     \
                     .npos =                                                    \
                         (sizeof((CmdPositional[])P) / sizeof(CmdPositional))}, \
-           .args = {__VA_ARGS__},                                              \
-           .pos = P}
+            .args = {Opt(Help("Run in interactive mode")), ##__VA_ARGS__},      \
+            .pos = P}
 
 #define Cmd(N) &((N).meta)
 
@@ -192,9 +214,23 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
                         Help("The command whose help should be retrieved"),    \
                         Def(""))));
 
+#define VersionOpt()                                                           \
+    Opt(Name("version"),                                                       \
+             Sf('v'),                                                          \
+             Help("Show the application version"),                             \
+             .isAppOnly = true)
+
+#define PositionalRest()                                       \
+    Use(NULL,                                                  \
+    Name("--"),                                                \
+    Help("Group all remaining args as positional arguments"),  \
+    Many())
+
+#define DisableVersionOpt() Opt(.name = NULL)
+
 #define PARSER_BUILTIN_COMMANDS(f) f(help)
 
-#define Parser(N, V, CMDS, DEF, ...)                                           \
+#define Parser(N, V, CMDS, DEF, VOPT, ...)                                     \
     CMDL_HELP_CMD                                                              \
     int cmdCOUNT = 0;                                                          \
     struct {                                                                   \
@@ -210,14 +246,11 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
                         sizeof(CmdCommand *)),                                 \
               .nargs = 2 + Sizeof(CmdFlag, __VA_ARGS__)},                      \
         .cmds = __FLATTEN_COMMANDS(CMDS),                                      \
-        .args = {Opt(Name("version"),                                          \
-                     Sf('v'),                                                  \
-                     Help("Show the application version"),                     \
-                     .isAppOnly = true),                                       \
-                 Opt(Name("help"),                                             \
+        .args = { VOPT,                                                        \
+                  Opt(Name("help"),                                            \
                      Sf('h'),                                                  \
                      Help("Get help for the selected command")),               \
-                 ##__VA_ARGS__}};                                              \
+                  ##__VA_ARGS__}};                                             \
     __INIT_COMMANDS(CMDS)                                                      \
     CmdParser *P = &parser.P
 
@@ -235,19 +268,23 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
 #define getGlobalBool(cmd, I) (cmdGetGlobalFlag(cmd, (I) + 2)->num != 0)
 #define getGlobalString(cmd, I) cmdGetGlobalFlag(cmd, (I) + 2)->str
 #define getGlobalArray(cmd, I) cmdGetGlobalFlag(cmd, (I) + 2)->array
-#define getLocalInt(cmd, I) (int)cmdGetFlag(cmd, (I))->num
-#define getLocalFloat(cmd, I) cmdGetFlag(cmd, (I))->num
-#define getLocalBytes(cmd, I) (int)cmdGetFlag(cmd, (I))->num
-#define getLocalOption(cmd, I) (cmdGetFlag(cmd, (I))->num != 0)
-#define getLocalBool(cmd, I) (cmdGetFlag(cmd, (I))->num != 0)
-#define getLocalString(cmd, I) cmdGetFlag(cmd, (I))->str
-#define getLocalArray(cmd, I) cmdGetFlag(cmd, (I))->array
+#define getLocalInt(cmd, I) (int)cmdGetFlag(cmd, (I) + 1)->num
+#define getLocalFloat(cmd, I) cmdGetFlag(cmd, (I) + 1)->num
+#define getLocalBytes(cmd, I) (int)cmdGetFlag(cmd, (I) + 1)->num
+#define getLocalOption(cmd, I) (cmdGetFlag(cmd, (I) + 1)->num != 0)
+#define getLocalBool(cmd, I) (cmdGetFlag(cmd, (I) + 1)->num != 0)
+#define getLocalString(cmd, I) cmdGetFlag(cmd, (I) + 1)->str
+#define getLocalArray(cmd, I) cmdGetFlag(cmd, (I) + 1)->array
 #define getPositionalInt(cmd, I) (int)cmdGetPositional(cmd, (I))->num
 #define getPositionalFloat(cmd, I) cmdGetPositional(cmd, (I))->num
 #define getPositionalBytes(cmd, I) (int)cmdGetPositional(cmd, (I))->num
 #define getPositionalBool(cmd, I) (cmdGetPositional(cmd, (I))->num != 0)
 #define getPositionalString(cmd, I) cmdGetPositional(cmd, (I))->str
 #define getPositionalArray(cmd, I) cmdGetPositional(cmd, (I))->array
+
+static inline bool hasPositional(CmdCommand *cmd, u32 i) {
+    return cmd->nargs > i && cmd->pos[i].val.state != cmdNoValue;
+}
 
 #define __UNLOAD_TO_TARGET_WITH(cmd, target, name, G, I)                       \
     (target)->name = G(cmd, I);

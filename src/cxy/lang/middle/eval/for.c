@@ -23,7 +23,7 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
     AstNode *range = node->forStmt.range, *variable = node->forStmt.var;
 
     AstNode *it = nodeIs(range, ComptimeOnly) ? range->next : range;
-    while (it) {
+    while (it && ctx->jmpFlags != jmpBreak) {
         variable->varDecl.init = it;
         it = it->next;
         if (node->forStmt.cond) {
@@ -37,6 +37,7 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
                 continue;
         }
 
+        ctx->jmpFlags = jmpNone;
         AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         body->parentScope = node->parentScope;
         const Type *type = evalType(ctx, body);
@@ -68,7 +69,8 @@ static bool evalExprForStmtArray(AstVisitor *visitor,
     AstNode *range = node->forStmt.range, *elem = range->arrayExpr.elements,
             *variable = node->forStmt.var;
 
-    for (; elem; elem = elem->next) {
+    for (; elem && ctx->jmpFlags != jmpBreak; elem = elem->next) {
+        ctx->jmpFlags = jmpNone;
         AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         body->parentScope = node->parentScope;
         variable->varDecl.init = elem;
@@ -107,7 +109,7 @@ static bool evalExprForStmtVariadic(AstVisitor *visitor,
     if (typeIs(range->type, Void))
         return true;
 
-    for (; range; range = range->next) {
+    for (; range && ctx->jmpFlags != jmpBreak; range = range->next) {
         AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         body->parentScope = node->parentScope;
         variable->varDecl.init = makeResolvedIdentifier(ctx->pool,
@@ -146,7 +148,8 @@ static bool evalForStmtWithString(AstVisitor *visitor,
     AstNode *range = node->forStmt.range, *variable = node->forStmt.var;
 
     u64 count = strlen(range->stringLiteral.value);
-    for (u64 i = 0; i < count; i++) {
+    for (u64 i = 0; i < count && ctx->jmpFlags != jmpBreak; i++) {
+        ctx->jmpFlags = jmpNone;
         AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         body->parentScope = node->parentScope;
         variable->varDecl.init = makeAstNode(
@@ -188,7 +191,8 @@ static bool evalForStmtWithRange(AstVisitor *visitor,
                    ? integerLiteralValue(range->rangeExpr.step)
                    : 1;
 
-    for (; i < count; i += step) {
+    for (; i < count && ctx->jmpFlags != jmpBreak; i += step) {
+        ctx->jmpFlags = jmpNone;
         AstNode *body = deepCloneAstNode(ctx->pool, node->forStmt.body);
         variable->varDecl.init = makeAstNode(
             ctx->pool,
@@ -224,7 +228,7 @@ void evalForStmt(AstVisitor *visitor, AstNode *node)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);
     FileLoc rangeLoc = node->forStmt.range->loc;
-    AstNode range = *node->forStmt.range;
+    ctx->jmpFlags = jmpNone;
     if (!evaluate(visitor, node->forStmt.range)) {
         node->tag = astError;
         return;

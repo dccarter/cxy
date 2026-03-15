@@ -263,6 +263,8 @@ const Type *expectInType(TypeTable *table,
 
 void buildModuleType(TypeTable *types, AstNode *node, bool isBuiltinModule);
 
+void buildPackageType(TypeTable *types, AstNode *node);
+
 const Type *getIntegerTypeForLiteral(TypeTable *table, i128 literal);
 
 bool isIntegerTypeInRange(const Type *type, i128 min, i128 max);

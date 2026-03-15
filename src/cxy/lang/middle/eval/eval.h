@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/sb.h"
+#include "core/utils.h"
 
 #include "lang/frontend/visitor.h"
 
@@ -12,12 +13,19 @@
 extern "C" {
 #endif
 
+typedef enum {
+    jmpNone = 0,
+    jmpContinue,
+    jmpBreak
+} JmpFlags;
+
 typedef struct {
     Log *L;
     MemPool *pool;
     struct StrPool *strings;
     TypeTable *types;
     AstVisitor *typer;
+    JmpFlags jmpFlags;
 } EvalContext;
 
 void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx);

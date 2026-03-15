@@ -362,6 +362,123 @@ static inline bool isImportModuleACHeader(cstring module)
     return ext != NULL && strcmp(ext + 1, "h") == 0;
 }
 
+/**
+ * Resolve package dependency import path
+ * 
+ * @param driver Compiler driver context
+ * @param modulePath Import path starting with @ (e.g., "@json-parser" or "@json-parser/src/lib.cxy")
+ * @param source AST node for error reporting
+ * @return Resolved absolute path, or NULL on error
+ */
+static cstring resolvePackageDependency(CompilerDriver *driver,
+                                        cstring modulePath,
+                                        const AstNode *source)
+{
+    csAssert0(modulePath[0] == '@');
+    
+    // Skip the '@' prefix
+    const char *packagePath = modulePath + 1;
+    
+    // Find the package name (up to first '/' or end of string)
+    const char *slash = strchr(packagePath, '/');
+    size_t packageNameLen = slash ? (slash - packagePath) : strlen(packagePath);
+    
+    if (packageNameLen == 0) {
+        logError(driver->L, &source->loc,
+                "invalid package import path '{s}': missing package name after '@'",
+                (FormatArg[]){{.s = modulePath}});
+        return NULL;
+    }
+    
+    // Extract package name
+    char packageName[256];
+    if (packageNameLen >= sizeof(packageName)) {
+        logError(driver->L, &source->loc,
+                "package name too long in import path '{s}'",
+                (FormatArg[]){{.s = modulePath}});
+        return NULL;
+    }
+    memcpy(packageName, packagePath, packageNameLen);
+    packageName[packageNameLen] = '\0';
+    
+    // Determine dependencies directory
+    const char *depsDir = driver->options.depsDir;
+    if (!depsDir || depsDir[0] == '\0') {
+        depsDir = ".cxy/packages";  // Fallback default
+    }
+    
+    // Build base path to package
+    char basePath[PATH_MAX];
+    int written;
+    
+    // Handle absolute vs relative depsDir
+    if (depsDir[0] == '/') {
+        // Absolute path
+        written = snprintf(basePath, sizeof(basePath), "%s/%s", depsDir, packageName);
+    } else {
+        // Relative path - resolve from current directory
+        written = snprintf(basePath, sizeof(basePath),
+                          "%.*s/%s/%s",
+                          (int)driver->currentDirLen,
+                          driver->currentDir,
+                          depsDir,
+                          packageName);
+    }
+    
+    if (written < 0 || written >= sizeof(basePath)) {
+        logError(driver->L, &source->loc,
+                "package path too long for '{s}'",
+                (FormatArg[]){{.s = modulePath}});
+        return NULL;
+    }
+    
+    // Check if package directory exists
+    struct stat st;
+    if (stat(basePath, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        logError(driver->L, &source->loc,
+                "package '{s}' not found in '{s}'. Did you run 'cxy package install'?",
+                (FormatArg[]){{.s = packageName}, {.s = depsDir}});
+        return NULL;
+    }
+    
+    // Determine file path within package
+    char fullPath[PATH_MAX];
+    if (slash) {
+        // File-specific import: @package-name/path/file.cxy
+        const char *filePath = slash + 1;
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, filePath);
+    } else {
+        // Module-level import: @package-name -> index.cxy
+        snprintf(fullPath, sizeof(fullPath), "%s/index.cxy", basePath);
+    }
+    
+    // Verify file exists
+    if (stat(fullPath, &st) != 0 || !S_ISREG(st.st_mode)) {
+        if (slash) {
+            logError(driver->L, &source->loc,
+                    "file not found in package '{s}': {s}",
+                    (FormatArg[]){{.s = packageName}, {.s = slash + 1}});
+        } else {
+            logError(driver->L, &source->loc,
+                    "package '{s}' does not have an index.cxy file. "
+                    "Try importing a specific file with '@{s}/path/file.cxy'",
+                    (FormatArg[]){{.s = packageName}, {.s = packageName}});
+        }
+        return NULL;
+    }
+    
+    // Resolve to absolute path
+    char tmp[PATH_MAX];
+    if (realpath(fullPath, tmp) == NULL) {
+        logError(driver->L, &source->loc,
+                "failed to resolve path for '{s}': {s}",
+                (FormatArg[]){{.s = modulePath}, {.s = strerror(errno)}});
+        return NULL;
+    }
+    
+    return makeString(driver->strings, tmp);
+}
+
 static cstring getModuleLocation(CompilerDriver *driver,
                                  const AstNode *source,
                                  bool isInclude)
@@ -371,6 +488,12 @@ static cstring getModuleLocation(CompilerDriver *driver,
     csAssert0(modulePath && modulePath[0] != '\0');
     char path[PATH_MAX];
     u64 modulePathLen = strlen(modulePath);
+    
+    // Handle @-prefixed dependency imports
+    if (modulePath[0] == '@') {
+        return resolvePackageDependency(driver, modulePath, source);
+    }
+    
     if (modulePath[0] == '.' && (modulePath[1] == '.' || modulePath[1] == '/')) {
         cstring importerFilename = strrchr(importer, '/');
         if (importerFilename == NULL)

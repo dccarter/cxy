@@ -118,7 +118,9 @@ extern "C" {
     f(String, "string")             \
     f(Range,  "range")              \
     f(Module, "module")             \
+    f(Package, "package")           \
     f(Import, "import")             \
+    f(Export, "export")             \
     f(Include, "include")           \
     f(CDefine, "cDefine")           \
     f(CInclude,"cInclude")          \

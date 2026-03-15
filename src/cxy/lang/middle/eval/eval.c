@@ -356,6 +356,34 @@ static void evalRef(AstVisitor *visitor, AstNode *node)
     clearAstBody(node);
 }
 
+static void evalContinueStmt(AstVisitor *visitor, AstNode *node)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    ctx->jmpFlags = jmpContinue;
+    node->tag = astNoop;
+    node->next = NULL;
+}
+
+static void evalBreakStmt(AstVisitor *visitor, AstNode *node)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    ctx->jmpFlags = jmpBreak;
+    node->tag = astNoop;
+    node->next = NULL;
+}
+
+static void evalJmpDispatch(Visitor func, AstVisitor *visitor, AstNode *node)
+{
+    EvalContext *ctx = getAstVisitorContext(visitor);
+    if (ctx->jmpFlags == jmpNone) {
+        func(visitor, node);
+    }
+    else {
+        // Cut iteration
+        // node->next = NULL;
+    }
+}
+
 void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
 {
     // clang-format off
@@ -363,6 +391,8 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
         [astPath] = evalPath,
         [astIfStmt] = evalIfStmt,
         [astForStmt] = evalForStmt,
+        [astContinueStmt] = evalContinueStmt,
+        [astBreakStmt] = evalBreakStmt,
         [astTupleExpr] = evalTupleExpr,
         [astBinaryExpr] = evalBinaryExpr,
         [astAssignExpr] = evalAssignExpr,
@@ -389,7 +419,7 @@ void initEvalVisitor(AstVisitor *visitor, EvalContext *ctx)
         [astList] = astVisitSkip,
         [astComptimeOnly] = astVisitSkip,
         [astNoop] = astVisitSkip,
-    }, .fallback = evalFallback);
+    }, .fallback = evalFallback, .dispatch = evalJmpDispatch);
 
     initComptime(ctx);
 }

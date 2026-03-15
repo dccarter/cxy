@@ -642,23 +642,28 @@ static void checkRef(AstVisitor *visitor, AstNode *node)
 static void checkProgram(AstVisitor *visitor, AstNode *node)
 {
     TypingContext *ctx = getAstVisitorContext(visitor);
-    AstNode *decl = node->program.decls;
+    AstNode *decl = node->program.decls, *module = node->program.module;
     astModifierInit(&ctx->root, node);
-    astVisit(visitor, node->program.module);
-    astVisitManyNodes(visitor, node->program.top);
+    astVisit(visitor, module);
+    if (module == NULL || !module->moduleDecl.isPackage) {
+        astVisitManyNodes(visitor, node->program.top);
 
-    bool isBuiltinModule = hasFlag(node, BuiltinsModule);
-    for (; decl; decl = decl->next) {
-        astModifierNext(&ctx->root, decl);
-        decl->flags |= (isBuiltinModule ? flgBuiltin : flgNone);
-        astVisit(visitor, decl);
-        if (decl->tag == astBlockStmt) {
-            printf("We can't have block\n");
+        bool isBuiltinModule = hasFlag(node, BuiltinsModule);
+        for (; decl; decl = decl->next) {
+            astModifierNext(&ctx->root, decl);
+            decl->flags |= (isBuiltinModule ? flgBuiltin : flgNone);
+            astVisit(visitor, decl);
+            if (decl->tag == astBlockStmt) {
+                printf("We can't have block\n");
+            }
+        }
+
+        if (isBuiltinModule || node->program.module) {
+            buildModuleType(ctx->types, node, isBuiltinModule);
         }
     }
-
-    if (isBuiltinModule || node->program.module) {
-        buildModuleType(ctx->types, node, isBuiltinModule);
+    else {
+        buildPackageType(ctx->types, node);
     }
 }
 

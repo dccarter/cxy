@@ -1,6 +1,9 @@
 module yaml_serializer
 
 import { Value } from "stdlib/value.cxy"
+import "stdlib/base64.cxy"
+
+import test { Vector } from "stdlib/vector.cxy"
 
 pub class YamlSerializer {
     _output: &OutputStream
@@ -23,7 +26,12 @@ pub class YamlSerializer {
             _output << value
         }
         else if value.isString() {
-            _serializeScalar(value)
+            var str = value.getString()
+            if !str {
+                _output << "null"
+            } else {
+                _serializeScalar(str&.__str())
+            }
         }
         else if value.isArray() {
             _serializeArray(value)
@@ -51,9 +59,9 @@ pub class YamlSerializer {
             _writeIndent()
 
             // Write key
-            if _needsQuoting(&it.0) {
+            if _needsQuoting(it.0.__str()) {
                 _output << '"'
-                _escapeString(&it.0)
+                _escapeString(it.0.__str())
                 _output << '"'
             } else {
                 _output << it.0
@@ -115,19 +123,13 @@ pub class YamlSerializer {
         }
     }
 
-    func _serializeScalar(value: &const Value): void {
-        var str = value.getString()
-        if !str {
-            _output << "null"
-            return
-        }
-
-        if _needsQuoting(*str) {
+    func _serializeScalar(str: __string): void {
+        if _needsQuoting(str) {
             _output << '"'
-            _escapeString(*str)
+            _escapeString(str)
             _output << '"'
         } else {
-            _output << *str
+            _output << str
         }
     }
 
@@ -147,7 +149,7 @@ pub class YamlSerializer {
         }
     }
 
-    func _needsQuoting(str: &const String): bool {
+    func _needsQuoting(str: __string): bool {
         if str.size() == 0 {
             return true
         }
@@ -185,7 +187,7 @@ pub class YamlSerializer {
         return false
     }
 
-    func _escapeString(str: &const String): void {
+    func _escapeString(str: __string): void {
         for c, _ in str {
             switch c {
                 '\n' => _output << "\\n"
@@ -197,9 +199,187 @@ pub class YamlSerializer {
             }
         }
     }
+
+    @inline
+    func _fieldToYaml[NAME, T](it: &const T, first: bool, item: bool) : void {
+        #const name = NAME.value
+        #const member = T.members.[name]
+        #const M = member.Tinfo
+        #const jsonAttr = member.attributes.[:json]
+
+        #const Mm = M
+        #if Mm.isOptional {
+            #{Mm = Mm.targetType}
+        }
+        #const needsNewline = Mm.isStruct || Mm.isTuple ||
+                              Mm.isSlice || Mm.isArray ||
+                              Mm.`isVector
+
+        if !item || !first {
+            _writeIndent()
+        }
+        _output << #{name} << ":"
+
+        #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
+            // Base64 encode string fields with @json(b64: true)
+            _output << " \""
+            base64.encode(_output, &it.#{mk_ident!(name)})
+            _output << '"'
+        }
+        else #if needsNewline {
+            _output << '\n'
+            _currentIndent += _indent
+            toYaml[#{M}](&it.#{mk_ident!(name)})
+            _currentIndent -= _indent
+        }
+        else {
+            _output << " "
+            toYaml[#{M}](&it.#{mk_ident!(name)})
+        }
+    }
+
+    func toYaml[T](it: &const T, @unused item: bool = false) : void {
+        #if #T == #Value {
+            _serializeValue(it)
+        }
+        else #if (T.isChar) {
+            _output << <i64>it
+        }
+        else #if (T.isNumber || T.isBoolean) {
+            _output << it
+        }
+        else #if (T.isString) {
+            #if T.isClass || #T == #string {
+                if (it == null) {
+                    _output << "null"
+                } else {
+                    #if T.isClass {
+                        _serializeScalar(it.__str())
+                    }
+                    else {
+                        _serializeScalar(it)
+                    }
+                }
+            }
+            else {
+                _serializeScalar(it)
+            }
+        }
+        else #if (T.isOptional) {
+            if (it) {
+                const value = *it;
+                toYaml[#{typeof!(value)}](&value)
+            }
+            else {
+                _output << "null"
+            }
+        }
+        else #if (T.isStruct) {
+            var first = true
+            #for const member: T.members, member.isField {
+                if first == false {
+                    _output << '\n'
+                }
+
+                #const name = member.name
+                #const M = member.Tinfo
+                #const jsonAttr = member.attributes.[:json]
+
+                #if M.isOptional && jsonAttr && jsonAttr.[:optional] {
+                    if !!it.#{mk_ident!(name)} {
+                        _fieldToYaml[#{name}](&it, first, item)
+                        if first && item {
+                            _currentIndent += _indent
+                        }
+                        first = false
+                    }
+                }
+                else {
+                    _fieldToYaml[#{name}](&it, first, item)
+                    if first && item {
+                        _currentIndent += _indent
+                    }
+                    first = false
+                }
+            }
+            if item && !first {
+                _currentIndent -= _indent
+            }
+        }
+        else #if (T.isTuple) {
+            @consistent
+            #for (const i: 0..T.membersCount) {
+                #if (i != 0) {
+                    _output << '\n'
+                }
+                _writeIndent()
+                _output << "- "
+
+                var member = it.#{i};
+                toYaml(&member)
+            }
+        }
+        else #if (T.isSlice || T.isArray || T.annotations.[:isVector]) {
+            for (const member, i: it) {
+                if (i != 0) {
+                    _output << '\n'
+                }
+                _writeIndent()
+                _output << "- "
+
+                #const M = null
+                #if (T.annotations.[:isVector]) {
+                    #{M = typeof!(T.elementType)}
+                }
+                else {
+                    #{M = T.elementType}
+                }
+
+                toYaml[#{M}](&member, true)
+            }
+        }
+        else #if (T.isClass && has_member!(#T, "toYaml", #const func(_: &OutputStream) -> void)) {
+            it.toYaml(_output, true)
+        }
+        else {
+            error!("type `{t}` is not YAML-serializable", T)
+        }
+    }
 }
 
 // Tests
+
+test {
+    struct Address {
+        street: String = null
+        city: String = null
+    }
+
+    struct Person {
+        name: String = null
+        age: i32 = 0
+    }
+
+    struct Customer {
+        name: String = null
+        address = Address{}
+    }
+
+    struct User {
+        name: String = null
+        id: i64 = 0
+    }
+
+    struct Config {
+        @json(optional: true)
+        name: String? = null
+        port: i64 = 0
+    }
+
+    struct List {
+        items = Vector[User]()
+    }
+}
 
 test "Serializer - simple scalar" {
     var value = Value("hello")
@@ -266,6 +446,98 @@ test "Serializer - simple array" {
     const expected = """- apple
 - banana
 - orange"""
+    ok!(output == expected)
+}
+
+test "toYaml - simple struct" {
+    var person = Person{name: "John".S, age: 30}
+    var output = String()
+    toYaml(&output, &person)
+    ok!(output.contains("name: John"))
+    ok!(output.contains("age: 30"))
+}
+
+test "toYaml - nested struct" {
+    var output = String()
+    var person = Customer{
+        name: "Alice".S,
+        address: Address{street: "123 Main St".S, city: "Boston".S}
+    }
+
+    toYaml(&output, &person)
+    ok!(output.contains("name: Alice"))
+    ok!(output.contains("address:"))
+    ok!(output.contains("  street: 123 Main St"))
+    ok!(output.contains("  city: Boston"))
+}
+
+test "toYaml - array of structs" {
+    var users: [User, 2] = []
+    users.[0] = User{name: "Alice".S, id: 1}
+    users.[1] = User{name: "Bob".S, id: 2}
+
+    var output = String()
+    toYaml(&output, &users)
+
+    ok!(output.contains("- "))
+    ok!(output.contains("name: Alice"))
+    ok!(output.contains("id: 1"))
+    ok!(output.contains("name: Bob"))
+    ok!(output.contains("id: 2"))
+}
+
+test "toYaml - optional fields" {
+    var config1 = Config{name: null, port: 8080}
+    var output1 = String()
+    toYaml(&output1, &config1)
+
+    // Optional null field should be skipped
+    ok!(!output1.contains("name:"))
+    ok!(output1.contains("port: 8080"))
+
+    var config2 = Config{name: "MyApp".S, port: 8080}
+    var output2 = String()
+    toYaml(&output2, &config2)
+    ok!(output2.contains("name: MyApp"))
+    ok!(output2.contains("port: 8080"))
+}
+
+test "toYaml - primitives" {
+    var output = String()
+
+    var num = 42
+    toYaml(&output, &num)
+    ok!(output == "42")
+
+    output.clear()
+    var flag = true
+    toYaml(&output, &flag)
+    ok!(output == "true")
+
+    output.clear()
+    var str = "hello"
+    toYaml(&output, &str)
+    ok!(output == "hello")
+}
+
+test "toYaml - reserved words quoted" {
+    var str = "true"
+    var output = String()
+    toYaml(&output, &str)
+    ok!(output == "\"true\"")
+}
+
+test "toYaml - collections" {
+    var list = List{}
+    list.items.push(User{name: "John".S, id: 30})
+    list.items.push(User{name: "Jane".S, id: 25})
+    var output = String()
+    toYaml(&output, &list)
+    const expected = """items:
+  - name: John
+    id: 30
+  - name: Jane
+    id: 25"""
     ok!(output == expected)
 }
 

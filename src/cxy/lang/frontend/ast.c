@@ -6,6 +6,7 @@
 #include "ttable.h"
 
 #include "lang/middle/builtins.h"
+#include "types.h"
 
 typedef struct {
     const AstNode *from;
@@ -1936,6 +1937,28 @@ u64 countProgramDecls(const AstNode *node)
         }
         else
             len++;
+    }
+    return len;
+}
+
+u64 countPackageExports(const AstNode *node)
+{
+    u64 len = 0;
+    for (; node; node = node->next) {
+        if (!nodeIs(node, ImportDecl))
+            continue;
+        AstNode *entities = node->import.entities;
+        if(entities == NULL) {
+            const Type *module = node->type;
+            for (u64 i = 0; i < module->module.members->count; i++) {
+                NamedTypeMember *member = &module->module.members->members[i];
+                if (hasFlag(member->decl, Public))
+                    len++;
+            }
+        }
+        else {
+            len += countAstNodes(entities);
+        }
     }
     return len;
 }

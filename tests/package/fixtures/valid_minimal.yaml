@@ -1,0 +1,10 @@
+# Minimal valid Cxyfile.yaml for testing
+package:
+  name: minimal-package
+  version: 0.1.0
+  author: Minimal Author <minimal@example.com>
+
+dependencies: []
+
+tests:
+  - src/**/*.cxy

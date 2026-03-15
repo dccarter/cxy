@@ -482,11 +482,7 @@ void printStatus_(Log *L, bool always, const char *fmt, va_list args)
 {
     if (L->progress || always) {
         static int lastPrinted = 0;
-        if (lastPrinted) {
-            printf("\r%*c", lastPrinted, ' ');
-        }
-        printf("\r");
-        ;
+        printf("\r\033[K");
         lastPrinted = vprintf(fmt, args);
         fflush(stdout);
     }
@@ -505,5 +501,15 @@ void printStatusAlways(Log *L, const char *fmt, ...)
     va_list args;
     va_start(args, fmt);
     printStatus_(L, true, fmt, args);
+    va_end(args);
+}
+
+void printStatusSticky(Log *L, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    printf("\n");
+    fflush(stdout);
     va_end(args);
 }

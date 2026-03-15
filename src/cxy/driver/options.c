@@ -2,6 +2,8 @@
 
 #include "driver/options.h"
 #include "driver/stages.h"
+#include "package/commands/commands.h"
+#include "package/validators.h"
 
 #include "core/args.h"
 #include "core/log.h"
@@ -155,10 +157,127 @@ static bool cmdArrayArgument(CmdParser *P,
                 name);
         return false;
     }
+    if (str[0] == '[' && str[strlen(str) - 1] == ']') {
+        // Skip default empty array marker
+        return true;
+    }
+
     if (dst->array.elems == NULL)
         dst->array = newDynArray(sizeof(cstring));
 
     pushStringOnDynArray(&dst->array, str);
+    dst->state = cmdArray;
+    return true;
+}
+
+// Package validation wrappers for command-line parser
+static bool cmdValidatePackageName(CmdParser *P,
+                                   CmdFlagValue *dst,
+                                   const char *str,
+                                   const char *name)
+{
+    // First parse as string
+    if (!cmdParseString(P, dst, str, name)) {
+        return false;
+    }
+
+    // Then validate
+    cstring error = validatePackageName(str);
+    if (error) {
+        snprintf(P->error, sizeof(P->error),
+                "error: invalid package name '%s' for flag '%s': %s\n",
+                str, name, error);
+        return false;
+    }
+
+    return true;
+}
+
+static bool cmdValidateSemanticVersion(CmdParser *P,
+                                       CmdFlagValue *dst,
+                                       const char *str,
+                                       const char *name)
+{
+    // First parse as string
+    if (!cmdParseString(P, dst, str, name)) {
+        return false;
+    }
+
+    // Empty or "*" is valid for version constraints
+    if (str[0] == '\0' || strcmp(str, "*") == 0) {
+        return true;
+    }
+
+    // Skip constraint prefix for validation (^, ~, >=, >, <=, <)
+    const char *versionToValidate = str;
+    if (str[0] == '^' || str[0] == '~') {
+        versionToValidate = str + 1;
+    }
+    else if (strlen(str) >= 2) {
+        if ((str[0] == '>' || str[0] == '<') && str[1] == '=') {
+            versionToValidate = str + 2;
+        }
+        else if (str[0] == '>' || str[0] == '<') {
+            versionToValidate = str + 1;
+        }
+    }
+
+    // Skip whitespace after constraint operator
+    while (*versionToValidate == ' ') versionToValidate++;
+
+    // Validate the base version
+    cstring error = validateSemanticVersion(versionToValidate);
+    if (error) {
+        snprintf(P->error, sizeof(P->error),
+                "error: invalid version '%s' for flag '%s': %s\n",
+                str, name, error);
+        return false;
+    }
+
+    return true;
+}
+
+static bool cmdValidateGitRepository(CmdParser *P,
+                                     CmdFlagValue *dst,
+                                     const char *str,
+                                     const char *name)
+{
+    // First parse as string
+    if (!cmdParseString(P, dst, str, name)) {
+        return false;
+    }
+
+    // Then validate
+    cstring error = validateGitRepository(str);
+    if (error) {
+        snprintf(P->error, sizeof(P->error),
+                "error: invalid repository '%s' for flag '%s': %s\n",
+                str, name, error);
+        return false;
+    }
+
+    return true;
+}
+
+static bool cmdValidateLicenseIdentifier(CmdParser *P,
+                                         CmdFlagValue *dst,
+                                         const char *str,
+                                         const char *name)
+{
+    // First parse as string
+    if (!cmdParseString(P, dst, str, name)) {
+        return false;
+    }
+
+    // Then validate
+    cstring error = validateLicenseIdentifier(str);
+    if (error) {
+        snprintf(P->error, sizeof(P->error),
+                "error: invalid license '%s' for flag '%s': %s\n",
+                str, name, error);
+        return false;
+    }
+
     return true;
 }
 
@@ -229,12 +348,17 @@ Command(test,
                  "compiler"),
             Def("")));
 
+Command(package,
+        "Package management commands (create, add, install, etc.)",
+        Positionals());
+
 // clang-format off
 #define BUILD_COMMANDS(f)                                                      \
     PARSER_BUILTIN_COMMANDS(f)                                                 \
     f(dev)                                                                     \
     f(build)                                                                   \
-    f(test)
+    f(test)                                                                    \
+    f(package)
 
 #define DEV_CMD_LAYOUT(f, ...)                                                 \
     f(dev.lastStage, Local, Int, 0, ## __VA_ARGS__)                             \
@@ -256,6 +380,95 @@ Command(test,
 #define TEST_CMD_LAYOUT(f, ...)                                                \
     f(buildDir, Local, String, 0, ## __VA_ARGS__)
 
+#define PACKAGE_CMD_LAYOUT(f, ...)                                             \
+    f(package.cxyfile, Global, String, 0, ## __VA_ARGS__)                       \
+    f(package.quiet, Global, Option, 1, ## __VA_ARGS__)                         \
+    f(package.verbose, Global, Option, 2, ## __VA_ARGS__)
+
+// Package subcommand definitions
+#define PACKAGE_SUBCOMMANDS(f)                                              \
+    PARSER_BUILTIN_COMMANDS(f)                                              \
+    f(create)                                                               \
+    f(add)                                                                  \
+    f(install)                                                              \
+    f(remove)                                                               \
+    f(update)                                                               \
+    f(test)                                                                 \
+    f(build)                                                                \
+    f(publish)                                                              \
+    f(list)                                                                 \
+    f(info)                                                                 \
+    f(clean)                                                                \
+    f(run)
+
+// Package subcommand option layouts
+#define PKG_CREATE_CMD_LAYOUT(f, ...)                                          \
+    f(package.name, Local, String, 0, ## __VA_ARGS__)                          \
+    f(package.author, Local, String, 1, ## __VA_ARGS__)                        \
+    f(package.description, Local, String, 2, ## __VA_ARGS__)                   \
+    f(package.license, Local, String, 3, ## __VA_ARGS__)                       \
+    f(package.version, Local, String, 4, ## __VA_ARGS__)                       \
+    f(package.directory, Local, String, 5, ## __VA_ARGS__)                     \
+    f(package.bin, Local, Option, 6, ## __VA_ARGS__)
+
+#define PKG_ADD_CMD_LAYOUT(f, ...)                                             \
+    f(package.packageName, Local, String, 0, ## __VA_ARGS__)                   \
+    f(package.constraint, Local, String, 1, ## __VA_ARGS__)                    \
+    f(package.tag, Local, String, 2, ## __VA_ARGS__)                           \
+    f(package.branch, Local, String, 3, ## __VA_ARGS__)                        \
+    f(package.path, Local, String, 4, ## __VA_ARGS__)                          \
+    f(package.dev, Local, Option, 5, ## __VA_ARGS__)                           \
+    f(package.noInstall, Local, Option, 6, ## __VA_ARGS__)
+
+#define PKG_REMOVE_CMD_LAYOUT(f, ...)                                          \
+    /* No specific options for remove */
+
+#define PKG_INSTALL_CMD_LAYOUT(f, ...)                                         \
+    f(package.includeDev, Local, Option, 0, ## __VA_ARGS__)                    \
+    f(package.clean, Local, Option, 1, ## __VA_ARGS__)                         \
+    f(package.packagesDir, Local, String, 2, ## __VA_ARGS__)                   \
+    f(package.verify, Local, Option, 3, ## __VA_ARGS__)                        \
+    f(package.offline, Local, Option, 4, ## __VA_ARGS__)                       \
+    f(package.frozenLockfile, Local, Option, 5, ## __VA_ARGS__)
+
+#define PKG_UPDATE_CMD_LAYOUT(f, ...)                                          \
+    f(package.latest, Local, Option, 0, ## __VA_ARGS__)                        \
+    f(package.dryRun, Local, Option, 1, ## __VA_ARGS__)                        \
+    f(package.includeDev, Local, Option, 2, ## __VA_ARGS__)
+
+#define PKG_TEST_CMD_LAYOUT(f, ...)                                            \
+    f(package.buildDir, Local, String, 0, ## __VA_ARGS__)                      \
+    f(package.filter, Local, String, 1, ## __VA_ARGS__)                        \
+    f(package.parallel, Local, Int, 2, ## __VA_ARGS__)
+
+#define PKG_PUBLISH_CMD_LAYOUT(f, ...)                                         \
+    f(package.bump, Local, String, 0, ## __VA_ARGS__)                          \
+    f(package.tagName, Local, String, 1, ## __VA_ARGS__)                       \
+    f(package.message, Local, String, 2, ## __VA_ARGS__)                       \
+    f(package.dryRun, Local, Option, 3, ## __VA_ARGS__)
+
+#define PKG_LIST_CMD_LAYOUT(f, ...)                                            \
+    /* No specific options beyond global package options */
+
+#define PKG_INFO_CMD_LAYOUT(f, ...)                                            \
+    f(package.json, Local, Option, 0, ## __VA_ARGS__)
+
+#define PKG_CLEAN_CMD_LAYOUT(f, ...)                                           \
+    f(package.cleanCache, Local, Option, 0, ## __VA_ARGS__)                    \
+    f(package.cleanBuild, Local, Option, 1, ## __VA_ARGS__)                    \
+    f(package.cleanAll, Local, Option, 2, ## __VA_ARGS__)                      \
+    f(package.force, Local, Option, 3, ## __VA_ARGS__)
+
+#define PKG_BUILD_CMD_LAYOUT(f, ...)                                           \
+    f(package.release, Local, Option, 0, ## __VA_ARGS__)                       \
+    f(package.debug, Local, Option, 1, ## __VA_ARGS__)                         \
+    f(package.buildDir, Local, String, 2, ## __VA_ARGS__)                      \
+    f(package.clean, Local, Option, 3, ## __VA_ARGS__)                         \
+    f(package.buildAll, Local, Option, 4, ## __VA_ARGS__)                      \
+    f(package.listBuilds, Local, Option, 5, ## __VA_ARGS__)
+
+#define PKG_RUN_CMD_LAYOUT(f, ...)                                             \
+    f(package.listScripts, Local, Option, 0, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -389,6 +602,306 @@ static void moveListOptions(DynArray *dst, DynArray *src)
     freeDynArray(src);
 }
 
+static bool parsePackageCommand(
+    int *argc, char **argv, StrPool *strings, Options *options, Log *log)
+{
+    // Define package subcommands
+    InteractiveCommand(create,
+            "Create a new Cxy package with scaffolding",
+            Positionals(),
+            Use(cmdValidatePackageName,
+                Name("name"),
+                Help("Package name (Must satisfy [_a-zA-Z][_\\-a-zA-Z0-9]*)"),
+                Def("")),
+            Str(Name("author"),
+                Help("Author name and email"),
+                Def("")),
+            Str(Name("description"),
+                Help("Short package description"),
+                Def("")),
+            Use(cmdValidateLicenseIdentifier,
+                Name("license"),
+                Help("License identifier (MIT, Apache-2.0, GPL-3.0, etc.)"),
+                Def("MIT")),
+            Use(cmdValidateSemanticVersion,
+                Name("version"),
+                Help("Initial version"),
+                Def("0.1.0")),
+            Str(Name("directory"),
+                Sf('d'),
+                Help("Target directory"),
+                Def(".")),
+            Opt(Name("bin"),
+                Help("Create binary package (main.cxy instead of library)")));
+
+    Command(add,
+            "Add a dependency to the package",
+            Positionals(Use(cmdValidateGitRepository,
+                           Name("repository"),
+                           Help("Git repository URL or package identifier"),
+                           Def(""))),
+            Use(cmdValidatePackageName,
+                Name("name"),
+                Help("Custom package name"),
+                Def("")),
+            Use(cmdValidateSemanticVersion,
+                Name("constraint"),
+                Help("Version constraint (default: *)"),
+                Def("*")),
+            Str(Name("tag"),
+                Help("Specific Git tag"),
+                Def("")),
+            Str(Name("branch"),
+                Help("Specific Git branch"),
+                Def("")),
+            Str(Name("path"),
+                Help("Local filesystem path"),
+                Def("")),
+            Opt(Name("dev"),
+                Help("Add as development dependency")),
+            Opt(Name("no-install"),
+                Help("Skip installation (validation only)")),
+    );
+
+    Command(remove,
+            "Remove a dependency from the package",
+            Positionals(Use(cmdArrayArgument,
+                           Name("packages"),
+                           Help("One or more package names to remove"),
+                           Many())));
+
+    Command(install,
+            "Install all dependencies from Cxyfile.yaml",
+            Positionals(),
+            Opt(Name("dev"),
+                Help("Include development dependencies")),
+            Opt(Name("clean"),
+                Help("Ignore lock file and perform clean resolution")),
+            Str(Name("packages-dir"),
+                Help("Custom packages directory"),
+                Def(".cxy/packages")),
+            Opt(Name("verify"),
+                Help("Verify integrity of installed packages")),
+            Opt(Name("offline"),
+                Help("Use only cached packages, no network access")),
+            Opt(Name("frozen-lockfile"),
+                Help("Fail if lock file is missing or outdated (CI mode)")),
+            );
+
+    Command(update,
+            "Update dependencies to latest compatible versions",
+            Positionals(Use(cmdArrayArgument,
+                           Name("packages"),
+                           Help("Optional: specific packages to update"),
+                           Many())),
+            Opt(Name("latest"),
+                Help("Update to latest version, ignoring constraints")),
+            Opt(Name("dry-run"),
+                Help("Show what would be updated without changing files")),
+            Opt(Name("dev"),
+                Help("Include dev dependencies")));
+
+    Command(build,
+            "Build the package",
+            Positionals(Str(Name("target"),
+                           Help("Build target name (e.g., 'lib', 'bin')"),
+                           Def("")),
+                       PositionalRest()),
+            Opt(Name("release"),
+                Help("Build for release")),
+            Opt(Name("debug"),
+                Help("Build for debug")),
+            Str(Name("build-dir"),
+                Help("Output directory for build artifacts"),
+                Def(".cxy/build")),
+            Opt(Name("clean"),
+                Help("Clean build artifacts before building")),
+            Opt(Name("all"),
+                Help("Build all targets")),
+            Opt(Name("list"),
+                Help("List available build targets")));
+
+    Command(test,
+            "Run package tests",
+            Positionals(Use(cmdArrayArgument,
+                           Name("test-files"),
+                           Help("Optional: specific test files to run"),
+                           Def("[]"),
+                           Many()),
+                        PositionalRest()),
+            Str(Name("build-dir"),
+                Help("Build directory for test binaries"),
+                Def(".cxy/build")),
+            Str(Name("filter"),
+                Help("Run only tests matching pattern"),
+                Def("")),
+            Int(Name("parallel"),
+                Sf('j'),
+                Help("Run tests in parallel"),
+                Def("1")));
+
+    Command(publish,
+            "Publish package by creating a Git tag",
+            Positionals(),
+            Str(Name("bump"),
+                Help("Bump version before publishing (major|minor|patch)"),
+                Def("")),
+            Str(Name("tag"),
+                Help("Custom tag name"),
+                Def("")),
+            Str(Name("message"),
+                Sf('m'),
+                Help("Tag annotation message"),
+                Def("")),
+            Opt(Name("dry-run"),
+                Help("Show what would be published")));
+
+    Command(list,
+            "List all installed dependencies",
+            Positionals());
+
+    Command(info,
+            "Show information about a package",
+            Positionals(Str(Name("package"),
+                           Help("Package name to show info for"),
+                           Def(""))),
+            Opt(Name("json"),
+                Help("Output in JSON format")));
+
+    Command(clean,
+            "Clean package cache and build artifacts",
+            Positionals(),
+            Opt(Name("cache"),
+                Help("Clean package cache (.cxy/packages)")),
+            Opt(Name("build"),
+                Help("Clean build directory")),
+            Opt(Name("all"),
+                Help("Clean everything (cache + build)")),
+            Opt(Name("force"),
+                Sf('f'),
+                Help("Skip confirmation prompts")));
+
+    Command(run,
+            "Run a script defined in Cxyfile.yaml",
+            Positionals(Str(Name("script"),
+                           Help("Script name to execute"),
+                           Def("")),
+                       PositionalRest()),
+            Opt(Name("list"),
+                Help("List all available scripts")));
+
+    Parser("cxy package",
+           CXY_VERSION,
+           PACKAGE_SUBCOMMANDS,
+           DefaultCmd(help),
+           DisableVersionOpt(),
+           Str(Name("cxyfile"),
+               Help("Path to Cxyfile.yaml (default: searches current and parent directories)"),
+               Def("")),
+           Opt(Name("quiet"),
+               Sf('q'),
+               Help("Suppress non-error output")),
+           Opt(Name("verbose"),
+               Help("Enable verbose output")));
+
+    int selected = argparse(argc, &argv, parser);
+
+    if (selected == CMD_help) {
+        CmdFlagValue *cmd = cmdGetPositional(&help.meta, 0);
+        cmdShowUsage(P, (cmd ? cmd->str : NULL), stdout);
+        return false;
+    }
+    else if (selected == -1) {
+        logError(log, NULL, P->error, NULL);
+        return false;
+    }
+
+    CmdCommand *cmd = parser.cmds[selected];
+
+    // Load global package options
+    UnloadCmd(cmd, options, PACKAGE_CMD_LAYOUT);
+
+    // Dispatch to subcommand
+    if (cmd->id == CMD_create) {
+        options->package.subcmd = pkgSubCreate;
+        UnloadCmd(cmd, options, PKG_CREATE_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_add) {
+        options->package.subcmd = pkgSubAdd;
+        if (hasPositional(cmd, 0)) {
+            options->package.repository = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, PKG_ADD_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_remove) {
+        options->package.subcmd = pkgSubRemove;
+        if (hasPositional(cmd, 0)) {
+            options->package.packages = getPositionalArray(cmd, 0);
+        }
+        UnloadCmd(cmd, options, PKG_REMOVE_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_install) {
+        options->package.subcmd = pkgSubInstall;
+        UnloadCmd(cmd, options, PKG_INSTALL_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_update) {
+        options->package.subcmd = pkgSubUpdate;
+        options->package.packages = getPositionalArray(cmd, 0);
+        UnloadCmd(cmd, options, PKG_UPDATE_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_test) {
+        options->package.subcmd = pkgSubTest;
+        if (hasPositional(cmd, 0)) {
+            options->package.testFiles = getPositionalArray(cmd, 0);
+        }
+        if (hasPositional(cmd, 1)) {
+            options->package.rest = getPositionalArray(cmd, 1);
+        }
+        UnloadCmd(cmd, options, PKG_TEST_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_build) {
+        options->package.subcmd = pkgSubBuild;
+        if (hasPositional(cmd, 0)) {
+            options->package.buildTarget = getPositionalString(cmd, 0);
+        }
+        if (hasPositional(cmd, 1)) {
+            options->package.rest = getPositionalArray(cmd, 1);
+        }
+        UnloadCmd(cmd, options, PKG_BUILD_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_publish) {
+        options->package.subcmd = pkgSubPublish;
+        UnloadCmd(cmd, options, PKG_PUBLISH_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_list) {
+        options->package.subcmd = pkgSubList;
+        UnloadCmd(cmd, options, PKG_LIST_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_info) {
+        options->package.subcmd = pkgSubInfo;
+        if (hasPositional(cmd, 0)) {
+            options->package.package = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, PKG_INFO_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_clean) {
+        options->package.subcmd = pkgSubClean;
+        UnloadCmd(cmd, options, PKG_CLEAN_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_run) {
+        options->package.subcmd = pkgSubRun;
+        if (hasPositional(cmd, 0)) {
+            options->package.scriptName = getPositionalString(cmd, 0);
+        }
+        if (hasPositional(cmd, 1)) {
+            options->package.rest = getPositionalArray(cmd, 1);
+        }
+        UnloadCmd(cmd, options, PKG_RUN_CMD_LAYOUT);
+    }
+
+    return true;
+}
+
 bool parseCommandLineOptions(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
@@ -396,11 +909,43 @@ bool parseCommandLineOptions(
     int file_count = 0;
     initializeOptions(strings, options);
 
+    // Early intercept for package command
+    if (*argc > 1 && strcmp(argv[1], "package") == 0) {
+        options->cmd = cmdPackage;
+        // Shift arguments to skip "cxy" and "package"
+        int pkg_argc = *argc - 1;  // Remove "cxy"
+        char **pkg_argv = argv + 1; // Start from "package"
+
+        bool result = parsePackageCommand(&pkg_argc, pkg_argv, strings, options, log);
+        if (!result) {
+            return false;
+        }
+
+        // Package command doesn't need input files
+        *argc = 1;
+        return result;
+    }
+    if (*argc >= 3 && !strcmp(argv[1], "help") && !strcmp(argv[2], "package")) {
+        char *pkg_argv[] = {"package", "help", NULL};
+        int pkg_argc = 2;
+        if (*argc > 3) {
+            pkg_argv[2] = argv[3];
+            pkg_argc = 3;
+        }
+        bool result = parsePackageCommand(&pkg_argc, pkg_argv, strings, options, log);
+        if (!result) {
+            return false;
+        }
+        *argc = 1;
+        return true;
+    }
+
     Parser(
         "cxy",
         CXY_VERSION " (build: " CXY_BUILD_ID ", " __DATE__ ", " __TIME__ ")",
         BUILD_COMMANDS,
         DefaultCmd(dev),
+        VersionOpt(),
         Int(Name("max-errors"),
             Help(
                 "Set the maximum number of errors incurred before the compiler "
@@ -479,13 +1024,24 @@ bool parseCommandLineOptions(
         Str(Name("plugins-dir"),
             Help("The directory where plugins are installed or where to "
                  "install them"),
-            Def("./plugins")));
+            Def("./plugins")),
+        Str(Name("deps-dir"),
+            Help("Directory containing installed package dependencies"),
+            Def(".cxy/packages")));
 
     int selected = argparse(argc, &argv, parser);
 
     if (selected == CMD_help) {
         CmdFlagValue *cmd = cmdGetPositional(&help.meta, 0);
-        cmdShowUsage(P, (cmd ? cmd->str : NULL), stdout);
+        if (cmd && cmd->str) {
+            if (strcmp(cmd->str, "package") == 0)
+                cmdShowUsage(P, NULL, stdout);
+            else
+                cmdShowUsage(P, cmd->str, stdout);
+        }
+        else {
+            cmdShowUsage(P, NULL, stdout);
+        }
         goto error;
     }
     else if (selected == -1) {
@@ -532,6 +1088,11 @@ bool parseCommandLineOptions(
         options->cmd = cmdTest;
         UnloadCmd(cmd, options, TEST_CMD_LAYOUT);
     }
+    else if (cmd->id == CMD_package) {
+        // This should not be reached due to early interception
+        logError(log, NULL, "package command should be intercepted earlier", NULL);
+        return false;
+    }
 
     moveListOptions(&options->cflags, &getGlobalArray(cmd, 5));
     options->noPIE = getGlobalOption(cmd, 6);
@@ -550,6 +1111,7 @@ bool parseCommandLineOptions(
     log->progress = !getGlobalOption(cmd, 19);
     options->libDir = getGlobalString(cmd, 20);
     options->pluginsDir = getGlobalString(cmd, 21);
+    options->depsDir = getGlobalString(cmd, 22);
 
     if (options->libDir == NULL) {
         options->libDir = makeString(strings, getenv("CXY_STDLIB_DIR"));
@@ -596,4 +1158,7 @@ void deinitCommandLineOptions(Options *options)
     freeDynArray(&options->librarySearchPaths);
     freeDynArray(&options->libraries);
     freeDynArray(&options->defines);
+    freeDynArray(&options->package.packages);
+    freeDynArray(&options->package.testFiles);
+    freeDynArray(&options->package.rest);
 }

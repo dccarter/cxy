@@ -83,6 +83,11 @@ void resizeDynArrayExplicit(DynArray *array, size_t size)
     array->size = size;
 }
 
+void clearDynArray(DynArray *array)
+{
+    array->size = 0;
+}
+
 void freeDynArray(DynArray *array)
 {
     free(array->elems);

@@ -225,6 +225,9 @@ static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
         var->next = index;
     }
 
+    var->varDecl.init =
+        makeNullLiteral(ctx->pool, &var->loc, NULL, makeNullType(ctx->types));
+
     range = makeVarDecl(ctx->pool,
                         &range->loc,
                         range->flags,

@@ -28,5 +28,13 @@ pub func main(): !void  {
         }
     })
 
+    server("/cookie", (req: &const Request, resp: &Response) => {
+        resp.body() << "Hello, World!"
+        var cookie = req.cookie("name")
+        if !!cookie {
+            resp.body() << "\nCookie... name: " << cookie
+        }
+    }).setAttrs({ parseCookies: true })
+
     server.start()
 }

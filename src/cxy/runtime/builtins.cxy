@@ -632,6 +632,16 @@ pub struct __string {
         }
         return None[u64]()
     }
+
+    const func `..`() {
+        var i = 0`i32;
+        return () : Optional[(char, i32)] => {
+            if (i < _size)
+                return Some((s.[i], i++))
+            else
+                return None[(char, i32)]()
+        }
+    }
 }
 
 #const CXY_STRING_BUILDER_DEFAULT_CAPACITY = 32`u64
@@ -1767,9 +1777,7 @@ macro ok(cond, ...msg) {
     func runTest(testCase: (string, func() -> !void)) {
         testCase.1() catch {
             // test case failed
-            stdout << "\r  " << Repeat(' '`char, 100)
-                   << "\r  " << RED("b") << "\xE2\x9C\x98 " << WHT << testCase.0
-                   << DEF << " "
+            stdout << "\r" << RED("b") << "\xE2\x9C\x98 " << DEF << "\n"
             ex!.header( &stdout )
             stdout << " at:"
             ex!.dumpStackTrace( &stdout, 1, 4 )
@@ -1777,9 +1785,7 @@ macro ok(cond, ...msg) {
             return false
         }
 
-        stdout << "\r  " << Repeat(' '`char, 100)
-               << "\r  " << GRN("b") << "\xE2\x9C\x93 " << WHT << testCase.0
-               << DEF << "\n"
+        stdout << "\r" << GRN("b") << "\xE2\x9C\x93 " << DEF << "\n"
         return true
     }
 
@@ -1795,7 +1801,7 @@ macro ok(cond, ...msg) {
 
         stdout << "Running " << testFile << " tests...\n"
         for (const testCase, _ : tests) {
-            stdout << "  Running test case " << testCase.0 << ""
+            stdout << "  Running test case '" << WHT("b") << testCase.0 << DEF << "'"
 
             if (!runTest(testCase))
                 failed++

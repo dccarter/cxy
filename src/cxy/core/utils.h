@@ -235,7 +235,7 @@ attr(noreturn) attr(format, printf, 1, 2) void cxyAbort(const char *fmt, ...);
 #define cYLW "\x1B[33m"
 #define cBLU "\x1B[34m"
 #define cMGN "\x1B[35m"
-#define ccxy "\x1B[36m"
+#define cCYN "\x1B[36m"
 #define cWHT "\x1B[37m"
 
 #define cBOLD "\x1B[1;0m"
@@ -329,6 +329,66 @@ typedef enum { triYes, triNo, triMaybe } TriState;
 static inline TriState triState(TriState lhs, TriState rhs)
 {
     return lhs != rhs ? triMaybe : lhs;
+}
+
+/**
+ * Create a directory at the given path.
+ *
+ * @param path Directory path to create
+ * @param createParents If true, creates parent directories as needed (like mkdir -p)
+ * @return true on success, false on failure (errno is set)
+ */
+bool makeDirectory(const char *path, bool createParents);
+
+/**
+ * Write a string to a file, creating or truncating the file.
+ *
+ * @param path File path to write to
+ * @param content String content to write
+ * @param size Number of bytes to write from content
+ * @return true on success, false on failure (errno is set)
+ */
+bool writeToFile(const char *path, const char *content, size_t size);
+
+/**
+ * Check if a directory is empty (contains no entries except . and ..).
+ *
+ * @param path Directory path to check
+ * @return true if directory is empty, false if not empty or on error (errno is set)
+ */
+bool isDirectoryEmpty(const char *path);
+
+/**
+ * Run a command with progress indicator (spinner and live output).
+ *
+ * Shows a spinner with the header message while the command runs.
+ * Displays the last 2 lines of command output indented by 2 spaces.
+ * On success: clears output and shows ✓ with header.
+ * On failure: shows ✗ with header and full output indented.
+ *
+ * @param header Message to display (e.g., "Cloning repository from X")
+ * @param command Shell command to execute
+ * @param log Logger for status messages
+ * @param showOutput Whether to show the full command output on failure
+ * @return true if command succeeded (exit code 0), false otherwise
+ */
+bool runCommandWithProgressFull(const char *header, const char *command, void *log, bool showOutput);
+
+/**
+ * Run a command with progress indicator (spinner and live output).
+ *
+ * Shows a spinner with the header message while the command runs.
+ * Displays the last 2 lines of command output indented by 2 spaces.
+ * On success: clears output and shows ✓ with header.
+ * On failure: shows ✗ with header and full output indented.
+ *
+ * @param header Message to display (e.g., "Cloning repository from X")
+ * @param command Shell command to execute
+ * @param log Logger for status messages
+ * @return true if command succeeded (exit code 0), false otherwise
+ */
+static inline bool runCommandWithProgress(const char *header, const char *command, void *log) {
+    return runCommandWithProgressFull(header, command, log, false);
 }
 
 #ifdef __cplusplus

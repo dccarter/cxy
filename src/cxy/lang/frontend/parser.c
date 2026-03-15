@@ -21,6 +21,7 @@
 
 #include "../operations.h"
 #include "lang/middle/builtins.h"
+#include "token.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1601,6 +1602,10 @@ static AstNode *parseTypeOrIndex(Parser *P)
 {
     if (check(P, tokIntLiteral))
         return parseInteger(P, false);
+    if (check(P, tokFloatLiteral))
+        return parseFloat(P, false);
+    if (check(P, tokStringLiteral))
+        return parseString(P);
     return parseType(P);
 }
 
@@ -2726,7 +2731,7 @@ static AstNode *statement(Parser *P, bool exprOnly)
         attrs = attributes(P);
 
     bool isComptime = match(P, tokHash) != NULL;
-    if (isComptime && !check(P, tokIf, tokFor, tokWhile, tokSwitch, tokConst)) {
+    if (isComptime && !check(P, tokIf, tokFor, tokWhile, tokSwitch, tokConst, tokContinue, tokBreak)) {
         parserError(P,
                     &current(P)->fileLoc,
                     "current token is not a valid compile time token",
@@ -2734,7 +2739,7 @@ static AstNode *statement(Parser *P, bool exprOnly)
     }
 
     AstNode *stmt = NULL;
-
+    Token tok = *current(P);
     switch (current(P)->tag) {
     case tokIf:
         stmt = ifStatement(P);
@@ -3242,8 +3247,8 @@ static AstNode *comptime(Parser *P, AstNode *(*parser)(Parser *))
     default:
         parserError(P,
                     &current(P)->fileLoc,
-                    "current token is not a valid comptime statement",
-                    NULL);
+                    "current token '{s}' is not a valid comptime statement",
+                    (FormatArg[]){{.s = getTokenString(P, current(P), false)}});
     }
     unreachable("");
 }
@@ -3616,7 +3621,7 @@ static AstNode *parseImportEntity(Parser *P)
 {
     Token tok = *consume0(P, tokIdent);
     cstring name = getTokenString(P, &tok, false), alias;
-    if (match(P, tokAs)) {
+    if (!P->isPackage && match(P, tokAs)) {
         Token *aliasTok = consume0(P, tokIdent);
         alias = getTokenString(P, aliasTok, false);
     }
@@ -3631,16 +3636,18 @@ static AstNode *parseImportEntity(Parser *P)
                    .importEntity = {.alias = alias, .name = name}});
 }
 
-static AstNode *parseModuleDecl(Parser *P)
+static AstNode *parseModuleDecl(Parser *P, TokenTag tag)
 {
-    Token tok = *consume0(P, tokModule);
+    Token tok = *consume0(P, tag);
     Token name = *consume0(P, tokIdent);
 
     return makeAstNode(
         P->memPool,
         &tok.fileLoc,
         &(AstNode){.tag = astModuleDecl,
-                   .moduleDecl = {.name = getTokenString(P, &name, false)}});
+                   .moduleDecl = {
+                       .name = getTokenString(P, &name, false),
+                       .isPackage = tag == tokPackage}});
 }
 
 static void skipImportTestDecl(Parser *P)
@@ -3663,7 +3670,7 @@ static void skipImportTestDecl(Parser *P)
 
 static AstNode *parseImportDecl(Parser *P)
 {
-    Token tok = *consume0(P, tokImport);
+    Token tok = *consume0(P, P->isPackage? tokExport : tokImport);
     if (match(P, tokPlugin)) {
         cstring path = getStringLiteral(P, consume0(P, tokStringLiteral));
         consume0(P, tokAs);
@@ -3705,7 +3712,7 @@ static AstNode *parseImportDecl(Parser *P)
 
     module = parseString(P);
 
-    if (entities == NULL && match(P, tokAs))
+    if (entities == NULL && !P->isPackage && match(P, tokAs))
         alias = parseIdentifier(P);
 
     exports = compileModule(P->cc, module, entities, alias, testMode);
@@ -3729,7 +3736,7 @@ static AstNode *parseImportDecl(Parser *P)
 static AstNode *parseImportsDecl(Parser *P)
 {
     AstNodeList imports = {};
-    while (check(P, tokImport)) {
+    while (check(P, tokImport, tokExport)) {
         AstNode *import = parseImportDecl(P);
         if (import)
             insertAstNode(&imports, import);
@@ -3740,7 +3747,7 @@ static AstNode *parseImportsDecl(Parser *P)
 
 static AstNode *parseTopLevelDecl(Parser *P)
 {
-    if (check(P, tokImport))
+    if (check(P, tokImport, tokExport))
         return parseImportDecl(P);
     else if (check(P, tokCDefine, tokCInclude, tokCSources)) {
         return parseCCode(P);
@@ -3850,31 +3857,58 @@ AstNode *parseProgram(Parser *P)
     AstNode *module = NULL;
     AstNodeList topLevel = {NULL};
 
-    if (check(P, tokModule))
-        module = parseModuleDecl(P);
-
-    while (check(P, tokImport) || check(P, tokDefine) ||
-           (check(P, tokAt) &&
-            checkPeek(P, 1, tokCDefine, tokCInclude, tokCSources, tokCBuild) &&
-            match(P, tokAt))) {
-        E4C_TRY_BLOCK(
-            {
-                AstNode *node = NULL;
-                node = conditionalTopLevelDecl(P);
-                if (node != NULL)
-                    listAddAstNode(&topLevel, node);
-            } E4C_CATCH(ParserException) {
-                synchronize(E4C_EXCEPTION.ctx);
-            } E4C_CATCH(ParserAbort) { return NULL; })
+    if (check(P, tokModule)) {
+        module = parseModuleDecl(P, tokModule);
+    } else if (check(P, tokPackage)) {
+        module = parseModuleDecl(P, tokPackage);
+        P->isPackage = true;
     }
 
-    while (!isEoF(P)) {
-        E4C_TRY_BLOCK(
-            {
-                AstNode *decl = comptime(P, comptimeDeclaration);
-                if (decl)
-                    listAddAstNode(&decls, decl);
-            } E4C_CATCH(ParserException) { synchronize(E4C_EXCEPTION.ctx); })
+    if (P->isPackage) {
+        while (!isEoF(P)) {
+            if (!check(P, tokExport)) {
+                parserError(P,
+                    &current(P)->fileLoc,
+                    "unexpected token in package declaration, expecting 'export'",
+                    NULL);
+                return NULL;
+            }
+
+            E4C_TRY_BLOCK(
+                {
+                    AstNode *node = NULL;
+                    node = conditionalTopLevelDecl(P);
+                    if (node != NULL)
+                        listAddAstNode(&topLevel, node);
+                } E4C_CATCH(ParserException) {
+                    synchronize(E4C_EXCEPTION.ctx);
+                } E4C_CATCH(ParserAbort) { return NULL; })
+        }
+    }
+    else {
+        while (check(P, tokImport, tokExport) || check(P, tokDefine) ||
+            (check(P, tokAt) &&
+                checkPeek(P, 1, tokCDefine, tokCInclude, tokCSources, tokCBuild) &&
+                match(P, tokAt))) {
+            E4C_TRY_BLOCK(
+                {
+                    AstNode *node = NULL;
+                    node = conditionalTopLevelDecl(P);
+                    if (node != NULL)
+                        listAddAstNode(&topLevel, node);
+                } E4C_CATCH(ParserException) {
+                    synchronize(E4C_EXCEPTION.ctx);
+                } E4C_CATCH(ParserAbort) { return NULL; })
+        }
+
+        while (!isEoF(P)) {
+            E4C_TRY_BLOCK(
+                {
+                    AstNode *decl = comptime(P, comptimeDeclaration);
+                    if (decl)
+                        listAddAstNode(&decls, decl);
+                } E4C_CATCH(ParserException) { synchronize(E4C_EXCEPTION.ctx); })
+        }
     }
 
     return newAstNode(P,
