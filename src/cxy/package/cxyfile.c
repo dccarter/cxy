@@ -475,6 +475,8 @@ static bool parseScripts(YamlParser *p, DynArray *scripts, DynArray *scriptEnv)
         memset(&script, 0, sizeof(PackageScript));
         script.name = scriptName;
         script.dependencies = newDynArray(sizeof(cstring));
+        script.inputs = newDynArray(sizeof(cstring));
+        script.outputs = newDynArray(sizeof(cstring));
 
         // Parse script value (either string command or object with deps)
         if (!parseYamlEvent(p))
@@ -506,6 +508,14 @@ static bool parseScripts(YamlParser *p, DynArray *scripts, DynArray *scriptEnv)
                 }
                 else if (strcmp(key, "depends") == 0 || strcmp(key, "dependencies") == 0) {
                     if (!parseStringArray(p, &script.dependencies))
+                        return false;
+                }
+                else if (strcmp(key, "inputs") == 0) {
+                    if (!parseStringArray(p, &script.inputs))
+                        return false;
+                }
+                else if (strcmp(key, "outputs") == 0) {
+                    if (!parseStringArray(p, &script.outputs))
                         return false;
                 }
                 else {
@@ -1492,24 +1502,56 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
         // Then write regular scripts
         for (u32 i = 0; i < meta->scripts.size; i++) {
             PackageScript *script = &((PackageScript *)meta->scripts.elems)[i];
-            if (script->dependencies.size == 0) {
+            
+            // Check if script needs object notation (has dependencies, inputs, or outputs)
+            bool needsObject = script->dependencies.size > 0 || 
+                              script->inputs.size > 0 || 
+                              script->outputs.size > 0;
+            
+            if (!needsObject) {
+                // Simple scalar notation
                 format(&state, "  {s}: ", (FormatArg[]){{.s = script->name}});
                 writeYamlStringWithIndent(&state, script->command, 4);
                 format(&state, "\n", NULL);
             } else {
+                // Object notation with command and optional fields
                 format(&state, "  {s}:\n", (FormatArg[]){{.s = script->name}});
-                format(&state, "    depends: [", NULL);
-                for (u32 j = 0; j < script->dependencies.size; j++) {
-                    cstring dep = dynArrayAt(cstring *, &script->dependencies, j);
-                    if (j > 0) {
-                        format(&state, ", ", NULL);
+                
+                // Write depends if present
+                if (script->dependencies.size > 0) {
+                    format(&state, "    depends: [", NULL);
+                    for (u32 j = 0; j < script->dependencies.size; j++) {
+                        cstring dep = dynArrayAt(cstring *, &script->dependencies, j);
+                        if (j > 0) {
+                            format(&state, ", ", NULL);
+                        }
+                        else {
+                            format(&state, " ", NULL);
+                        }
+                        format(&state, "{s}", (FormatArg[]){{.s = dep}});
                     }
-                    else {
-                        format(&state, " ", NULL);
-                    }
-                    format(&state, "{s}", (FormatArg[]){{.s = dep}});
+                    format(&state, " ]\n", NULL);
                 }
-                format(&state, " ]\n", NULL);
+                
+                // Write inputs if present
+                if (script->inputs.size > 0) {
+                    format(&state, "    inputs:\n", NULL);
+                    for (u32 j = 0; j < script->inputs.size; j++) {
+                        cstring input = dynArrayAt(cstring *, &script->inputs, j);
+                        format(&state, "      - {s}\n", (FormatArg[]){{.s = input}});
+                    }
+                }
+                
+                // Write outputs if present
+                if (script->outputs.size > 0) {
+                    format(&state, "    outputs:\n", NULL);
+                    for (u32 j = 0; j < script->outputs.size; j++) {
+                        cstring output = dynArrayAt(cstring *, &script->outputs, j);
+                        format(&state, "      - {s}\n", (FormatArg[]){{.s = output}});
+                    }
+                }
+                
+                // Write command
                 format(&state, "    command: ", NULL);
                 writeYamlStringWithIndent(&state, script->command, 6);
                 format(&state, "\n", NULL);

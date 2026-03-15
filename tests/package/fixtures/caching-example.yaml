@@ -1,0 +1,85 @@
+package:
+  name: caching-example
+  version: 1.0.0
+  description: Example demonstrating script caching with inputs/outputs
+  author: Test <test@example.com>
+  license: MIT
+
+dependencies:
+  - name: string-utils
+    repository: https://github.com/cxy-lang/string-utils.git
+    version: "^1.0.0"
+
+tests:
+  - file: "tests/**/*_test.cxy"
+
+scripts:
+  env:
+    BUILD_DIR: "{{SOURCE_DIR}}/build"
+    DIST_DIR: "{{SOURCE_DIR}}/dist"
+    APP_NAME: "{{PACKAGE_NAME}}"
+    VERSION: "{{PACKAGE_VERSION}}"
+
+  # Simple script without caching - always runs
+  clean: rm -rf {{BUILD_DIR}} {{DIST_DIR}}
+
+  # Prepare directories - no caching, always runs
+  prepare:
+    command: |
+      mkdir -p {{BUILD_DIR}}
+      mkdir -p {{DIST_DIR}}
+
+  # Compile with caching - skips if source unchanged
+  compile:
+    depends: [prepare]
+    inputs:
+      - "src/**/*.cxy"
+      - "include/**/*.h"
+      - "Cxyfile.yaml"
+    outputs:
+      - "{{BUILD_DIR}}/app"
+    command: cxy build src/main.cxy -o {{BUILD_DIR}}/app
+
+  # Generate docs with caching
+  docs:
+    inputs:
+      - "src/**/*.cxy"
+      - "docs/**/*.md"
+    outputs:
+      - "{{BUILD_DIR}}/docs/index.html"
+    command: cxy doc src/ -o {{BUILD_DIR}}/docs
+
+  # Run tests - depends on compile
+  test:
+    depends: [compile]
+    command: cxy package test
+
+  # Bundle assets and binary with caching
+  bundle:
+    depends: [compile]
+    inputs:
+      - "{{BUILD_DIR}}/app"
+      - "assets/**/*"
+      - "README.md"
+      - "LICENSE"
+    outputs:
+      - "{{DIST_DIR}}/{{APP_NAME}}-{{VERSION}}.tar.gz"
+    command: |
+      tar -czf {{DIST_DIR}}/{{APP_NAME}}-{{VERSION}}.tar.gz \
+        -C {{BUILD_DIR}} app \
+        -C {{SOURCE_DIR}} assets README.md LICENSE
+
+  # Deploy - runs all steps with smart caching
+  deploy:
+    depends: [test, bundle, docs]
+    command: echo "Ready to deploy {{APP_NAME}} v{{VERSION}}"
+
+  # Development mode - rebuild only what changed
+  dev:
+    depends: [compile]
+    command: {{BUILD_DIR}}/app --dev
+
+  # Benchmark - always runs (no caching)
+  bench:
+    depends: [compile]
+    command: {{BUILD_DIR}}/app --benchmark

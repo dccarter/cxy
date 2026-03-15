@@ -83,6 +83,8 @@ typedef struct PackageScript {
     cstring name;           // Script name (e.g., "build", "test", "clean")
     cstring command;        // Shell command to execute
     DynArray dependencies;  // Array of cstring - script names that must run first
+    DynArray inputs;        // Array of cstring - input file glob patterns for caching
+    DynArray outputs;       // Array of cstring - output file paths for caching
 } PackageScript;
 
 /**

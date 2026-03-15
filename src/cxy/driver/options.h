@@ -169,6 +169,7 @@ typedef struct Options {
             // run subcommand
             const char *scriptName;  // Script name to execute
             bool listScripts;        // List available scripts
+            bool noCache;            // Disable script caching
             // clean subcommand
             bool cleanCache;         // Clean package cache (.cxy/packages)
             bool cleanBuild;         // Clean build directory

@@ -107,6 +107,7 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/gitops.c
         src/cxy/package/resolver.c
         src/cxy/package/env.c
+        src/cxy/package/cache.c
         src/cxy/package/commands/create.c
         src/cxy/package/commands/add.c
         src/cxy/package/commands/build.c
@@ -478,6 +479,7 @@ if(ENABLE_UNIT_TESTS)
         tests/package/test_validators.cpp
         tests/package/test_gitops.cpp
         tests/package/test_resolver.cpp
+        tests/package/test_cache.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
         src/cxy/plugin/shared.c
     )

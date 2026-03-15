@@ -468,7 +468,8 @@ Command(package,
     f(package.listBuilds, Local, Option, 5, ## __VA_ARGS__)
 
 #define PKG_RUN_CMD_LAYOUT(f, ...)                                             \
-    f(package.listScripts, Local, Option, 0, ## __VA_ARGS__)
+    f(package.listScripts, Local, Option, 0, ## __VA_ARGS__)                  \
+    f(package.noCache, Local, Option, 1, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -785,7 +786,9 @@ static bool parsePackageCommand(
                            Def("")),
                        PositionalRest()),
             Opt(Name("list"),
-                Help("List all available scripts")));
+                Help("List all available scripts")),
+            Opt(Name("no-cache"),
+                Help("Disable script caching (force re-run)")));
 
     Parser("cxy package",
            CXY_VERSION,

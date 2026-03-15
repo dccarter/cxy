@@ -83,6 +83,12 @@ void freePackageMetadata(PackageMetadata *meta)
             if (script->dependencies.elems != NULL) {
                 freeDynArray(&script->dependencies);
             }
+            if (script->inputs.elems != NULL) {
+                freeDynArray(&script->inputs);
+            }
+            if (script->outputs.elems != NULL) {
+                freeDynArray(&script->outputs);
+            }
         }
         freeDynArray(&meta->scripts);
     }

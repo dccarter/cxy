@@ -12,7 +12,8 @@ The package manager provides comprehensive project lifecycle management:
 - **Reproducible builds** - Lock files ensure consistent dependency versions across environments
 - **Build configuration** - Declarative build settings with multiple build targets
 - **Test execution** - Discover and run tests with parallel execution support
-- **Script runner** - Define and execute custom development workflows
+- **Script runner** - Define and execute custom development workflows with dependency resolution
+- **Script caching** - Incremental builds based on input/output file timestamps
 - **Package inspection** - View information about installed and remote packages
 
 ## Getting Started
@@ -207,7 +208,7 @@ Test entries support glob patterns (`**` for recursive matching). Each test can 
 
 ### Scripts
 
-Scripts define reusable development commands with dependency ordering and environment variables:
+Scripts define reusable development commands with dependency ordering, caching, and environment variables:
 
 **Simple Scripts:**
 ```yaml
@@ -232,6 +233,38 @@ scripts:
 ```
 
 The `depends` field ensures scripts run in the correct order. When you run `cxy package run deploy`, it executes `install`, then `build`, then `test`, then `deploy` in sequence.
+
+**Scripts with Caching:**
+
+Scripts can specify `inputs` and `outputs` to enable incremental builds. A script is skipped if all output files exist and are newer than all input files:
+
+```yaml
+scripts:
+  compile:
+    inputs:
+      - "src/**/*.cxy"
+      - "include/**/*.h"
+    outputs:
+      - "build/app"
+    command: cxy build src/main.cxy -o build/app
+  
+  bundle:
+    depends: [compile]
+    inputs:
+      - "build/app"
+      - "assets/**/*"
+    outputs:
+      - "dist/bundle.tar.gz"
+    command: tar -czf dist/bundle.tar.gz build/app assets/
+```
+
+**Caching Behavior:**
+- Scripts without `inputs`/`outputs` always run
+- Scripts with only `inputs` (no `outputs`) always run
+- Scripts with `outputs` but no `inputs` always run (with a warning)
+- Scripts with both `inputs` and `outputs` are cached based on modification times
+- Input patterns support glob expansion including `**` for recursive matching
+- Use `--no-cache` flag to force re-execution: `cxy package run build --no-cache`
 
 **Multiline Scripts:**
 ```yaml
@@ -695,6 +728,7 @@ cxy package run test -- --verbose --filter "integration_*"
 
 **Options:**
 - `--list` - List all available scripts
+- `--no-cache` - Disable script caching and force re-execution
 - `-- <args>` - Pass arguments to the script (after the `--` separator)
 
 **Script Execution:**
@@ -705,7 +739,7 @@ The run command:
 - Executes scripts in correct dependency order
 - Passes arguments only to the final script in the chain
 
-**Example with Environment Variables:**
+**Example with Environment Variables and Caching:**
 ```yaml
 scripts:
   env:
@@ -713,15 +747,35 @@ scripts:
     TEST_ARGS: "--verbose --parallel 4"
   
   install: cxy package install
+  
   build:
     depends: [install]
+    inputs:
+      - "src/**/*.cxy"
+      - "Cxyfile.yaml"
+    outputs:
+      - "{{BUILD_DIR}}/app"
     command: cxy build src/main.cxy -o {{BUILD_DIR}}/app
+  
   test:
     depends: [build]
     command: cxy package test {{TEST_ARGS}}
 ```
 
-Running `cxy package run test` executes `install`, then `build`, then `test` in sequence. Environment variables are substituted in commands and available as shell variables.
+Running `cxy package run test` executes `install`, then `build` (skipped if cached), then `test` in sequence. Environment variables are substituted in commands and available as shell variables.
+
+**Caching Behavior:**
+
+When `inputs` and `outputs` are specified, the script is automatically cached:
+- On first run, the script executes normally
+- On subsequent runs, if all output files exist and are newer than all input files, the script is skipped
+- Use `--no-cache` to force execution regardless of cache status:
+  ```bash
+  cxy package run build --no-cache
+  ```
+- Cache status is checked before each script execution
+- Glob patterns in `inputs` are expanded to actual file paths
+- Missing input or output files invalidate the cache
 
 **Passing Arguments:**
 
