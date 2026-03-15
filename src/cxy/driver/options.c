@@ -382,8 +382,9 @@ Command(package,
 
 #define PACKAGE_CMD_LAYOUT(f, ...)                                             \
     f(package.cxyfile, Global, String, 0, ## __VA_ARGS__)                       \
-    f(package.quiet, Global, Option, 1, ## __VA_ARGS__)                         \
-    f(package.verbose, Global, Option, 2, ## __VA_ARGS__)
+    f(package.packagesDir, Global, String, 1, ## __VA_ARGS__)                   \
+    f(package.quiet, Global, Option, 2, ## __VA_ARGS__)                         \
+    f(package.verbose, Global, Option, 3, ## __VA_ARGS__)
 
 // Package subcommand definitions
 #define PACKAGE_SUBCOMMANDS(f)                                              \
@@ -426,10 +427,9 @@ Command(package,
 #define PKG_INSTALL_CMD_LAYOUT(f, ...)                                         \
     f(package.includeDev, Local, Option, 0, ## __VA_ARGS__)                    \
     f(package.clean, Local, Option, 1, ## __VA_ARGS__)                         \
-    f(package.packagesDir, Local, String, 2, ## __VA_ARGS__)                   \
-    f(package.verify, Local, Option, 3, ## __VA_ARGS__)                        \
-    f(package.offline, Local, Option, 4, ## __VA_ARGS__)                       \
-    f(package.frozenLockfile, Local, Option, 5, ## __VA_ARGS__)
+    f(package.verify, Local, Option, 2, ## __VA_ARGS__)                        \
+    f(package.offline, Local, Option, 3, ## __VA_ARGS__)                       \
+    f(package.frozenLockfile, Local, Option, 4, ## __VA_ARGS__)
 
 #define PKG_UPDATE_CMD_LAYOUT(f, ...)                                          \
     f(package.latest, Local, Option, 0, ## __VA_ARGS__)                        \
@@ -677,9 +677,6 @@ static bool parsePackageCommand(
                 Help("Include development dependencies")),
             Opt(Name("clean"),
                 Help("Ignore lock file and perform clean resolution")),
-            Str(Name("packages-dir"),
-                Help("Custom packages directory"),
-                Def(".cxy/packages")),
             Opt(Name("verify"),
                 Help("Verify integrity of installed packages")),
             Opt(Name("offline"),
@@ -798,6 +795,9 @@ static bool parsePackageCommand(
            Str(Name("cxyfile"),
                Help("Path to Cxyfile.yaml (default: searches current and parent directories)"),
                Def("")),
+           Str(Name("packages-dir"),
+               Help("Directory for installed packages"),
+               Def(".cxy/packages")),
            Opt(Name("quiet"),
                Sf('q'),
                Help("Suppress non-error output")),

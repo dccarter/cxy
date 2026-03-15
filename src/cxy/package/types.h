@@ -69,6 +69,14 @@ typedef struct PackageBuild {
 } PackageBuild;
 
 /**
+ * Represents an environment variable for scripts
+ */
+typedef struct EnvVar {
+    cstring name;           // Variable name (e.g., "BUILD_DIR")
+    cstring value;          // Variable value (may contain {{VAR}} templates)
+} EnvVar;
+
+/**
  * Represents a script command entry (name -> command mapping)
  */
 typedef struct PackageScript {
@@ -92,6 +100,7 @@ typedef struct PackageMetadata {
     DynArray dependencies;     // Array of PackageDependency
     DynArray devDependencies;  // Array of PackageDependency
     DynArray tests;            // Array of PackageTest
+    DynArray scriptEnv;        // Array of EnvVar - environment variables for scripts
     DynArray scripts;          // Array of PackageScript
 
     // Build configuration (supports both single and multiple builds)

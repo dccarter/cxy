@@ -409,7 +409,7 @@ static bool parseTests(YamlParser *p, DynArray *tests)
     return true;
 }
 
-static bool parseScripts(YamlParser *p, DynArray *scripts)
+static bool parseScripts(YamlParser *p, DynArray *scripts, DynArray *scriptEnv)
 {
     // Expect mapping start
     if (!parseYamlEvent(p))
@@ -432,9 +432,48 @@ static bool parseScripts(YamlParser *p, DynArray *scripts)
             return false;
         }
 
+        cstring scriptName = parseScalarValue(p);
+
+        // Check if this is the special "env" section
+        if (strcmp(scriptName, "env") == 0) {
+            // Parse environment variables
+            if (!parseYamlEvent(p))
+                return false;
+
+            if (p->event.type != YAML_MAPPING_START_EVENT) {
+                logError(p->log, NULL, "expected env mapping", NULL);
+                return false;
+            }
+
+            while (true) {
+                if (!parseYamlEvent(p))
+                    return false;
+
+                if (p->event.type == YAML_MAPPING_END_EVENT)
+                    break;
+
+                if (p->event.type != YAML_SCALAR_EVENT) {
+                    logError(p->log, NULL, "expected environment variable name", NULL);
+                    return false;
+                }
+
+                EnvVar env;
+                env.name = parseScalarValue(p);
+
+                if (!expectScalar(p, &env.value))
+                    return false;
+
+                pushOnDynArray(scriptEnv, &env);
+            }
+
+            // Don't add env to scripts array, continue to next entry
+            continue;
+        }
+
+        // Regular script entry
         PackageScript script;
         memset(&script, 0, sizeof(PackageScript));
-        script.name = parseScalarValue(p);
+        script.name = scriptName;
         script.dependencies = newDynArray(sizeof(cstring));
 
         // Parse script value (either string command or object with deps)
@@ -928,7 +967,7 @@ bool parseCxyfile(const char *path, PackageMetadata *meta, StrPool *strings, Log
             }
         }
         else if (strcmp(key, "scripts") == 0) {
-            if (!parseScripts(&p, &meta->scripts)) {
+            if (!parseScripts(&p, &meta->scripts, &meta->scriptEnv)) {
                 success = false;
                 goto cleanup;
             }
@@ -1125,7 +1164,7 @@ static bool isMultiline(const char *str)
 /**
  * Write a YAML string value with proper formatting
  * - Simple strings: write as-is
- * - Multiline strings: write with folded scalar (>)
+ * - Multiline strings: write with literal scalar (|)
  */
 static void writeYamlStringWithIndent(FormatState *state, const char *str, int indent)
 {
@@ -1136,8 +1175,8 @@ static void writeYamlStringWithIndent(FormatState *state, const char *str, int i
 
     // Check if multiline
     if (isMultiline(str)) {
-        // Use folded block scalar (>) for multiline strings
-        format(state, ">\n", NULL);
+        // Use literal block scalar (|) for multiline strings
+        format(state, "|\n", NULL);
 
         // Write each line with proper indentation
         const char *line_start = str;
@@ -1436,8 +1475,21 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
     }
 
     // Scripts section
-    if (meta->scripts.size > 0) {
+    if (meta->scriptEnv.size > 0 || meta->scripts.size > 0) {
         format(&state, "scripts:\n", NULL);
+        
+        // Write env section first if it exists
+        if (meta->scriptEnv.size > 0) {
+            format(&state, "  env:\n", NULL);
+            for (u32 i = 0; i < meta->scriptEnv.size; i++) {
+                EnvVar *env = &((EnvVar *)meta->scriptEnv.elems)[i];
+                format(&state, "    {s}: ", (FormatArg[]){{.s = env->name}});
+                writeYamlStringWithIndent(&state, env->value, 6);
+                format(&state, "\n", NULL);
+            }
+        }
+        
+        // Then write regular scripts
         for (u32 i = 0; i < meta->scripts.size; i++) {
             PackageScript *script = &((PackageScript *)meta->scripts.elems)[i];
             if (script->dependencies.size == 0) {

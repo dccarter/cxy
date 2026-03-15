@@ -106,6 +106,7 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/validators.c
         src/cxy/package/gitops.c
         src/cxy/package/resolver.c
+        src/cxy/package/env.c
         src/cxy/package/commands/create.c
         src/cxy/package/commands/add.c
         src/cxy/package/commands/build.c

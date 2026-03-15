@@ -11,6 +11,7 @@
 #include "package/commands/commands.h"
 #include "package/cxyfile.h"
 #include "package/types.h"
+#include "package/env.h"
 #include "core/log.h"
 #include "core/format.h"
 #include "core/strpool.h"
@@ -65,15 +66,25 @@ static void listAvailableScripts(const PackageMetadata *meta, Log *log)
 }
 
 /**
- * Execute a script command with proper shell argument passing
+ * Execute a script command with proper shell argument passing and environment
  */
 static bool executeScript(const char *scriptName, 
                          const char *command,
                          const DynArray *restArgs,
+                         const DynArray *envVars,
+                         const DynArray *builtins,
                          StrPool *strings,
                          Log *log,
                          bool showOutput)
 {
+    // Substitute {{VAR}} in command
+    cstring substitutedCommand = substituteEnvVars(command, envVars, builtins, strings, log);
+    if (!substitutedCommand) {
+        logError(log, NULL, "failed to substitute environment variables in script '{s}'",
+                (FormatArg[]){{.s = scriptName}});
+        return false;
+    }
+    
     // Build command with proper shell argument passing
     // Format: sh -c 'command' sh arg1 arg2 arg3...
     // This makes $1, $2, etc. available in the script
@@ -81,7 +92,7 @@ static bool executeScript(const char *scriptName,
     
     if (restArgs && restArgs->size > 0) {
         // Create a wrapper that passes arguments properly to the shell
-        format(&cmdState, "sh -c '{s}' sh", (FormatArg[]){{.s = command}});
+        format(&cmdState, "sh -c '{s}' sh", (FormatArg[]){{.s = substitutedCommand}});
         
         // Append rest arguments as positional parameters
         for (u32 i = 0; i < restArgs->size; i++) {
@@ -91,7 +102,7 @@ static bool executeScript(const char *scriptName,
         }
     } else {
         // No arguments, just run the command directly
-        format(&cmdState, "{s}", (FormatArg[]){{.s = command}});
+        format(&cmdState, "{s}", (FormatArg[]){{.s = substitutedCommand}});
     }
     
     char *finalCommand = formatStateToString(&cmdState);
@@ -155,9 +166,49 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
 
     printStatusSticky(log, "Running script '%s' in package '%s'...", scriptName, meta.name);
 
+    // Determine packages directory
+    const char *packagesDir = options->package.packagesDir;
+    if (!packagesDir || packagesDir[0] == '\0') {
+        packagesDir = ".cxy/packages";
+    }
+    
+    // Build full packages path if relative
+    char fullPackagesDir[2048];
+    if (packagesDir[0] == '/') {
+        // Absolute path, use as-is
+        strncpy(fullPackagesDir, packagesDir, sizeof(fullPackagesDir) - 1);
+        fullPackagesDir[sizeof(fullPackagesDir) - 1] = '\0';
+    } else {
+        // Relative path, make relative to packageDir
+        snprintf(fullPackagesDir, sizeof(fullPackagesDir), "%s/%s", packageDir, packagesDir);
+    }
+    
+    // Build built-in environment variables
+    DynArray builtins = buildBuiltinEnvVars(&meta, packageDir, fullPackagesDir, strings);
+    
+    // Resolve environment variables (substitute {{VAR}} references between env vars)
+    if (!resolveEnvVars(&meta.scriptEnv, &builtins, strings, log)) {
+        logError(log, NULL, "failed to resolve environment variables", NULL);
+        freeDynArray(&builtins);
+        free(packageDir);
+        freePackageMetadata(&meta);
+        return false;
+    }
+    
+    // Set environment variables for script execution
+    if (!setScriptEnvironment(&meta.scriptEnv, &builtins, log)) {
+        logError(log, NULL, "failed to set script environment", NULL);
+        freeDynArray(&builtins);
+        free(packageDir);
+        freePackageMetadata(&meta);
+        return false;
+    }
+
     // Validate scripts for circular dependencies
     if (!validateScripts(&meta, log)) {
         logError(log, NULL, "script validation failed", NULL);
+        clearScriptEnvironment(&meta.scriptEnv, &builtins);
+        freeDynArray(&builtins);
         free(packageDir);
         freePackageMetadata(&meta);
         return false;
@@ -168,6 +219,8 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
     if (!resolveScriptDependencies(&meta, scriptName, &executionOrder, log)) {
         logError(log, NULL, "failed to resolve script dependencies", NULL);
         freeDynArray(&executionOrder);
+        clearScriptEnvironment(&meta.scriptEnv, &builtins);
+        freeDynArray(&builtins);
         free(packageDir);
         freePackageMetadata(&meta);
         return false;
@@ -178,6 +231,8 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
     if (!getcwd(originalDir, sizeof(originalDir))) {
         logError(log, NULL, "failed to get current directory", NULL);
         freeDynArray(&executionOrder);
+        clearScriptEnvironment(&meta.scriptEnv, &builtins);
+        freeDynArray(&builtins);
         free(packageDir);
         freePackageMetadata(&meta);
         return false;
@@ -186,6 +241,8 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
     if (chdir(packageDir) != 0) {
         logError(log, NULL, "failed to change to package directory", NULL);
         freeDynArray(&executionOrder);
+        clearScriptEnvironment(&meta.scriptEnv, &builtins);
+        freeDynArray(&builtins);
         free(packageDir);
         freePackageMetadata(&meta);
         return false;
@@ -208,8 +265,9 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
         // Only pass rest args to the final script in the chain
         const DynArray *argsToPass = (i == executionOrder.size - 1) ? restArgs : NULL;
         
-        // Execute the script (show output if verbose is enabled)
-        if (!executeScript(currentScriptName, currentScript->command, argsToPass, strings, log, options->package.verbose)) {
+        // Execute the script with environment variables (show output if verbose is enabled)
+        if (!executeScript(currentScriptName, currentScript->command, argsToPass, 
+                          &meta.scriptEnv, &builtins, strings, log, options->package.verbose)) {
             logError(log, NULL, "script '{s}' failed",
                     (FormatArg[]){{.s = currentScriptName}});
             allSuccess = false;
@@ -222,7 +280,11 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
         logWarning(log, NULL, "failed to restore original directory", NULL);
     }
 
+    // Clear environment variables
+    clearScriptEnvironment(&meta.scriptEnv, &builtins);
+    
     // Cleanup
+    freeDynArray(&builtins);
     freeDynArray(&executionOrder);
     free(packageDir);
     freePackageMetadata(&meta);

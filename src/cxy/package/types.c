@@ -24,6 +24,7 @@ void initPackageMetadata(PackageMetadata *meta, StrPool *strings)
     meta->dependencies = newDynArray(sizeof(PackageDependency));
     meta->devDependencies = newDynArray(sizeof(PackageDependency));
     meta->tests = newDynArray(sizeof(PackageTest));
+    meta->scriptEnv = newDynArray(sizeof(EnvVar));
     meta->scripts = newDynArray(sizeof(PackageScript));
     meta->builds = newDynArray(sizeof(PackageBuild));
     meta->hasMultipleBuilds = false;
@@ -68,6 +69,11 @@ void freePackageMetadata(PackageMetadata *meta)
             }
         }
         freeDynArray(&meta->tests);
+    }
+
+    // Free script environment variables
+    if (meta->scriptEnv.elems != NULL) {
+        freeDynArray(&meta->scriptEnv);
     }
 
     // Free scripts array

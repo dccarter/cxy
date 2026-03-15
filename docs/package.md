@@ -207,7 +207,7 @@ Test entries support glob patterns (`**` for recursive matching). Each test can 
 
 ### Scripts
 
-Scripts define reusable development commands with dependency ordering:
+Scripts define reusable development commands with dependency ordering and environment variables:
 
 **Simple Scripts:**
 ```yaml
@@ -244,6 +244,133 @@ scripts:
 ```
 
 Multiline scripts use YAML's folded scalar syntax (`>`). Each line executes as a shell command.
+
+### Environment Variables for Scripts
+
+The `env:` section within `scripts:` defines environment variables shared by all scripts. This provides a centralized place to configure paths, flags, and other values used across multiple scripts.
+
+**Basic Environment Variables:**
+```yaml
+scripts:
+  env:
+    BUILD_DIR: build
+    APP_NAME: my-app
+    C_FLAGS: "-O2 -Wall"
+  
+  build: cxy build src/main.cxy -o {{BUILD_DIR}}/{{APP_NAME}} {{C_FLAGS}}
+  clean: rm -rf {{BUILD_DIR}}
+```
+
+**Variable Substitution:**
+
+Variables are substituted using `{{VAR_NAME}}` syntax:
+- `{{VAR_NAME}}` in script commands is replaced by cxy before execution
+- Variables must be defined in the `env:` section or be built-in
+- Undefined variables generate warnings and are left as-is
+
+**Variable References:**
+
+Variables can reference other variables defined before them:
+```yaml
+scripts:
+  env:
+    BUILD_DIR: "{{SOURCE_DIR}}/build"
+    OUTPUT_DIR: "{{BUILD_DIR}}/output"
+    APP_NAME: my-app
+    FULL_PATH: "{{OUTPUT_DIR}}/{{APP_NAME}}"
+  
+  build: cxy build src/main.cxy -o {{FULL_PATH}}
+```
+
+Variables are resolved in order, so forward references are not allowed:
+```yaml
+# This will NOT work - BAD cannot reference GOOD defined later
+env:
+  BAD: "{{GOOD}}/path"  # Error: GOOD not yet defined
+  GOOD: "/usr/local"
+```
+
+**Built-in Variables:**
+
+These variables are automatically available without definition:
+- `SOURCE_DIR` - Absolute path to directory containing Cxyfile.yaml
+- `PACKAGE_NAME` - Package name from package metadata
+- `PACKAGE_VERSION` - Package version from package metadata
+- `CXY_PACKAGES_DIR` - Path to `.cxy/packages` directory
+
+Use built-in variables in your env definitions:
+```yaml
+scripts:
+  env:
+    BUILD_DIR: "{{SOURCE_DIR}}/build"
+    DIST_NAME: "{{PACKAGE_NAME}}-{{PACKAGE_VERSION}}"
+    PACKAGES: "{{CXY_PACKAGES_DIR}}"
+  
+  package: tar -czf dist/{{DIST_NAME}}.tar.gz build/
+```
+
+**Shell Variable Access:**
+
+Environment variables are also set as shell environment variables, accessible using `$VAR`:
+```yaml
+scripts:
+  env:
+    BUILD_DIR: build
+    LOG_FILE: build.log
+  
+  build: >
+    mkdir -p $BUILD_DIR
+    cxy build src/main.cxy -o {{BUILD_DIR}}/app 2>&1 | tee $LOG_FILE
+    echo "Build completed in $BUILD_DIR"
+```
+
+Use `{{VAR}}` for paths in command strings and `$VAR` for shell logic.
+
+**Complete Example:**
+```yaml
+scripts:
+  env:
+    # Base directories
+    BUILD_DIR: "{{SOURCE_DIR}}/build"
+    DIST_DIR: "{{SOURCE_DIR}}/dist"
+    
+    # Build configuration
+    APP_NAME: "{{PACKAGE_NAME}}"
+    VERSION: "{{PACKAGE_VERSION}}"
+    
+    # Compiler flags
+    C_FLAGS: "-O2 -Wall -Werror"
+    CXY_FLAGS: "--release"
+    
+    # Output paths
+    OUTPUT_BIN: "{{BUILD_DIR}}/{{APP_NAME}}"
+    ARCHIVE_NAME: "{{APP_NAME}}-{{VERSION}}.tar.gz"
+  
+  prepare: mkdir -p {{BUILD_DIR}} {{DIST_DIR}}
+  
+  build:
+    depends: [prepare]
+    command: cxy build {{CXY_FLAGS}} src/main.cxy -o {{OUTPUT_BIN}}
+  
+  test:
+    depends: [build]
+    command: >
+      export TEST_BIN={{OUTPUT_BIN}}
+      cxy package test
+  
+  package:
+    depends: [test]
+    command: tar -czf {{DIST_DIR}}/{{ARCHIVE_NAME}} -C {{BUILD_DIR}} .
+  
+  clean: rm -rf {{BUILD_DIR}} {{DIST_DIR}}
+```
+
+**Error Detection:**
+
+The package manager detects common environment variable errors:
+- **Circular references**: `A: "{{B}}"` and `B: "{{A}}"` generates an error
+- **Undefined variables**: Using `{{UNDEFINED}}` generates a warning
+- **Malformed syntax**: Missing closing `}}` treats the text as literal
 
 ## The Lock File
 
@@ -578,19 +705,23 @@ The run command:
 - Executes scripts in correct dependency order
 - Passes arguments only to the final script in the chain
 
-**Example:**
+**Example with Environment Variables:**
 ```yaml
 scripts:
+  env:
+    BUILD_DIR: "{{SOURCE_DIR}}/build"
+    TEST_ARGS: "--verbose --parallel 4"
+  
   install: cxy package install
   build:
     depends: [install]
-    command: cxy build src/main.cxy
+    command: cxy build src/main.cxy -o {{BUILD_DIR}}/app
   test:
     depends: [build]
-    command: cxy package test
+    command: cxy package test {{TEST_ARGS}}
 ```
 
-Running `cxy package run test` executes `install`, then `build`, then `test` in sequence.
+Running `cxy package run test` executes `install`, then `build`, then `test` in sequence. Environment variables are substituted in commands and available as shell variables.
 
 **Passing Arguments:**
 
@@ -600,6 +731,23 @@ cxy package run test -- --verbose --filter "unit_*"
 ```
 
 This passes `--verbose --filter unit_*` to the test script but not to install or build.
+
+**Built-in Environment Variables:**
+
+These variables are automatically available in all scripts:
+- `SOURCE_DIR` - Absolute path to directory containing Cxyfile.yaml
+- `PACKAGE_NAME` - Package name from Cxyfile
+- `PACKAGE_VERSION` - Package version from Cxyfile
+- `CXY_PACKAGES_DIR` - Path to `.cxy/packages` directory
+
+Use them in the `env:` section or directly in commands:
+```yaml
+scripts:
+  env:
+    OUTPUT: "{{SOURCE_DIR}}/dist"
+  
+  package: tar -czf {{OUTPUT}}/{{PACKAGE_NAME}}-{{PACKAGE_VERSION}}.tar.gz src/
+```
 
 ### cxy package info
 
