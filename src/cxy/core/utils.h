@@ -229,23 +229,42 @@ attr(noreturn) attr(format, printf, 1, 2) void cxyAbort(const char *fmt, ...);
 #define csAssert(cond, ...) cxyAssert((cond), ##__VA_ARGS__)
 #define csAssert0(cond) cxyAssert((cond), "")
 
-#define cDEF "\x1B[0m"
-#define cRED "\x1B[31m"
-#define cGRN "\x1B[32m"
-#define cYLW "\x1B[33m"
-#define cBLU "\x1B[34m"
-#define cMGN "\x1B[35m"
-#define cCYN "\x1B[36m"
-#define cWHT "\x1B[37m"
+// Style attributes
+#define cNONE "0"
+#define cBOLD "1"
+#define cITALIC "3"
 
-#define cBOLD "\x1B[1;0m"
-#define cBRED "\x1B[1;31m"
-#define cBGRN "\x1B[1;32m"
-#define cBYLW "\x1B[1;33m"
-#define cBBLU "\x1B[1;34m"
-#define cBMGN "\x1B[1;35m"
-#define cBcxy "\x1B[1;36m"
-#define cBWHT "\x1B[1;37m"
+// Color macros with optional style
+#define cO(OPT, CODE) "\x1B[" OPT ";" CODE "m"
+
+// Basic colors (no style)
+#define cDEF "\x1B[0m"
+#define cRED cO(cNONE, "31")
+#define cGRN cO(cNONE, "32")
+#define cYLW cO(cNONE, "33")
+#define cBLU cO(cNONE, "34")
+#define cMGN cO(cNONE, "35")
+#define cMAG cO(cNONE, "35")
+#define cCYN cO(cNONE, "36")
+#define cWHT cO(cNONE, "37")
+
+// Bold colors
+#define cBRED cO(cBOLD, "31")
+#define cBGRN cO(cBOLD, "32")
+#define cBYLW cO(cBOLD, "33")
+#define cBBLU cO(cBOLD, "34")
+#define cBMGN cO(cBOLD, "35")
+#define cBCYN cO(cBOLD, "36")
+#define cBWHT cO(cBOLD, "37")
+
+// Italic colors
+#define cIRED cO(cITALIC, "31")
+#define cIGRN cO(cITALIC, "32")
+#define cIYLW cO(cITALIC, "33")
+#define cIBLU cO(cITALIC, "34")
+#define cIMGN cO(cITALIC, "35")
+#define cICYN cO(cITALIC, "36")
+#define cIWHT cO(cITALIC, "37")
 
 #define CxyPair(T1, T2)                                                        \
     struct {                                                                   \

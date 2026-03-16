@@ -765,9 +765,9 @@ void cmdShowUsage(CmdParser *P, const char *name, FILE *fp)
 {
     u32 cols = cmdTerminalColumns(fp);
     CmdCommand *cmd = cmdFindCommandByName(P, name);
-    if (cmd != NULL)
+    if (cmd != NULL) {
         cmdShowCommandUsage(P, cmd, cols, fp);
-    else {
+    } else {
         fprintf(fp, "Usage: %s [cmd] ...\n\n", P->name);
         fputs("Commands:\n", fp);
         for (int i = 0; i < P->ncmds; i++) {
@@ -874,6 +874,48 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P)
     if (cmd == NULL) {
         sprintf(P->error, "error: missing required command to execute\n");
         return -1;
+    }
+
+    if (cmd->parse != NULL) {
+        // This parser has its own custom parse function
+        int selected = cmd->parse(cmd->ctx, argc+1, argv-1);
+        if (selected < 0) {
+            // We failed to parse the command line arguments
+            return CMD_parse_subcmd_failed;
+        }
+        if (selected >= __SPC_START)
+            return selected;
+        return cmd->id;
+    }
+
+    if (cmd->special == SPC_help) {
+        cstring name = argc ? argv[0] : NULL;
+        if (name == NULL || name[0] == '-') {
+            cmdShowUsage(P, NULL, stdout);
+        }
+        else {
+            CmdCommand *requestedCmd = cmdFindCommandByName(P, name);
+            if (requestedCmd != NULL) {
+                if (requestedCmd->parse != NULL) {
+                    int newArgc = 2;
+                    char * argvs[] = { (char *)requestedCmd->name, "help", NULL };
+                    if (argc > 1) {
+                        newArgc = 3;
+                        argvs[2] = argv[1];
+                    }
+                    requestedCmd->parse(requestedCmd->ctx, newArgc, argvs);
+                    return SPC_help;
+                }
+            }
+            cmdShowUsage(P, name, stdout);
+        }
+        return SPC_help;
+    }
+
+    if (cmd->special == SPC_completion) {
+        char *shellType = argc ? argv[0] : "bash";
+        cmdGenerateCompletion(P, shellType, !P->isSubParser);
+        return SPC_completion;
     }
 
     if (!cmdParseCommandArguments(P, cmd, &argc, &argv))

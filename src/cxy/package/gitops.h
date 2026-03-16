@@ -108,7 +108,7 @@ bool gitGetLatestTag(cstring repositoryUrl, cstring pattern, GitTag *tag, MemPoo
  * @param log Logger for error reporting
  * @return true if clone succeeded, false otherwise
  */
-bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log);
+bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log, bool verbose);
 
 /**
  * Clone a specific branch from a Git repository
@@ -122,7 +122,7 @@ bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log
  * @param log Logger for error reporting
  * @return true if clone succeeded, false otherwise
  */
-bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, bool shallow, Log *log);
+bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, bool shallow, Log *log, bool verbose);
 
 /**
  * Clone a specific tag from a Git repository
@@ -135,7 +135,7 @@ bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, 
  * @param log Logger for error reporting
  * @return true if clone succeeded, false otherwise
  */
-bool gitCloneTag(cstring repositoryUrl, cstring tag, cstring destination, Log *log);
+bool gitCloneTag(cstring repositoryUrl, cstring tag, cstring destination, Log *log, bool verbose);
 
 /**
  * Checkout a specific commit in an existing repository
@@ -147,7 +147,7 @@ bool gitCloneTag(cstring repositoryUrl, cstring tag, cstring destination, Log *l
  * @param log Logger for error reporting
  * @return true if checkout succeeded, false otherwise
  */
-bool gitCheckoutCommit(cstring repoPath, cstring commitHash, Log *log);
+bool gitCheckoutCommit(cstring repoPath, cstring commitHash, Log *log, bool verbose);
 
 /**
  * Get the current commit hash of a local repository
@@ -182,7 +182,7 @@ bool gitGetCurrentBranch(cstring repoPath, cstring *branchName, MemPool *pool, L
  * @param log Logger for error reporting
  * @return true if pull succeeded, false otherwise
  */
-bool gitPull(cstring repoPath, Log *log);
+bool gitPull(cstring repoPath, Log *log, bool verbose);
 
 /**
  * Check if a local directory is a Git repository
@@ -230,7 +230,7 @@ bool gitGetRemoteUrl(cstring repoPath, cstring remoteName, cstring *url, MemPool
  * @param log Logger for error reporting
  * @return true if tag was created (and pushed if requested), false otherwise
  */
-bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push, Log *log);
+bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push, Log *log, bool verbose);
 
 /**
  * Check if repository has uncommitted changes

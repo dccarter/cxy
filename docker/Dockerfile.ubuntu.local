@@ -14,7 +14,7 @@ LABEL build=${BUILD_ID}
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
-    git curl jq cron
+    git curl jq cron bash-completion
 
 # Copy local source code
 COPY . /tmp/cxy-src
@@ -33,9 +33,23 @@ RUN echo "Building cxy compiler from local sources..." && \
         -DCXY_BUILD_ID=${BUILD_ID} && \
     cmake --build /tmp/cxy-build --config Debug --parallel $(nproc) && \
     cmake --install /tmp/cxy-build && \
+    install -m 755 /tmp/cxy-src/src/tools/cxy-check-updates ${CXY_ROOT}/bin/ && \
+    install -m 755 /tmp/cxy-src/src/tools/cxy-download ${CXY_ROOT}/bin/ && \
+    install -m 755 /tmp/cxy-src/src/tools/git-release ${CXY_ROOT}/bin/ && \
     rm -rf /tmp/cxy-src /tmp/cxy-build
 
 # Verify installation
 RUN cxy --version
+
+# Generate and install bash completion
+RUN mkdir -p /etc/bash_completion.d && \
+    cxy completion bash > /etc/bash_completion.d/cxy && \
+    echo "# Source bash completion" >> /etc/bash.bashrc && \
+    echo "if [ -f /usr/share/bash-completion/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /usr/share/bash-completion/bash_completion" >> /etc/bash.bashrc && \
+    echo "elif [ -f /etc/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /etc/bash_completion" >> /etc/bash.bashrc && \
+    echo "fi" >> /etc/bash.bashrc && \
+    echo "Bash completion installed for cxy"
 
 WORKDIR /workspace

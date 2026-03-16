@@ -89,6 +89,7 @@ CxyAmalgamate(epilogue
 set(CXY_CORE_SOURCES
         src/cxy/core/args.c
         src/cxy/core/array.c
+        src/cxy/core/completion.c
         src/cxy/core/e4c.c
         src/cxy/core/format.c
         src/cxy/core/hash.c
@@ -119,6 +120,8 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/commands/remove.c
         src/cxy/package/commands/clean.c
         src/cxy/package/commands/info.c)
+
+
 
 set(CXY_3RD_PARTY_SOURCES
         src/3rdParty/cJSON.c

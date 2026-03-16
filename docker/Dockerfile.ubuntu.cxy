@@ -16,7 +16,7 @@ LABEL build=${BUILD_ID}
 # Install packages
 RUN apt-get -y update && apt-get -y upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
-    git curl jq cron
+    git curl jq cron bash-completion
 
 # Copy release script
 COPY src/tools/git-release /usr/local/bin/git-release
@@ -32,3 +32,14 @@ RUN chmod +x /usr/local/bin/cxy-download
 
 # Download and install cxy compiler
 RUN cxy-download
+
+# Generate and install bash completion
+RUN mkdir -p /etc/bash_completion.d && \
+    cxy completion bash > /etc/bash_completion.d/cxy && \
+    echo "# Source bash completion" >> /etc/bash.bashrc && \
+    echo "if [ -f /usr/share/bash-completion/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /usr/share/bash-completion/bash_completion" >> /etc/bash.bashrc && \
+    echo "elif [ -f /etc/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /etc/bash_completion" >> /etc/bash.bashrc && \
+    echo "fi" >> /etc/bash.bashrc && \
+    echo "Bash completion installed for cxy"

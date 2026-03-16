@@ -1,6 +1,6 @@
 FROM suilteam/cxy-base:alpine
 
-RUN apk add --update --no-cache wget curl jq dcron
+RUN apk add --update --no-cache wget curl jq dcron bash bash-completion
 
 # Build arguments
 ARG RELEASE_TAG=main
@@ -28,3 +28,14 @@ RUN chmod +x /usr/local/bin/cxy-download
 
 # Download and install cxy compiler
 RUN cxy-download
+
+# Generate and install bash completion
+RUN mkdir -p /etc/bash_completion.d && \
+    cxy completion bash > /etc/bash_completion.d/cxy && \
+    echo "# Source bash completion" >> /etc/bash.bashrc && \
+    echo "if [ -f /usr/share/bash-completion/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /usr/share/bash-completion/bash_completion" >> /etc/bash.bashrc && \
+    echo "elif [ -f /etc/bash_completion ]; then" >> /etc/bash.bashrc && \
+    echo "    . /etc/bash_completion" >> /etc/bash.bashrc && \
+    echo "fi" >> /etc/bash.bashrc && \
+    echo "Bash completion installed for cxy"

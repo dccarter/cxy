@@ -39,7 +39,7 @@ static PackageScript* findScriptByName(const DynArray *scripts, const char *name
 /**
  * List all available scripts
  */
-static void listAvailableScripts(const PackageMetadata *meta, Log *log)
+static void listAvailableScripts(const PackageMetadata *meta, Log *log, bool verbose)
 {
     if (meta->scripts.size == 0) {
         printStatusSticky(log, "No scripts defined in Cxyfile.yaml");
@@ -50,42 +50,70 @@ static void listAvailableScripts(const PackageMetadata *meta, Log *log)
     for (u32 i = 0; i < meta->scripts.size; i++) {
         PackageScript *script = &((PackageScript *)meta->scripts.elems)[i];
 
-        printStatusSticky(log, "  - %s: %s", script->name, script->command);
-
-        if (script->dependencies.size > 0) {
-            printStatusSticky(log, "      depends: [", NULL);
-            for (u32 j = 0; j < script->dependencies.size; j++) {
-                cstring dep = ((cstring *)script->dependencies.elems)[j];
-                if (j > 0) {
-                    printf(", ");
-                }
-                printf("%s", dep);
+        if (verbose) {
+            // Verbose mode: show command (truncate if multi-line)
+            const char *cmd = script->command;
+            const char *newline = strchr(cmd, '\n');
+            bool hasMultipleLines = (newline != NULL);
+            
+            // Check if we need to show "command:" label
+            bool showLabel = (script->dependencies.size > 0 || 
+                            script->inputs.size > 0 || 
+                            script->outputs.size > 0);
+            
+            if (showLabel) {
+                printf("  - %s\n", script->name);
+                printf("      command: " cIWHT);
+            } else {
+                printf("  - %s: " cIWHT, script->name);
             }
-            printf("]\n");
-        }
-
-        if (script->inputs.size > 0) {
-            printStatusSticky(log, "      inputs: [", NULL);
-            for (u32 j = 0; j < script->inputs.size; j++) {
-                cstring input = ((cstring *)script->inputs.elems)[j];
-                if (j > 0) {
-                    printf(", ");
-                }
-                printf("%s", input);
+            
+            if (hasMultipleLines) {
+                // Print first line only with ellipsis
+                size_t firstLineLen = newline - cmd;
+                printf("%.*s..." cDEF "\n", (int)firstLineLen, cmd);
+            } else {
+                printf("%s" cDEF "\n", cmd);
             }
-            printf("]\n");
-        }
 
-        if (script->outputs.size > 0) {
-            printStatusSticky(log, "      outputs: [", NULL);
-            for (u32 j = 0; j < script->outputs.size; j++) {
-                cstring output = ((cstring *)script->outputs.elems)[j];
-                if (j > 0) {
-                    printf(", ");
+            if (script->dependencies.size > 0) {
+                printf("      depends: " cICYN "[");
+                for (u32 j = 0; j < script->dependencies.size; j++) {
+                    cstring dep = ((cstring *)script->dependencies.elems)[j];
+                    if (j > 0) {
+                        printf(", ");
+                    }
+                    printf("%s", dep);
                 }
-                printf("%s", output);
+                printf("]" cDEF "\n");
             }
-            printf("]\n");
+
+            if (script->inputs.size > 0) {
+                printf("      inputs: " cIMGN "[");
+                for (u32 j = 0; j < script->inputs.size; j++) {
+                    cstring input = ((cstring *)script->inputs.elems)[j];
+                    if (j > 0) {
+                        printf(", ");
+                    }
+                    printf("%s", input);
+                }
+                printf("]" cDEF "\n");
+            }
+
+            if (script->outputs.size > 0) {
+                printf("      outputs: " cIGRN "[");
+                for (u32 j = 0; j < script->outputs.size; j++) {
+                    cstring output = ((cstring *)script->outputs.elems)[j];
+                    if (j > 0) {
+                        printf(", ");
+                    }
+                    printf("%s", output);
+                }
+                printf("]" cDEF "\n");
+            }
+        } else {
+            // Non-verbose mode: just show script name
+            printf("  - %s\n", script->name);
         }
     }
 }
@@ -165,7 +193,7 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
 
     // Handle --list flag
     if (listScripts) {
-        listAvailableScripts(&meta, log);
+        listAvailableScripts(&meta, log, options->package.verbose);
         free(packageDir);
         freePackageMetadata(&meta);
         return true;

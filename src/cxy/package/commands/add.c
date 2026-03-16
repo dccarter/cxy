@@ -254,7 +254,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
         }
 
         // Install dependency to validate it's a valid Cxy package
-        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, noInstall)) {
+        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, noInstall, options->package.verbose)) {
             logError(log, NULL, "failed to install dependency - not a valid Cxy package or installation failed", NULL);
             freeDynArray(&tags);
             free(packageDir);
@@ -266,7 +266,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
         freeDynArray(&tags);
     } else if (path && path[0] != '\0') {
         // Validate local path dependency
-        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, true)) {
+        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, true, options->package.verbose)) {
             logError(log, NULL, "local path '{s}' does not contain a valid Cxy package",
                     (FormatArg[]){{.s = path}});
             free(packageDir);

@@ -1581,7 +1581,8 @@ bool installDependency(const PackageDependency *dep,
                        const char *packagesDir,
                        MemPool *pool,
                        Log *log,
-                       bool noInstall)
+                       bool noInstall,
+                       bool verbose)
 {
     if (!dep || !dep->name) {
         logError(log, NULL, "invalid dependency: name is required", NULL);
@@ -1657,11 +1658,11 @@ bool installDependency(const PackageDependency *dep,
     if (dep->tag && dep->tag[0] != '\0') {
         // Clone specific tag
         printStatusSticky(log, " Cloning tag '%s' from %s", dep->tag, dep->repository);
-        success = gitCloneTag(dep->repository, dep->tag, targetPath, log);
+        success = gitCloneTag(dep->repository, dep->tag, targetPath, log, verbose);
     } else if (dep->branch && dep->branch[0] != '\0') {
         // Clone specific branch
         printStatusSticky(log, " Cloning branch '%s' from %s", dep->branch, dep->repository);
-        success = gitCloneBranch(dep->repository, dep->branch, targetPath, true, log);
+        success = gitCloneBranch(dep->repository, dep->branch, targetPath, true, log, verbose);
     } else if (dep->version && dep->version[0] != '\0' && strcmp(dep->version, "*") != 0) {
         // Resolve version constraint using resolver
         printStatusSticky(log, " Resolving version constraint '%s'...", dep->version);
@@ -1691,12 +1692,12 @@ bool installDependency(const PackageDependency *dep,
                    bestTag.version.patch,
                    bestTag.name);
 
-        success = gitCloneTag(dep->repository, bestTag.name, targetPath, log);
+        success = gitCloneTag(dep->repository, bestTag.name, targetPath, log, verbose);
         freeDynArray(&constraints);
     } else {
         // Clone default branch
         printStatusSticky(log, " Cloning from %s", dep->repository);
-        success = gitClone(dep->repository, targetPath, true, log);
+        success = gitClone(dep->repository, targetPath, true, log, verbose);
     }
 
     if (!success) {

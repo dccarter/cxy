@@ -201,7 +201,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
                    resolved->name,
                    resolved->isDev ? " (dev)" : "");
 
-        if (installDependency(&dep, targetPackagesDir, strings->mem_pool, log, false)) {
+        if (installDependency(&dep, targetPackagesDir, strings->mem_pool, log, false, options->package.verbose)) {
             successCount++;
 
             // Get commit hash and checksum after installation

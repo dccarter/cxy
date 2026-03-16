@@ -28,6 +28,29 @@ static void generateTypeName(CodegenContext *ctx,
                              const Type *type);
 static void generateFunctionName(FormatState *state, const AstNode *node);
 
+static void getOutputPath(FormatState *cmd, StrPool *strings, Options *opts, cstring ext)
+{
+    if (opts->output == NULL) {
+        format(cmd,
+              "{s}/app{s}",
+              (FormatArg[]){{.s = opts->buildDir ?: "."}, {.s = ext}}
+        );
+    }
+    else if (opts->output[0] == '/') {
+        format(cmd,
+              "{s}{s}",
+              (FormatArg[]){{.s = opts->output}, {.s = ext}}
+        );
+    }
+    else {
+        format(cmd,
+               "{s}/{s}{s}",
+               (FormatArg[]){{.s = opts->buildDir ?: "."},
+                             {.s = opts->output}, {.s = ext}}
+        );
+    }
+}
+
 static void addDebugInfo(CodegenContext *ctx, const AstNode *node)
 {
     if (!ctx->debug.enabled || node == NULL)
@@ -2083,10 +2106,21 @@ void *initCompilerBackend(CompilerDriver *driver, int argc, char **argv)
 {
     csAssert0(driver->backend == NULL);
     Options *options = &driver->options;
-    cstring filename = joinPath(
-        driver->strings,
-        options->buildDir ?: "./",
-        makeStringConcat(driver->strings, options->output ?: "app", ".c"));
+    cstring filename = NULL;
+    if (options->output == NULL) {
+        filename =  joinPath(
+            driver->strings, options->buildDir ?: "./", "app.c");
+    }
+    else if (options->output[0] == '/') {
+        filename = makeStringConcat(driver->strings, options->output, ".c");
+    }
+    else {
+        filename = joinPath(
+            driver->strings, options->buildDir ?: "./",
+            makeStringConcat(driver->strings, options->output, ".c")
+        );
+    }
+
     struct stat st;
     if (stat(filename, &st) == 0) {
         // remove file
@@ -2195,10 +2229,8 @@ bool compilerBackendMakeExecutable(CompilerDriver *driver)
         format(&cmd, " -l{s}", (FormatArg[]){{.s = *lib}});
     }
 
-    format(&cmd,
-           " -o {s}/{s}",
-           (FormatArg[]){{.s = opts->buildDir ?: "."},
-                         {.s = opts->output ?: "app"}});
+    appendString(&cmd, " -o ");
+    getOutputPath(&cmd, driver->strings, opts, "");
 
     cstring command = formatStateToString(&cmd);
     freeFormatState(&cmd);
@@ -2228,10 +2260,7 @@ bool compilerBackendExecuteTestCase(CompilerDriver *driver)
 {
     FormatState cmd = newFormatState("\t", true);
     Options *opts = &driver->options;
-    format(&cmd,
-           "{s}/{s}",
-           (FormatArg[]){{.s = opts->buildDir ?: "."},
-                         {.s = opts->output ?: "app"}});
+    getOutputPath(&cmd, driver->strings, opts, "");
 
     char *command = formatStateToString(&cmd);
     freeFormatState(&cmd);

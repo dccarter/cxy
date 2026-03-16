@@ -910,6 +910,46 @@ cxy package list --tree
 
 This will display all packages in `.cxy/packages/` with version information.
 
+### cxy completion
+
+Generate shell completion scripts for bash or zsh.
+
+**Usage:**
+```bash
+# Generate bash completion script
+cxy completion bash
+
+# Generate zsh completion script
+cxy completion zsh
+```
+
+**Installation:**
+
+For bash:
+```bash
+# Add to your ~/.bashrc
+source <(cxy completion bash)
+
+# Or save to a file
+cxy completion bash > ~/.cxy-completion.bash
+echo "source ~/.cxy-completion.bash" >> ~/.bashrc
+```
+
+For zsh:
+```bash
+# Add to your ~/.zshrc
+source <(cxy completion zsh)
+
+# Or save to a file in your fpath
+cxy completion zsh > ~/.cxy-completion.zsh
+echo "source ~/.cxy-completion.zsh" >> ~/.zshrc
+```
+
+Shell completion provides:
+- Command name completion for all `cxy` and `cxy package` subcommands
+- Option flag completion (e.g., `--verbose`, `--dev`, `--clean`)
+- Context-aware suggestions based on the current command
+
 ## Import Resolution
 
 The package manager resolves imports prefixed with `@` to installed packages in `.cxy/packages/`.

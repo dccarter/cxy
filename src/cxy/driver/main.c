@@ -23,9 +23,15 @@ int main(int argc, char **argv)
         goto exit;
     }
 
-    if (driver.options.cmd == cmdPackage) {
+    switch (driver.options.cmd) {
+    case cmdPackage:
         status = dispatchPackageCommand(&driver.options, &strings, &log);
         goto exit;
+    case _cmdHelp:
+    case _cmdCompletion:
+        goto  exit;
+    default:
+        break;
     }
 
     if (!initCompilerDriver(&driver, &pool, &strings, &log, argc, argv)) {
@@ -33,11 +39,11 @@ int main(int argc, char **argv)
         goto exit;
     }
 
-    for (int i = 1; i < argc && status; ++i) {
+    dynArrayFor(source, cstring, &driver.options.sources) {
         if (driver.options.cmd == cmdBuild && driver.options.build.plugin)
-            status &= compilePlugin(argv[i], &driver);
+            status &= compilePlugin(source[0], &driver);
         else
-            status &= compileFile(argv[i], &driver);
+            status &= compileFile(source[0], &driver);
     }
 
 exit:

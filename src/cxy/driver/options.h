@@ -11,7 +11,7 @@ extern "C" {
 typedef struct Log Log;
 typedef struct StrPool StrPool;
 
-typedef enum { cmdDev, cmdBuild, cmdTest, cmdRun, cmdPackage } Command;
+typedef enum { _cmdHelp, _cmdCompletion, cmdDev, cmdBuild, cmdTest, cmdPackage } Command;
 // clang-format off
 #define DUMP_OPTIONS(ff)    \
     ff(NONE)                \
@@ -85,6 +85,7 @@ typedef struct Options {
     DynArray frameworkSearchPaths;
     DynArray libraries;
     DynArray defines;
+    DynArray sources;
     bool withoutBuiltins;
     bool noPIE;
     bool withMemoryManager;

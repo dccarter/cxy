@@ -2,6 +2,7 @@
 
 #include "driver/options.h"
 #include "driver/stages.h"
+#include "options.h"
 #include "package/commands/commands.h"
 #include "package/validators.h"
 
@@ -18,6 +19,12 @@ typedef struct {
     cstring name;
     u64 value;
 } EnumOptionMap;
+
+typedef struct {
+    Options *options;
+    StrPool *strings;
+    Log *log;
+} ParseContext;
 
 static bool cmdParseDumpAstModes(CmdParser *P,
                                  CmdFlagValue *dst,
@@ -284,7 +291,10 @@ static bool cmdValidateLicenseIdentifier(CmdParser *P,
 Command(
     dev,
     "development mode build, useful when debugging issues",
-    Positionals(),
+    Positionals(Use(cmdArrayArgument,
+                    Name("sources"),
+                    Help("One or more source files to compile"),
+                    Many())),
     Use(cmdParseLastStage,
         Name("last-stage"),
         Help("the last compiler stage to execute, e.g "
@@ -326,7 +336,10 @@ Command(
 
 Command(build,
         "transpiles the given cxy what file and builds it using gcc",
-        Positionals(),
+        Positionals(Use(cmdArrayArgument,
+                        Name("sources"),
+                        Help("One or more source files to compile"),
+                        Many())),
         Str(Name("output"),
             Sf('o'),
             Help("output file for the compiled binary (default: app)"),
@@ -342,11 +355,18 @@ Command(build,
 
 Command(test,
         "Runs unit tests declared on the given source files",
-        Positionals(),
+        Positionals(Use(cmdArrayArgument,
+                        Name("sources"),
+                        Help("One or more source files to test"),
+                        Many())),
         Str(Name("build-dir"),
             Help("the build directory, used as the working directory for the "
                  "compiler"),
-            Def("")));
+            Def("")),
+            Str(Name("output"),
+                Sf('o'),
+                Help("output file for the compiled binary (default: app)"),
+                Def("app")));
 
 Command(package,
         "Package management commands (create, add, install, etc.)",
@@ -378,7 +398,8 @@ Command(package,
     f(build.plugin, Local, Option, 2, ## __VA_ARGS__)                           \
 
 #define TEST_CMD_LAYOUT(f, ...)                                                \
-    f(buildDir, Local, String, 0, ## __VA_ARGS__)
+    f(buildDir, Local, String, 0, ## __VA_ARGS__)                              \
+    f(output, Local, String, 1, ## __VA_ARGS__)
 
 #define PACKAGE_CMD_LAYOUT(f, ...)                                             \
     f(package.cxyfile, Global, String, 0, ## __VA_ARGS__)                       \
@@ -572,6 +593,23 @@ static void initializeOptions(StrPool *strings, Options *options)
     }
 #endif
 
+    // Architecture detection
+#if defined(__x86_64__) || defined(_M_X64)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_X86_64", "1"});
+#elif defined(__i386__) || defined(_M_IX86)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_X86", "1"});
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_ARM64", "1"});
+#elif defined(__arm__) || defined(_M_ARM)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_ARM", "1"});
+#elif defined(__riscv)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_RISCV", "1"});
+#elif defined(__powerpc64__)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_PPC64", "1"});
+#elif defined(__powerpc__)
+    pushOnDynArray(&options->defines, &(CompilerDefine){"__ARCH_PPC", "1"});
+#endif
+
 #endif
 }
 
@@ -603,7 +641,7 @@ static void moveListOptions(DynArray *dst, DynArray *src)
     freeDynArray(src);
 }
 
-static bool parsePackageCommand(
+static int parsePackageCommand(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
     // Define package subcommands
@@ -806,19 +844,9 @@ static bool parsePackageCommand(
                Help("Suppress non-error output")),
            Opt(Name("verbose"),
                Help("Enable verbose output")));
+    SubParser(P);
 
     int selected = argparse(argc, &argv, parser);
-
-    if (selected == CMD_help) {
-        CmdFlagValue *cmd = cmdGetPositional(&help.meta, 0);
-        cmdShowUsage(P, (cmd ? cmd->str : NULL), stdout);
-        return false;
-    }
-    else if (selected == -1) {
-        logError(log, NULL, P->error, NULL);
-        return false;
-    }
-
     CmdCommand *cmd = parser.cmds[selected];
 
     // Load global package options
@@ -902,7 +930,15 @@ static bool parsePackageCommand(
         UnloadCmd(cmd, options, PKG_RUN_CMD_LAYOUT);
     }
 
-    return true;
+    return cmdPackage;
+    CMD_parse_error:
+    return -1;
+}
+
+static int parsePackageCommandFwd(void *ctx, int argc, char **argv)
+{
+    ParseContext *pctx = (ParseContext *)ctx;
+    return parsePackageCommand(&argc, argv, pctx->strings, pctx->options, pctx->log);
 }
 
 bool parseCommandLineOptions(
@@ -911,37 +947,7 @@ bool parseCommandLineOptions(
     bool status = true;
     int file_count = 0;
     initializeOptions(strings, options);
-
-    // Early intercept for package command
-    if (*argc > 1 && strcmp(argv[1], "package") == 0) {
-        options->cmd = cmdPackage;
-        // Shift arguments to skip "cxy" and "package"
-        int pkg_argc = *argc - 1;  // Remove "cxy"
-        char **pkg_argv = argv + 1; // Start from "package"
-
-        bool result = parsePackageCommand(&pkg_argc, pkg_argv, strings, options, log);
-        if (!result) {
-            return false;
-        }
-
-        // Package command doesn't need input files
-        *argc = 1;
-        return result;
-    }
-    if (*argc >= 3 && !strcmp(argv[1], "help") && !strcmp(argv[2], "package")) {
-        char *pkg_argv[] = {"package", "help", NULL};
-        int pkg_argc = 2;
-        if (*argc > 3) {
-            pkg_argv[2] = argv[3];
-            pkg_argc = 3;
-        }
-        bool result = parsePackageCommand(&pkg_argc, pkg_argv, strings, options, log);
-        if (!result) {
-            return false;
-        }
-        *argc = 1;
-        return true;
-    }
+    ParseContext ctx = { options, strings, log };
 
     Parser(
         "cxy",
@@ -1032,28 +1038,15 @@ bool parseCommandLineOptions(
             Help("Directory containing installed package dependencies"),
             Def(".cxy/packages")));
 
-    int selected = argparse(argc, &argv, parser);
+    CustomParser(package, parsePackageCommandFwd, &ctx);
 
-    if (selected == CMD_help) {
-        CmdFlagValue *cmd = cmdGetPositional(&help.meta, 0);
-        if (cmd && cmd->str) {
-            if (strcmp(cmd->str, "package") == 0)
-                cmdShowUsage(P, NULL, stdout);
-            else
-                cmdShowUsage(P, cmd->str, stdout);
-        }
-        else {
-            cmdShowUsage(P, NULL, stdout);
-        }
-        goto error;
-    }
-    else if (selected == -1) {
-        logError(log, NULL, P->error, NULL);
-        goto error;
+    int selected = argparse(argc, &argv, parser);
+    if (selected == CMD_package) {
+        options->cmd = cmdPackage;
+        return true;
     }
 
     CmdCommand *cmd = parser.cmds[selected];
-
     log->maxErrors = getGlobalInt(cmd, 0);
     log->ignoreStyles = getGlobalOption(cmd, 3);
 
@@ -1068,11 +1061,13 @@ bool parseCommandLineOptions(
     options->withoutBuiltins = getGlobalOption(cmd, 4);
     if (cmd->id == CMD_dev) {
         options->cmd = cmdDev;
+        options->sources = getPositionalArray(cmd, 0);
         UnloadCmd(cmd, options, DEV_CMD_LAYOUT);
         fixCmdDevOptions(options);
     }
     else if (cmd->id == CMD_build) {
         options->cmd = cmdBuild;
+        options->sources = getPositionalArray(cmd, 0);
         UnloadCmd(cmd, options, BUILD_CMD_LAYOUT);
         if (options->build.plugin) {
             options->buildPlugin = true;
@@ -1089,6 +1084,7 @@ bool parseCommandLineOptions(
     }
     else if (cmd->id == CMD_test) {
         options->cmd = cmdTest;
+        options->sources = getPositionalArray(cmd, 0);
         UnloadCmd(cmd, options, TEST_CMD_LAYOUT);
     }
     else if (cmd->id == CMD_package) {
@@ -1136,16 +1132,17 @@ bool parseCommandLineOptions(
 
     file_count = *argc - 1;
 
-    if (file_count == 0) {
+    if (dynArrayEmpty(&options->sources)) {
         logError(log,
                  NULL,
                  "no input file, run with '--help' to display usage",
                  NULL);
-        goto error;
+        status = false;
     }
     goto exit;
 
-error:
+CMD_parse_error:
+    logError(log, NULL, P->error, NULL);
     status = false;
 exit:
     *argc = file_count + 1;

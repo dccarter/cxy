@@ -240,7 +240,8 @@ static bool checkPackageForUpdate(cstring packageName,
 static bool performUpdates(const DynArray *candidates,
                           const char *packagesDir,
                           MemPool *pool,
-                          Log *log)
+                          Log *log,
+                          bool verbose)
 {
     u32 updatedCount = 0;
     u32 failedCount = 0;
@@ -277,7 +278,7 @@ static bool performUpdates(const DynArray *candidates,
         dep.path = NULL;
         dep.isDev = candidate->isDev;
 
-        if (installDependency(&dep, packagesDir, pool, log, false)) {
+        if (installDependency(&dep, packagesDir, pool, log, false, verbose)) {
             printStatusSticky(log, "  ✓ Updated %s to %s",
                        candidate->name, candidate->newTag);
             updatedCount++;
@@ -430,7 +431,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
     snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
 
     // Perform the updates
-    bool success = performUpdates(&candidates, targetPackagesDir, strings->mem_pool, log);
+    bool success = performUpdates(&candidates, targetPackagesDir, strings->mem_pool, log, options->package.verbose);
 
     if (success && updatesAvailable > 0) {
         // Regenerate lock file with updated versions

@@ -88,7 +88,8 @@ bool installDependency(const PackageDependency *dep,
                        const char *packagesDir,
                        MemPool *pool,
                        Log *log,
-                       bool noInstall);
+                       bool noInstall,
+                       bool verbose);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <stdint.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -62,6 +63,14 @@ typedef struct CommandLinePositional {
                       const char *);
 } CmdPositional;
 
+typedef enum SpecialCommand {
+    SPC_None = 0,
+    __SPC_MAX = (i32)1000,
+    __SPC_START = (INT32_MAX - __SPC_MAX),
+    SPC_help = __SPC_START,
+    SPC_completion,
+} SpecialCommand;
+
 typedef struct CommandLineCommand {
     const char *name;
     const char *help;
@@ -69,7 +78,10 @@ typedef struct CommandLineCommand {
     u32 npos;
     CmdPositional *pos;
     bool interactive;
+    SpecialCommand special;
     struct CommandLineParser *P;
+    int (*parse)(void*, int, char **);
+    void *ctx;
     u16 lp;
     u16 la;
     i32 id;
@@ -85,6 +97,7 @@ typedef struct CommandLineParser {
     u16 lc;
     u32 ncmds;
     u32 nargs;
+    bool isSubParser;
     CmdCommand **cmds;
     CmdFlag *args;
     char error[128];
@@ -181,7 +194,24 @@ static struct Cmd##N {                                                     \
             .args = {Opt(Help("Run in interactive mode")), ##__VA_ARGS__},      \
             .pos = P}
 
+#define _SpecialCommand(N, H, P, ...)                                          \
+    static int CMD_##N = 0;                                                    \
+    typedef struct Cmd##N Cmd##N;                                              \
+    static struct Cmd##N {                                                     \
+        CmdCommand meta;                                                       \
+        CmdFlag args[1 + Sizeof(CmdFlag, __VA_ARGS__)];                        \
+        CmdPositional pos[sizeof((CmdPositional[])P) / sizeof(CmdPositional)]; \
+    } N = {.meta = {.name = #N,                                                \
+                    .help = H,                                                 \
+                    .nargs = 1 + Sizeof(CmdFlag, __VA_ARGS__),                 \
+                    .special = SPC_##N,                                        \
+                    .npos =                                                    \
+                        (sizeof((CmdPositional[])P) / sizeof(CmdPositional))}, \
+            .args = {Opt(Help("Run in interactive mode")), ##__VA_ARGS__},      \
+            .pos = P}
+
 #define Cmd(N) &((N).meta)
+#define CustomParser(N, F, C) { (N).meta.parse = F; (N).meta.ctx = C; }
 
 CmdFlagValue *cmdGetFlag(CmdCommand *cmd, u32 i);
 CmdFlagValue *cmdGetGlobalFlag(CmdCommand *cmd, u32 i);
@@ -206,13 +236,21 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
 
 #define __INIT_COMMANDS(COMMANDS) COMMANDS(__INIT_COMMAND)
 
-#define CMDL_HELP_CMD                                                          \
-    Command(                                                                   \
+#define CMDL_HELP_CMD()                                                        \
+    _SpecialCommand(                                                                   \
         help,                                                                  \
         "Get the application or help related to a specific command",           \
         Positionals(Str(Name("command"),                                       \
                         Help("The command whose help should be retrieved"),    \
-                        Def(""))));
+                        Def(""))))
+
+#define CMDL_COMPLETION_CMD()                                                  \
+    _SpecialCommand(                                                           \
+        completion,                                                            \
+        "Generate shell completion script",                                    \
+        Positionals(Str(Name("shell"),                                         \
+                        Help("Shell type (bash, zsh, fish)"),                  \
+                        Def("bash"))))
 
 #define VersionOpt()                                                           \
     Opt(Name("version"),                                                       \
@@ -228,10 +266,13 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
 
 #define DisableVersionOpt() Opt(.name = NULL)
 
-#define PARSER_BUILTIN_COMMANDS(f) f(help)
+#define PARSER_BUILTIN_COMMANDS(f)                                             \
+    f(help)                                                                    \
+    f(completion)
 
 #define Parser(N, V, CMDS, DEF, VOPT, ...)                                     \
-    CMDL_HELP_CMD                                                              \
+    CMDL_HELP_CMD();                                                           \
+    CMDL_COMPLETION_CMD();                                                     \
     int cmdCOUNT = 0;                                                          \
     struct {                                                                   \
         CmdParser P;                                                           \
@@ -254,12 +295,30 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
     __INIT_COMMANDS(CMDS)                                                      \
     CmdParser *P = &parser.P
 
+#define SubParser(P) P->isSubParser = true;
+
+#define CMD_parse_failed (-1)
+#define CMD_parse_subcmd_succeeded (-2)
+#define CMD_parse_subcmd_failed (-3)
+
 #define argparse(ARGC, ARGV, PP)                                               \
     ({                                                                         \
         (PP).P.cmds = (PP).cmds;                                               \
         (PP).P.args = (PP).args;                                               \
-        parseCommandLineArguments_((ARGC), (ARGV), &(PP).P);                   \
+        int _selected = parseCommandLineArguments_((ARGC), (ARGV), &(PP).P);   \
+        if (_selected >= __SPC_START) {                                        \
+            return _selected;                                                  \
+        }                                                                      \
+        else if (_selected == CMD_parse_subcmd_failed) {                       \
+            return _selected;                                                  \
+        }                                                                      \
+        else if (_selected < 0)  {                                             \
+            goto CMD_parse_error;                                              \
+        }                                                                      \
+        _selected;                                                             \
     })
+
+#define IsSubparseResult(C, O) ((C) >= 0 && P->cmds[(C)]->parse != NULL)
 
 #define getGlobalInt(cmd, I) (int)cmdGetGlobalFlag(cmd, (I) + 2)->num
 #define getGlobalFloat(cmd, I) cmdGetGlobalFlag(cmd, (I) + 2)->num
@@ -285,6 +344,9 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
 static inline bool hasPositional(CmdCommand *cmd, u32 i) {
     return cmd->nargs > i && cmd->pos[i].val.state != cmdNoValue;
 }
+
+bool cmdGenerateCompletion(
+    CmdParser *parser, const char *shellType, bool isMainParser);
 
 #define __UNLOAD_TO_TARGET_WITH(cmd, target, name, G, I)                       \
     (target)->name = G(cmd, I);

@@ -186,15 +186,15 @@ static void listAvailableBuilds(const PackageMetadata *meta, Log *log)
         printStatusSticky(log, "No named builds defined. Using single build configuration.");
         return;
     }
-    
+
     printStatusSticky(log, "Available build targets:");
     printStatusSticky(log, "(Note: Builds starting with '_' are templates and not listed)");
     for (u32 i = 0; i < meta->builds.size; i++) {
         PackageBuild *build = &((PackageBuild *)meta->builds.elems)[i];
         const char *defaultMarker = build->isDefault ? " (default)" : "";
-        
+
         printStatusSticky(log, "  - %s%s", build->name, defaultMarker);
-        
+
         if (build->config.entry) {
             printStatusSticky(log, "      entry: %s", build->config.entry);
         }
@@ -217,7 +217,7 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
     bool buildAll = options->package.buildAll;
     bool listBuilds = options->package.listBuilds;
 
-    (void)verbose; // Reserved for future use
+
 
     // Find and load Cxyfile.yaml
     PackageMetadata meta;
@@ -325,11 +325,31 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         return false;
     }
 
-    // Ensure build directory exists if specified (do this once before loop)
+    // Handle --clean flag before building any targets
+    if (clean && buildDir && buildDir[0] != '\0') {
+        printStatusSticky(log, "Cleaning directory: %s", buildDir);
+
+        FormatState cleanState = newFormatState(NULL, true);
+        format(&cleanState, "rm -rf \"{s}\"", (FormatArg[]){{.s = buildDir}});
+        char *tempClean = formatStateToString(&cleanState);
+        cstring cleanCmd = makeString(strings, tempClean);
+        free(tempClean);
+        freeFormatState(&cleanState);
+
+        if (system(cleanCmd) != 0) {
+            logWarning(log, NULL, "failed to clean directory (may not exist)", NULL);
+        }
+    }
+
+    // Ensure build directory exists (after any cleaning)
     if (buildDir && buildDir[0] != '\0') {
         if (!makeDirectory(buildDir, true)) {
-            logWarning(log, NULL, "failed to create build directory: {s}",
+            logError(log, NULL, "failed to create build directory: {s}",
                       (FormatArg[]){{.s = strerror(errno)}});
+            freeDynArray(&buildsToRun);
+            free(packageDir);
+            freePackageMetadata(&meta);
+            return false;
         }
     }
 
@@ -366,39 +386,8 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
             continue;
         }
 
-        // Handle --clean flag
-        if (clean) {
-            const char *dirToClean = buildDir && buildDir[0] != '\0' ? buildDir : NULL;
-
-            char outputDir[1024];
-            if (!dirToClean && config->output && config->output[0] != '\0') {
-                strncpy(outputDir, config->output, sizeof(outputDir) - 1);
-                outputDir[sizeof(outputDir) - 1] = '\0';
-
-                char *lastSlash = strrchr(outputDir, '/');
-                if (lastSlash) {
-                    *lastSlash = '\0';
-                    dirToClean = outputDir;
-                }
-            }
-
-            if (dirToClean) {
-                printStatusSticky(log, "Cleaning directory: %s", dirToClean);
-
-                FormatState cleanState = newFormatState(NULL, true);
-                format(&cleanState, "rm -rf \"{s}\"", (FormatArg[]){{.s = dirToClean}});
-                char *tempClean = formatStateToString(&cleanState);
-                cstring cleanCmd = makeString(strings, tempClean);
-                free(tempClean);
-                freeFormatState(&cleanState);
-
-                if (system(cleanCmd) != 0) {
-                    logWarning(log, NULL, "failed to clean directory", NULL);
-                }
-            }
-        }
-
         // Ensure output directory exists
+        // Unconditionally ensure output directory exists after cleaning
         if (config->output && config->output[0] != '\0') {
             char outputDir[1024];
             strncpy(outputDir, config->output, sizeof(outputDir) - 1);
@@ -459,7 +448,7 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
             snprintf(header, sizeof(header), "Building package '%s'", meta.name);
         }
 
-        bool success = runCommandWithProgress(header, buildCommand, log);
+        bool success = runCommandWithProgressFull(header, buildCommand, log, verbose);
         if (!success) {
             logError(log, NULL, "build failed for target '{s}'",
                     (FormatArg[]){{.s = build->name}});

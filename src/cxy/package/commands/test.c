@@ -271,16 +271,21 @@ static bool runTestFile(const char *testFile,
                         const char *buildDir,
                         TestResult *result,
                         StrPool *strings,
-                        Log *log)
+                        Log *log,
+                        bool verbose)
 {
     result->testFile = testFile;
     result->passed = false;
     result->exitCode = -1;
     result->output = NULL;
 
-    // Build command: cxy test <file>
+    // Generate unique output path in /tmp to avoid overwriting app binaries
+    char outputPath[2048];
+    snprintf(outputPath, sizeof(outputPath), "/tmp/cxy-test-%d", getpid());
+
+    // Build command: cxy test <file> -o <unique-path>
     FormatState cmd = newFormatState(NULL, true);
-    format(&cmd, "cxy test {s}", (FormatArg[]){{.s = testFile}});
+    format(&cmd, "cxy test {s} -o {s}", (FormatArg[]){{.s = testFile}, {.s = outputPath}});
 
     // Add build directory if specified
     if (buildDir && buildDir[0] != '\0') {
@@ -299,21 +304,22 @@ static bool runTestFile(const char *testFile,
     if (restArgs && restArgs->size > 0) {
         for (u32 i = 0; i < restArgs->size; i++) {
             const char *arg = ((const char **)restArgs->elems)[i];
-            
+
             // Validate: argument must start with '-'
             if (arg[0] != '-') {
-                logError(log, NULL, 
+                logError(log, NULL,
                         "invalid argument '{s}': arguments must start with '-'",
                         (FormatArg[]){{.s = arg}});
                 freeFormatState(&cmd);
                 return false;
             }
-            
+
             format(&cmd, " {s}", (FormatArg[]){{.s = arg}});
         }
     }
 
     char *testCommand = formatStateToString(&cmd);
+    printf("%s\n", testCommand);
     freeFormatState(&cmd);
 
     // Build header with formatted test path (cyan italic)
@@ -321,7 +327,7 @@ static bool runTestFile(const char *testFile,
     snprintf(header, sizeof(header), "Running test " cCYN "\033[3m%s\033[0m", testFile);
 
     // Execute test with progress indicator
-    bool success = runCommandWithProgress(header, testCommand, log);
+    bool success = runCommandWithProgressFull(header, testCommand, log, verbose);
 
     result->exitCode = success ? 0 : 1;
     result->passed = success;
@@ -331,6 +337,20 @@ static bool runTestFile(const char *testFile,
     result->output = NULL;
 
     free(testCommand);
+
+    // Clean up all compiler-generated files (binary, .c, .o, etc.)
+    // Use a glob pattern to match <output-path>.*
+    FormatState cleanupCmd = newFormatState(NULL, true);
+    format(&cleanupCmd, "rm -f \"{s}\" \"{s}\".*", (FormatArg[]){{.s = outputPath}, {.s = outputPath}});
+    char *cleanupCmdStr = formatStateToString(&cleanupCmd);
+    freeFormatState(&cleanupCmd);
+
+    if (system(cleanupCmdStr) != 0) {
+        // Log warning but don't fail the test if cleanup fails
+        logWarning(log, NULL, "failed to clean up test artifacts", NULL);
+    }
+
+    free(cleanupCmdStr);
 
     return true;
 }
@@ -343,6 +363,7 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
     const char *buildDir = options->package.buildDir;
     const char *filter = options->package.filter;
     int parallel = options->package.parallel;
+    bool verbose = options->package.verbose;
     const DynArray *specificTestFiles = &options->package.testFiles;
     const DynArray *restArgs = &options->package.rest;
 
@@ -462,7 +483,7 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
         // Run test using cxy test command
         TestResult result;
         if (!runTestFile(testFile, testConfig, restArgs, buildDir,
-                        &result, strings, log)) {
+                        &result, strings, log, verbose)) {
             failedCount++;
             if (testConfig == &defaultConfig)
                 freeDynArray(&defaultConfig.args);

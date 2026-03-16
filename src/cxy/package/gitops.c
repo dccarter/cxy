@@ -55,18 +55,18 @@ static bool executeGitCommand(const char *command, FormatState *output, Log *log
     return true;
 }
 
-static bool _executeGitCommandQuiet(const char *command, Log *log, cstring header);
+static bool _executeGitCommandQuiet(const char *command, Log *log, cstring header, bool verbose);
 
 // Helper to execute git commands with no output (just check success)
-// Uses the runCommandWithProgress helper to show a spinner and live output
+// Uses the runCommandWithProgressFull helper to show a spinner and live output
 // while the git command runs. The header shown to the user is a short
 // excerpt of the command.
-static bool executeGitCommandQuiet(const char *command, Log *log)
+static bool executeGitCommandQuiet(const char *command, Log *log, bool verbose)
 {
-    return _executeGitCommandQuiet(command, log, NULL);
+    return _executeGitCommandQuiet(command, log, NULL, verbose);
 }
 
-static bool _executeGitCommandQuiet(const char *command, Log *log, cstring msg)
+static bool _executeGitCommandQuiet(const char *command, Log *log, cstring msg, bool verbose)
 {
     if (!command) {
         return false;
@@ -98,7 +98,7 @@ static bool _executeGitCommandQuiet(const char *command, Log *log, cstring msg)
     }
 
     /* Delegate to the spinner-aware runner which returns true on success. */
-    return runCommandWithProgress(header, command, log);
+    return runCommandWithProgressFull(header, command, log, verbose);
 }
 
 bool gitIsRepositoryAccessible(cstring repositoryUrl, Log *log)
@@ -113,7 +113,7 @@ bool gitIsRepositoryAccessible(cstring repositoryUrl, Log *log)
            (FormatArg[]){{.s = repositoryUrl}});
 
     char *cmdStr = formatStateToString(&cmd);
-    bool accessible = executeGitCommandQuiet(cmdStr, log);
+    bool accessible = executeGitCommandQuiet(cmdStr, log, false);
 
     free(cmdStr);
     freeFormatState(&cmd);
@@ -242,7 +242,7 @@ bool gitGetLatestTag(cstring repositoryUrl, cstring pattern, GitTag *tag, MemPoo
     // when pattern parameter is provided
 }
 
-bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log)
+bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log, bool verbose)
 {
     if (!repositoryUrl || repositoryUrl[0] == '\0') {
         logError(log, NULL, "repository URL cannot be empty", NULL);
@@ -266,7 +266,7 @@ bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -277,7 +277,7 @@ bool gitClone(cstring repositoryUrl, cstring destination, bool shallow, Log *log
     return success;
 }
 
-bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, bool shallow, Log *log)
+bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, bool shallow, Log *log, bool verbose)
 {
     if (!repositoryUrl || repositoryUrl[0] == '\0') {
         logError(log, NULL, "repository URL cannot be empty", NULL);
@@ -306,7 +306,7 @@ bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, 
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -317,7 +317,7 @@ bool gitCloneBranch(cstring repositoryUrl, cstring branch, cstring destination, 
     return success;
 }
 
-bool gitCloneTag(cstring repositoryUrl, cstring tagName, cstring destination, Log *log)
+bool gitCloneTag(cstring repositoryUrl, cstring tagName, cstring destination, Log *log, bool verbose)
 {
     if (!repositoryUrl || repositoryUrl[0] == '\0') {
         logError(log, NULL, "repository URL cannot be empty", NULL);
@@ -341,7 +341,7 @@ bool gitCloneTag(cstring repositoryUrl, cstring tagName, cstring destination, Lo
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -352,7 +352,7 @@ bool gitCloneTag(cstring repositoryUrl, cstring tagName, cstring destination, Lo
     return success;
 }
 
-bool gitCheckoutCommit(cstring repoPath, cstring commitHash, Log *log)
+bool gitCheckoutCommit(cstring repoPath, cstring commitHash, Log *log, bool verbose)
 {
     if (!repoPath || repoPath[0] == '\0') {
         logError(log, NULL, "repository path cannot be empty", NULL);
@@ -371,7 +371,7 @@ bool gitCheckoutCommit(cstring repoPath, cstring commitHash, Log *log)
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -468,7 +468,7 @@ bool gitGetCurrentBranch(cstring repoPath, cstring *branchName, MemPool *pool, L
     return true;
 }
 
-bool gitPull(cstring repoPath, Log *log)
+bool gitPull(cstring repoPath, Log *log, bool verbose)
 {
     if (!repoPath || repoPath[0] == '\0') {
         logError(log, NULL, "repository path cannot be empty", NULL);
@@ -482,7 +482,7 @@ bool gitPull(cstring repoPath, Log *log)
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -631,7 +631,7 @@ bool gitGetRemoteUrl(cstring repoPath, cstring remoteName, cstring *url, MemPool
     return true;
 }
 
-bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push, Log *log)
+bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push, Log *log, bool verbose)
 {
     if (!repoPath || repoPath[0] == '\0') {
         logError(log, NULL, "repository path cannot be empty", NULL);
@@ -655,7 +655,7 @@ bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push,
     char *cmdStr = formatStateToString(&cmd);
     freeFormatState(&cmd);
 
-    bool success = executeGitCommandQuiet(cmdStr, log);
+    bool success = executeGitCommandQuiet(cmdStr, log, verbose);
     free(cmdStr);
 
     if (!success) {
@@ -672,7 +672,7 @@ bool gitCreateTag(cstring repoPath, cstring tagName, cstring message, bool push,
         char *pushCmdStr = formatStateToString(&pushCmd);
         freeFormatState(&pushCmd);
 
-        success = executeGitCommandQuiet(pushCmdStr, log);
+        success = executeGitCommandQuiet(pushCmdStr, log, verbose);
         free(pushCmdStr);
 
         if (!success) {
