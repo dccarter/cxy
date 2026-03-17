@@ -27,12 +27,19 @@ macro StatField(X) mk_ident!("st_", X!, "tim")
 
 @json
 pub struct Config {
+    @json(optional:true)
     compressMin = 2048`u64;
+    @json(optional:true)
     enableSendFile = false;
+    @json(optional:true)
     cacheExpires = 86400`i64;
+    @json(optional:true)
     mappedMin = 2048`u64;
+    @json(optional:true)
     root = String("./www/");
+    @json(optional:true)
     route = String(CXY_FILE_SERVER_ROUTE!);
+    @json(optional:true)
     allowRange = true;
 }
 

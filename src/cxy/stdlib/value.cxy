@@ -480,18 +480,35 @@ pub struct Value {
             const _name = #{Target.name}
             match (_value) {
                 HashMap[String, Value] as obj => {
-                    var value = Target();
+                    var value: Target = null
+                    #if Target.hasDefaultInit {
+                        value = Target();
+                    }
+                    else #if !Target.hasInit {
+                        value = Target{};
+                    }
+                    else {
+                        error!("type `{t}` needs to be default constructible", #Target)
+                    }
+
                     #for (const member: Target.members) {
                         #if (member.isField) {{
                             #const M = member.Tinfo;
                             const val = obj.[#{member.name}];
                             #if (!M.isOptional) {
-                                if (!val) {
-                                    var msg = String("cast failed, missing required member ");
-                                    msg << #{member.name}
-                                    raise TypeError(&&msg)
+                                #const jsonAttr = member.attributes.[:json]
+                                #if !jsonAttr || !jsonAttr.[:optional] {
+                                    if (!val) {
+                                        var msg = String("cast failed, missing required member ");
+                                        msg << #{member.name}
+                                        raise TypeError(&&msg)
+                                    }
+                                    value.#{mk_ident!(member.name)} = val&.cast[M]()
                                 }
-                                value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                else {
+                                    if (!!val)
+                                        value.#{mk_ident!(member.name)} = val&.cast[M]()
+                                }
                             }
                             else {
                                 if (!!val && !val&.isNull())
@@ -628,4 +645,61 @@ test "Value chaining" {
     var version = config.["version"]
     ok!(!!version)
     ok!((*version).asString() == "1.0.0")
+}
+
+test {
+    struct Config1 {
+        value: i32 = 0
+        key = String("")
+        @json(optional: true)
+        key0 = String("")
+    }
+
+    struct Config2 {
+        name = String("")
+        age: i32 = 0
+        func `init`() {}
+        func `init`(name: String, age: i32) {
+            this.name = &&name
+            this.age = age
+        }
+    }
+
+    struct Config3 {
+        cfg1 = Config1{}
+        @json(optional:true)
+        cfg2 = Config2()
+        func `init`() {}
+    }
+}
+
+test "Value casting" {
+    var obj = Value.Object()
+    obj.set("value", Value(42))
+    obj.set("key", Value("test".S))
+
+    var casted = obj.cast[Config1]()
+    ok!(casted.value == 42)
+    ok!(casted.key == "test")
+    ok!(casted.key0 == "")
+}
+
+test "Value casting nested" {
+    var cfg1 = Value.Object()
+    cfg1.set("value", Value(42))
+    cfg1.set("key", Value("test".S))
+
+    var cfg2 = Value.Object()
+    cfg2.set("name", Value("test".S))
+    cfg2.set("age", Value(42))
+
+    var obj = Value.Object()
+    obj.set("cfg1", cfg1)
+    obj.set("cfg2", cfg2)
+
+    var casted = obj.cast[Config3]()
+    ok!(casted.cfg1.value == 42)
+    ok!(casted.cfg1.key == "test")
+    ok!(casted.cfg2.name == "test")
+    ok!(casted.cfg2.age == 42)
 }

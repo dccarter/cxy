@@ -1472,11 +1472,15 @@ static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
         format(getState(ctx), ")", NULL);
         break;
     case bfiAssign: {
-        const AstNode *expr = node->backendCallExpr.args;
-        format(getState(ctx), "builtins__ManagedVariable_assign(", NULL);
-        astConstVisit(visitor, expr->binaryExpr.lhs);
+        if (isClassType(args->type)) {
+            format(getState(ctx), "builtins__ManagedClsVariable_assign(", NULL);
+        }
+        else {
+            format(getState(ctx), "builtins__ManagedVariable_assign(", NULL);
+        }
+        astConstVisit(visitor, args->binaryExpr.lhs);
         format(getState(ctx), ") = ", NULL);
-        astConstVisit(visitor, expr->binaryExpr.rhs);
+        astConstVisit(visitor, args->binaryExpr.rhs);
         break;
     }
     default:

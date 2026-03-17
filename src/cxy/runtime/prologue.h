@@ -97,6 +97,18 @@ static void builtins__ClsVar_cleanup(void *ptr)
         __mm##NAME.valid = false                                                \
     }
 
+#define builtins__ManagedClsVariable_assign(NAME)                               \
+    if (__mm##NAME.valid)                                                       \
+        __mm##NAME.cleaner( *(void **)__mm##NAME.ptr );                         \
+    __mm##NAME.valid = true;                                                    \
+    NAME
+
+#define builtins__ManagedClsVariable_null(NAME)                                 \
+    if (__mm##NAME.valid != NULL) {                                             \
+        __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                           \
+        __mm##NAME.valid = false                                                \
+    }
+
 #define builtins__ManagedVariable_move(NAME)                                    \
     ({ __mm##NAME.valid = false; NAME; })
 

@@ -914,7 +914,7 @@ pub class String : OutputStream {
     }
 
     func resize(newSize: u64) {
-        assert!(_capacity > newSize)
+        assert!(_capacity >= newSize)
         _size = newSize
         _data.[_size] = '\0'`char
     }

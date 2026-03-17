@@ -7,9 +7,14 @@ func showField[NAME, T](obj: &const T) {
 struct User {
     name: string = "Jane"
     age: i32 = 0
+    func `init`(a: i32){ age = a}
 }
 
 func main(): !void {
-    var user = User{}
-    showField["name"](&user)
+    #if (User.hasInit) {
+        println("We have init")
+    }
+    #if (User.hasDefaultInit) {
+        println("We have default init")
+    }
 }

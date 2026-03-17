@@ -867,6 +867,61 @@ static AstNode *hasDeinit(EvalContext *ctx,
                        findMemberInType(type, S_DeinitOverload) != NULL});
 }
 
+static AstNode *hasInit(EvalContext *ctx,
+                          const FileLoc *loc,
+                          AstNode *node,
+                          attr(unused) AstNode *args)
+{
+
+    const Type *type = node->type ?: evalType(ctx, node);
+    type = resolveUnThisUnwrapType(type);
+
+    return makeAstNode(
+        ctx->pool,
+        loc,
+        &(AstNode){.tag = astBoolLit,
+                   .boolLiteral.value =
+                       isClassOrStructType(type) &&
+                       findMemberInType(type, S_InitOverload) != NULL});
+}
+
+static bool funcHasDefaultInit(const Type *type)
+{
+    if (type == NULL || !typeIs(type, Func))
+        return false;
+    AstNode *decl = getTypeDecl(type);
+    if (decl == NULL || !nodeIs(decl, FuncDecl))
+        return false;
+    if (decl->funcDecl.operatorOverload != opInitOverload)
+        return false;
+    AstNode *it = decl->list.first;
+    for (; it; it = it->list.link) {
+        if ( it->type->func.paramsCount == 0)
+            return true;
+    }
+    return false;
+}
+
+static AstNode *hasDefaultInit(EvalContext *ctx,
+                              const FileLoc *loc,
+                              AstNode *node,
+                              attr(unused) AstNode *args)
+{
+
+    const Type *type = node->type ?: evalType(ctx, node);
+    type = resolveUnThisUnwrapType(type);
+    bool value = false;
+    if (isClassOrStructType(type)) {
+        type = findMemberInType(type, S_InitOverload);
+        value = funcHasDefaultInit(type);
+    }
+    return makeAstNode(
+        ctx->pool,
+        loc,
+        &(AstNode){.tag = astBoolLit,
+                   .boolLiteral.value = value});
+}
+
 static AstNode *hasBaseType(EvalContext *ctx,
                             const FileLoc *loc,
                             AstNode *node,
@@ -992,6 +1047,8 @@ static void initDefaultMembers(EvalContext *ctx)
     ADD_MEMBER("isLiteral", isLiteral);
     ADD_MEMBER("hasBase", hasBaseType);
     ADD_MEMBER("hasDeinit", hasDeinit);
+    ADD_MEMBER("hasInit", hasInit);
+    ADD_MEMBER("hasDefaultInit", hasDefaultInit);
     ADD_MEMBER("hasVoidReturnType", hasVoidReturnType);
     ADD_MEMBER("hasReferenceMembers", typeHasReferenceMembers);
 
