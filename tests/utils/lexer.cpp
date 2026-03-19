@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
             std::cout << '(' << getRangeValue(token.fileLoc, false) << ')';
             break;
         case tokStringLiteral:
-            std::cout << "(\"" << getRangeValue(token.fileLoc) << "\")";
+            std::cout << "(\"" << getRangeValue(token.fileLoc, false) << "\")";
             break;
         case tokIntLiteral:
             std::cout << '(' << i64(token.iVal) << ')';

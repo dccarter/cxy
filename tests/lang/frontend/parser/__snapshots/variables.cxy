@@ -1,4 +1,3 @@
-warning: CXY plugins dir '/Users/dc/projects/cxy/cmake-build-debug/lib/cxy/plugins' not found
 var X = 10
 const Y = ("Hello", "World")
 func main(args: [string]) {
@@ -23,5 +22,5 @@ func main(args: [string]) {
   }
 }
 
-[1;32m✓[1;37m Compilation success
+[K[1;32m✓[1;37m Compilation success
 [0m

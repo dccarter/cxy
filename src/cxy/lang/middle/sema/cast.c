@@ -99,6 +99,7 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
             }
             if (node->type->primitive.id == prtF32)
                 expr->floatLiteral.value = (f32)(expr->floatLiteral.value);
+            expr->type = node->type;
             replaceAstNodeWith(node, expr);
         }
         else if (isCharacterType(node->type)) {
@@ -106,6 +107,7 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
             expr->charLiteral.value = (i32)nodeGetNumericLiteral(expr);
             if (node->primitiveType.id == prtCChar)
                 expr->charLiteral.value = (u8)expr->charLiteral.value;
+            expr->type = node->type;
             replaceAstNodeWith(node, expr);
         }
         else {
