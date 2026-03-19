@@ -26,6 +26,8 @@ void initPackageMetadata(PackageMetadata *meta, StrPool *strings)
     meta->tests = newDynArray(sizeof(PackageTest));
     meta->scriptEnv = newDynArray(sizeof(EnvVar));
     meta->scripts = newDynArray(sizeof(PackageScript));
+    meta->install = newDynArray(sizeof(PackageInstallScript));
+    meta->installDev = newDynArray(sizeof(PackageInstallScript));
     meta->builds = newDynArray(sizeof(PackageBuild));
     meta->hasMultipleBuilds = false;
     meta->build.cLibs = newDynArray(sizeof(cstring));
@@ -91,6 +93,14 @@ void freePackageMetadata(PackageMetadata *meta)
             }
         }
         freeDynArray(&meta->scripts);
+    }
+
+    // Free install scripts arrays
+    if (meta->install.elems != NULL) {
+        freeDynArray(&meta->install);
+    }
+    if (meta->installDev.elems != NULL) {
+        freeDynArray(&meta->installDev);
     }
 
     // Free build config arrays (single build)

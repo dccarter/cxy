@@ -70,6 +70,11 @@ bool packageCleanCommand(const Options *options, struct StrPool *strings, Log *l
 /* Run a script defined in Cxyfile.yaml with dependency resolution. */
 bool packageRunCommand(const Options *options, struct StrPool *strings, Log *log);
 
+/* Find system packages and output build configuration flags. */
+bool packageFindSystemCommand(const Options *options, struct StrPool *strings, Log *log);
+
+
+
 /**
  * Dispatch the parsed package command to the corresponding handler.
  *

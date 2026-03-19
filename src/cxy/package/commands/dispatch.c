@@ -52,6 +52,9 @@ bool dispatchPackageCommand(const Options *options, struct StrPool *strings, Log
         case pkgSubRun:
             return packageRunCommand(options, strings, log);
         
+        case pkgSubFindSystem:
+            return packageFindSystemCommand(options, strings, log);
+    
         default:
             logError(log, NULL, "unknown package subcommand", NULL);
             return false;

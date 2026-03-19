@@ -11,6 +11,7 @@
 #include "package/commands/commands.h"
 #include "package/cxyfile.h"
 #include "package/resolver.h"
+#include "package/install_scripts.h"
 #include "core/log.h"
 #include "core/strpool.h"
 #include "core/mempool.h"
@@ -144,27 +145,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
 
     if (resolverCtx.resolved.size == 0) {
         printStatusSticky(log, "No dependencies to install");
-        freeResolverContext(&resolverCtx);
-        free(packageDir);
-        freePackageMetadata(&meta);
-        return true;
-    }
-
-    // Determine packages directory
-    char targetPackagesDir[1024];
-    if (packagesDir && packagesDir[0] != '\0') {
-        strncpy(targetPackagesDir, packagesDir, sizeof(targetPackagesDir) - 1);
-        targetPackagesDir[sizeof(targetPackagesDir) - 1] = '\0';
-    } else {
-        snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
-    }
-
-    if (offline) {
-        printStatusSticky(log, " Running in offline mode - using only cached packages");
-    }
-
-    if (clean) {
-        printStatusSticky(log, " Clean install - ignoring lock file");
+        // Don't return early - still need to run install scripts
     }
 
     // Track installation results
@@ -172,13 +153,32 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
     u32 failCount = 0;
     u32 skippedCount = 0;
 
-    // Install resolved dependencies
-    u32 totalDeps = resolverCtx.resolved.size;
-    printStatusSticky(log, " Installing %u resolved %s...",
-               totalDeps,
-               totalDeps == 1 ? "dependency" : "dependencies");
+    // Only install dependencies if there are any
+    if (resolverCtx.resolved.size > 0) {
+        // Determine packages directory
+        char targetPackagesDir[1024];
+        if (packagesDir && packagesDir[0] != '\0') {
+            strncpy(targetPackagesDir, packagesDir, sizeof(targetPackagesDir) - 1);
+            targetPackagesDir[sizeof(targetPackagesDir) - 1] = '\0';
+        } else {
+            snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
+        }
 
-    for (u32 i = 0; i < resolverCtx.resolved.size; i++) {
+        if (offline) {
+            printStatusSticky(log, " Running in offline mode - using only cached packages");
+        }
+
+        if (clean) {
+            printStatusSticky(log, " Clean install - ignoring lock file");
+        }
+
+        // Install resolved dependencies
+        u32 totalDeps = resolverCtx.resolved.size;
+        printStatusSticky(log, " Installing %u resolved %s...",
+                   totalDeps,
+                   totalDeps == 1 ? "dependency" : "dependencies");
+
+        for (u32 i = 0; i < resolverCtx.resolved.size; i++) {
         ResolvedDependency *resolved = &((ResolvedDependency *)resolverCtx.resolved.elems)[i];
 
         if (offline && resolved->repository != NULL) {
@@ -225,30 +225,30 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
             logError(log, NULL, "failed to install dependency '{s}'",
                     (FormatArg[]){{.s = resolved->name}});
             failCount++;
+            }
         }
-    }
 
-    // Print summary
-    printStatusSticky(log, "");
-    if (failCount == 0) {
-        printStatusSticky(log, cBGRN "✔" cDEF " Successfully installed %u %s",
-                         successCount,
-                         successCount == 1 ? "package" : "packages");
-    } else {
-        printStatusSticky(log, cBRED "✘" cDEF " %u %s, %u failed",
-                         successCount,
-                         successCount == 1 ? "succeeded" : "succeeded",
-                         failCount);
-    }
+        // Print summary
+        printStatusSticky(log, "");
+        if (failCount == 0) {
+            printStatusSticky(log, cBGRN "✔" cDEF " Successfully installed %u %s",
+                             successCount,
+                             successCount == 1 ? "package" : "packages");
+        } else {
+            printStatusSticky(log, cBRED "✘" cDEF " %u %s, %u failed",
+                             successCount,
+                             successCount == 1 ? "succeeded" : "succeeded",
+                             failCount);
+        }
 
-    if (skippedCount > 0) {
-        printStatusSticky(log, " (%u skipped)", skippedCount);
-    }
-    printStatusSticky(log, "");
+        if (skippedCount > 0) {
+            printStatusSticky(log, " (%u skipped)", skippedCount);
+        }
+        printStatusSticky(log, "");
 
-    // Generate Cxyfile.lock with resolved versions and checksums
-    // Only generate if we performed fresh resolution (not loaded from existing lock)
-    if (failCount == 0 && !lockLoaded) {
+        // Generate Cxyfile.lock with resolved versions and checksums
+        // Only generate if we performed fresh resolution (not loaded from existing lock)
+        if (failCount == 0 && !lockLoaded) {
         char lockfilePath[1024];
         snprintf(lockfilePath, sizeof(lockfilePath), "%s/Cxyfile.lock", packageDir);
 
@@ -271,6 +271,30 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
                 freePackageMetadata(&meta);
                 return false;
             }
+        }
+        }
+    }
+
+    // Execute install scripts if any are defined
+    if (failCount == 0 && (meta.install.size > 0 || (includeDev && meta.installDev.size > 0))) {
+        printStatusSticky(log, "");
+        printStatusSticky(log, "Running install scripts...");
+        
+        // Determine build directory for .install.yaml
+        char buildDir[1024];
+        if (options->package.buildDir && options->package.buildDir[0] != '\0') {
+            strncpy(buildDir, options->package.buildDir, sizeof(buildDir) - 1);
+            buildDir[sizeof(buildDir) - 1] = '\0';
+        } else {
+            snprintf(buildDir, sizeof(buildDir), "%s/.cxy/build", packageDir);
+        }
+        
+        if (!executeInstallScripts(&meta, packageDir, buildDir, includeDev, strings, log, options->package.verbose)) {
+            logError(log, NULL, "install scripts failed", NULL);
+            freeResolverContext(&resolverCtx);
+            free(packageDir);
+            freePackageMetadata(&meta);
+            return false;
         }
     }
 

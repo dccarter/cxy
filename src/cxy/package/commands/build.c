@@ -10,12 +10,14 @@
 
 #include "package/commands/commands.h"
 #include "package/cxyfile.h"
+#include "package/install_scripts.h"
 #include "core/log.h"
 #include "core/format.h"
 #include "core/strpool.h"
 #include "core/mempool.h"
 #include "core/utils.h"
 
+#include <_stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -64,6 +66,9 @@ static cstring constructBuildCommand(const PackageBuildConfig *config,
 
     // Start with cxy build and entry point
     format(&state, "cxy build {s}", (FormatArg[]){{.s = entryPoint}});
+
+    // Add --no-progress to disable interactive progress indicators when piped
+    format(&state, " --no-progress", NULL);
 
     // Add output if specified
     if (config->output && config->output[0] != '\0') {
@@ -217,6 +222,12 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
     bool buildAll = options->package.buildAll;
     bool listBuilds = options->package.listBuilds;
 
+    // Default build directory if not specified
+    char defaultBuildDir[1024];
+    if (!buildDir || buildDir[0] == '\0') {
+        // Will be set after packageDir is known
+    }
+
 
 
     // Find and load Cxyfile.yaml
@@ -228,6 +239,46 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         logError(log, NULL, "no Cxyfile.yaml found in current directory or parent directories", NULL);
         return false;
     }
+
+    // Resolve default build directory now that we have packageDir
+    if (!buildDir || buildDir[0] == '\0') {
+        snprintf(defaultBuildDir, sizeof(defaultBuildDir), "%s/.cxy/build", packageDir);
+        buildDir = defaultBuildDir;
+    }
+
+    // Auto-run install scripts if needed (install sections defined but .install.yaml missing or stale)
+    if (meta.install.size > 0) {
+        char installYamlPath[1024];
+        snprintf(installYamlPath, sizeof(installYamlPath), "%s/.install.yaml", buildDir);
+
+        struct stat installSt, cxyfileSt;
+        char cxyfilePath[1024];
+        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir);
+
+        bool needsInstall = (stat(installYamlPath, &installSt) != 0);
+
+        // Also re-run if Cxyfile.yaml is newer than .install.yaml
+        if (!needsInstall &&
+            stat(cxyfilePath, &cxyfileSt) == 0 &&
+            cxyfileSt.st_mtime > installSt.st_mtime) {
+            needsInstall = true;
+            printStatusSticky(log, "Cxyfile.yaml changed, re-running install scripts...");
+        }
+
+        if (needsInstall) {
+            printStatusSticky(log, "Running install scripts...");
+            if (!executeInstallScripts(&meta, packageDir, buildDir, false, strings, log, verbose)) {
+                logError(log, NULL, "install scripts failed", NULL);
+                free(packageDir);
+                freePackageMetadata(&meta);
+                return false;
+            }
+        }
+    }
+
+    // Read install flags from .install.yaml
+    DynArray installFlags = newDynArray(sizeof(cstring));
+    readInstallYamlFlags(buildDir, &installFlags, false, strings, log);
 
     // Validate builds configuration
     // Note: Template builds (starting with '_') are already filtered out during parsing
@@ -417,6 +468,12 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         format(&finalCmd, "{s}", (FormatArg[]){{.s = buildCommand}});
         addBuildDirOption(&finalCmd, buildDir);
 
+        // Inject flags from .install.yaml
+        for (u32 j = 0; j < installFlags.size; j++) {
+            cstring flag = ((cstring *)installFlags.elems)[j];
+            format(&finalCmd, " {s}", (FormatArg[]){{.s = flag}});
+        }
+
         // Validate and add rest arguments
         if (restArgs && restArgs->size > 0) {
             for (u32 j = 0; j < restArgs->size; j++) {
@@ -465,6 +522,7 @@ next_build:
     }
 
     freeDynArray(&buildsToRun);
+    freeDynArray(&installFlags);
     free(packageDir);
     freePackageMetadata(&meta);
     return allSuccess;

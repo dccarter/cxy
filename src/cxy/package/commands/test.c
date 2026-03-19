@@ -10,6 +10,7 @@
 
 #include "package/commands/commands.h"
 #include "package/cxyfile.h"
+#include "package/install_scripts.h"
 #include "core/log.h"
 #include "core/format.h"
 #include "core/strpool.h"
@@ -31,10 +32,28 @@ typedef struct TestResult {
 } TestResult;
 
 /**
+ * Simple glob pattern matching for filenames (supports * wildcard)
+ */
+static bool matchesPattern(const char *filename, const char *pattern) {
+    // If pattern is *.cxy, match any file ending with .cxy
+    if (pattern[0] == '*') {
+        const char *suffix = pattern + 1;
+        size_t filenameLen = strlen(filename);
+        size_t suffixLen = strlen(suffix);
+        if (filenameLen >= suffixLen) {
+            return strcmp(filename + filenameLen - suffixLen, suffix) == 0;
+        }
+        return false;
+    }
+    // Otherwise, exact match
+    return strcmp(filename, pattern) == 0;
+}
+
+/**
  * Recursively find .cxy files in a directory
  */
 static bool findCxyFilesRecursive(const char *dir,
-                                  const char *suffix,
+                                  const char *filePattern,
                                   DynArray *files,
                                   StrPool *strings,
                                   Log *log)
@@ -59,17 +78,14 @@ static bool findCxyFilesRecursive(const char *dir,
 
         if (S_ISDIR(st.st_mode)) {
             // Recurse into subdirectory
-            if (!findCxyFilesRecursive(fullPath, suffix, files, strings, log)) {
+            if (!findCxyFilesRecursive(fullPath, filePattern, files, strings, log)) {
                 closedir(d);
                 return false;
             }
         }
         else if (S_ISREG(st.st_mode)) {
-            // Check if file matches suffix
-            size_t nameLen = strlen(entry->d_name);
-            size_t suffixLen = strlen(suffix);
-
-            if (nameLen >= suffixLen && strcmp(entry->d_name + nameLen - suffixLen, suffix) == 0) {
+            // Check if file matches the pattern
+            if (matchesPattern(entry->d_name, filePattern)) {
                 cstring pooledPath = makeString(strings, fullPath);
                 pushOnDynArray(files, &pooledPath);
             }
@@ -95,6 +111,7 @@ static bool expandGlobPattern(const char *packageDir,
         // Handle ** pattern by recursively searching
         // Extract base directory and file pattern
         char baseDir[2048];
+        char filePattern[256];
         const char *suffix = ".cxy";
 
         // Find the directory part before **
@@ -112,13 +129,21 @@ static bool expandGlobPattern(const char *packageDir,
             strcpy(baseDir, ".");
         }
 
+        // Extract the filename pattern after **/
+        const char *afterDoubleStar = doubleStarPos + 2;
+        if (afterDoubleStar[0] == '/') {
+            afterDoubleStar++;
+        }
+        strncpy(filePattern, afterDoubleStar, sizeof(filePattern) - 1);
+        filePattern[sizeof(filePattern) - 1] = '\0';
+
         // Build full base directory path
         char fullBaseDir[2048];
         snprintf(fullBaseDir, sizeof(fullBaseDir), "%s/%s", packageDir, baseDir);
 
-        // Recursively find all .cxy files
+        // Recursively find all .cxy files matching the pattern
         size_t beforeCount = files->size;
-        if (!findCxyFilesRecursive(fullBaseDir, suffix, files, strings, log)) {
+        if (!findCxyFilesRecursive(fullBaseDir, filePattern, files, strings, log)) {
             return false;
         }
 
@@ -268,6 +293,7 @@ static bool collectTestFilesToRun(const Options *options,
 static bool runTestFile(const char *testFile,
                         const PackageTest *testConfig,
                         const DynArray *restArgs,  // from options->package.rest (after --)
+                        const DynArray *installFlags, // from .install.yaml
                         const char *buildDir,
                         TestResult *result,
                         StrPool *strings,
@@ -290,6 +316,14 @@ static bool runTestFile(const char *testFile,
     // Add build directory if specified
     if (buildDir && buildDir[0] != '\0') {
         format(&cmd, " --build-dir {s}", (FormatArg[]){{.s = buildDir}});
+    }
+
+    // Inject flags from .install.yaml
+    if (installFlags && installFlags->size > 0) {
+        for (u32 i = 0; i < installFlags->size; i++) {
+            cstring flag = ((cstring *)installFlags->elems)[i];
+            format(&cmd, " {s}", (FormatArg[]){{.s = flag}});
+        }
     }
 
     // Add test-specific arguments from Cxyfile
@@ -319,12 +353,16 @@ static bool runTestFile(const char *testFile,
     }
 
     char *testCommand = formatStateToString(&cmd);
-    printf("%s\n", testCommand);
     freeFormatState(&cmd);
 
     // Build header with formatted test path (cyan italic)
     char header[2048];
-    snprintf(header, sizeof(header), "Running test " cCYN "\033[3m%s\033[0m", testFile);
+
+    if (verbose) {
+        snprintf(header, sizeof(header), "Running test " cCYN "'\033[3m%s\033[0m'", testCommand);
+    } else {
+        snprintf(header, sizeof(header), "Running test " cCYN "\033[3m%s\033[0m", testFile);
+    }
 
     // Execute test with progress indicator
     bool success = runCommandWithProgressFull(header, testCommand, log, verbose);
@@ -390,6 +428,40 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
                 "%s/.cxy/build", packageDir);
         buildDir = defaultBuildDir;
     }
+
+    // Auto-run install scripts if needed (install sections defined but .install.dev.yaml missing or stale)
+    if (meta.install.size > 0 || meta.installDev.size > 0) {
+        char installYamlPath[2048];
+        snprintf(installYamlPath, sizeof(installYamlPath), "%s/.install.dev.yaml", buildDir);
+
+        struct stat installSt, cxyfileSt;
+        char cxyfilePath[2048];
+        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", packageDir);
+
+        bool needsInstall = (stat(installYamlPath, &installSt) != 0);
+
+        // Also re-run if Cxyfile.yaml is newer than .install.dev.yaml
+        if (!needsInstall &&
+            stat(cxyfilePath, &cxyfileSt) == 0 &&
+            cxyfileSt.st_mtime > installSt.st_mtime) {
+            needsInstall = true;
+            printStatusSticky(log, "Cxyfile.yaml changed, re-running install scripts...");
+        }
+
+        if (needsInstall) {
+            printStatusSticky(log, "Running install scripts (with dev dependencies)...");
+            if (!executeInstallScripts(&meta, packageDir, buildDir, true, strings, log, verbose)) {
+                logError(log, NULL, "install scripts failed", NULL);
+                free(packageDir);
+                freePackageMetadata(&meta);
+                return false;
+            }
+        }
+    }
+
+    // Read install flags from .install.dev.yaml (with fallback to .install.yaml)
+    DynArray installFlags = newDynArray(sizeof(cstring));
+    readInstallYamlFlags(buildDir, &installFlags, true, strings, log);
 
     printStatusSticky(log, "Running tests for package '%s'...", meta.name);
 
@@ -462,13 +534,61 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
         cstring testFile = ((cstring *)testFiles.elems)[i];
 
         // Find corresponding test config from Cxyfile (for args)
+        // Prioritize exact matches over pattern matches for specificity
         PackageTest *testConfig = NULL;
+        PackageTest *patternMatch = NULL;
+        
+        // First pass: look for exact matches
         for (u32 j = 0; j < meta.tests.size; j++) {
             PackageTest *t = &((PackageTest *)meta.tests.elems)[j];
-            if (strcmp(t->file, testFile) == 0) {
+            
+            if (!t->isPattern && strcmp(t->file, testFile) == 0) {
                 testConfig = t;
                 break;
             }
+        }
+        
+        // Second pass: if no exact match, look for pattern matches
+        if (!testConfig) {
+            for (u32 j = 0; j < meta.tests.size; j++) {
+                PackageTest *t = &((PackageTest *)meta.tests.elems)[j];
+                
+                if (t->isPattern) {
+                    // For patterns, check if this file was expanded from this pattern
+                    // by seeing if the pattern structure matches
+                    if (strstr(t->file, "**") != NULL) {
+                        // Extract filename from pattern (part after **/)
+                        const char *patternFile = strrchr(t->file, '/');
+                        if (patternFile) {
+                            patternFile++; // Skip the /
+                        } else {
+                            patternFile = t->file;
+                        }
+                        
+                        // Extract filename from test file path
+                        const char *testFileName = strrchr(testFile, '/');
+                        if (testFileName) {
+                            testFileName++; // Skip the /
+                        } else {
+                            testFileName = testFile;
+                        }
+                        
+                        // Check if filenames match using pattern matching
+                        if (matchesPattern(testFileName, patternFile)) {
+                            patternMatch = t;
+                            break;
+                        }
+                    } else {
+                        // Non-** pattern - try basic glob matching
+                        // For now, use simple string comparison as fallback
+                        if (strcmp(t->file, testFile) == 0) {
+                            patternMatch = t;
+                            break;
+                        }
+                    }
+                }
+            }
+            testConfig = patternMatch;
         }
 
         // Default empty config if not found
@@ -482,7 +602,7 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
 
         // Run test using cxy test command
         TestResult result;
-        if (!runTestFile(testFile, testConfig, restArgs, buildDir,
+        if (!runTestFile(testFile, testConfig, restArgs, &installFlags, buildDir,
                         &result, strings, log, verbose)) {
             failedCount++;
             if (testConfig == &defaultConfig)
@@ -518,6 +638,7 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
     // Clean up
     freeDynArray(&results);
     freeDynArray(&testFiles);
+    freeDynArray(&installFlags);
     free(packageDir);
     freePackageMetadata(&meta);
 

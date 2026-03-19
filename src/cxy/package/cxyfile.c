@@ -879,6 +879,96 @@ static bool parsePackageSection(YamlParser *p, PackageMetadata *meta)
     return true;
 }
 
+/**
+ * Parse install or install-dev scripts section
+ */
+static bool parseInstallScripts(YamlParser *p, DynArray *installScripts)
+{
+    // Expect sequence start
+    if (!parseYamlEvent(p))
+        return false;
+
+    if (p->event.type != YAML_SEQUENCE_START_EVENT) {
+        logError(p->log, NULL, "expected install scripts sequence", NULL);
+        return false;
+    }
+
+    while (true) {
+        if (!parseYamlEvent(p))
+            return false;
+
+        if (p->event.type == YAML_SEQUENCE_END_EVENT)
+            break;
+
+        if (p->event.type != YAML_MAPPING_START_EVENT) {
+            logError(p->log, NULL, "expected install script mapping", NULL);
+            return false;
+        }
+
+        PackageInstallScript installScript;
+        memset(&installScript, 0, sizeof(PackageInstallScript));
+        installScript.required = false; // Default to optional
+
+        while (true) {
+            if (!parseYamlEvent(p))
+                return false;
+
+            if (p->event.type == YAML_MAPPING_END_EVENT)
+                break;
+
+            if (p->event.type != YAML_SCALAR_EVENT) {
+                logError(p->log, NULL, "expected install script field name", NULL);
+                return false;
+            }
+
+            const char *key = (const char *)p->event.data.scalar.value;
+
+            if (strcmp(key, "name") == 0) {
+                if (!expectScalar(p, &installScript.name))
+                    return false;
+            }
+            else if (strcmp(key, "script") == 0) {
+                if (!expectScalar(p, &installScript.script))
+                    return false;
+            }
+            else if (strcmp(key, "required") == 0) {
+                if (!parseYamlEvent(p))
+                    return false;
+
+                if (p->event.type != YAML_SCALAR_EVENT) {
+                    logError(p->log, NULL, "expected boolean value for required", NULL);
+                    return false;
+                }
+
+                const char *value = (const char *)p->event.data.scalar.value;
+                installScript.required = (strcmp(value, "true") == 0 || strcmp(value, "yes") == 0);
+            }
+            else {
+                // Unknown field, skip it
+                if (!parseYamlEvent(p))
+                    return false;
+                if (!skipValue(p))
+                    return false;
+            }
+        }
+
+        // Validate required fields
+        if (!installScript.name || installScript.name[0] == '\0') {
+            logError(p->log, NULL, "install script missing 'name' field", NULL);
+            return false;
+        }
+        if (!installScript.script || installScript.script[0] == '\0') {
+            logError(p->log, NULL, "install script '{s}' missing 'script' field",
+                    (FormatArg[]){{.s = installScript.name}});
+            return false;
+        }
+
+        pushOnDynArray(installScripts, &installScript);
+    }
+
+    return true;
+}
+
 bool parseCxyfile(const char *path, PackageMetadata *meta, StrPool *strings, Log *log)
 {
     FILE *file = fopen(path, "r");
@@ -978,6 +1068,18 @@ bool parseCxyfile(const char *path, PackageMetadata *meta, StrPool *strings, Log
         }
         else if (strcmp(key, "scripts") == 0) {
             if (!parseScripts(&p, &meta->scripts, &meta->scriptEnv)) {
+                success = false;
+                goto cleanup;
+            }
+        }
+        else if (strcmp(key, "install") == 0) {
+            if (!parseInstallScripts(&p, &meta->install)) {
+                success = false;
+                goto cleanup;
+            }
+        }
+        else if (strcmp(key, "install-dev") == 0) {
+            if (!parseInstallScripts(&p, &meta->installDev)) {
                 success = false;
                 goto cleanup;
             }
@@ -1487,7 +1589,7 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
     // Scripts section
     if (meta->scriptEnv.size > 0 || meta->scripts.size > 0) {
         format(&state, "scripts:\n", NULL);
-        
+
         // Write env section first if it exists
         if (meta->scriptEnv.size > 0) {
             format(&state, "  env:\n", NULL);
@@ -1498,16 +1600,16 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                 format(&state, "\n", NULL);
             }
         }
-        
+
         // Then write regular scripts
         for (u32 i = 0; i < meta->scripts.size; i++) {
             PackageScript *script = &((PackageScript *)meta->scripts.elems)[i];
-            
+
             // Check if script needs object notation (has dependencies, inputs, or outputs)
-            bool needsObject = script->dependencies.size > 0 || 
-                              script->inputs.size > 0 || 
+            bool needsObject = script->dependencies.size > 0 ||
+                              script->inputs.size > 0 ||
                               script->outputs.size > 0;
-            
+
             if (!needsObject) {
                 // Simple scalar notation
                 format(&state, "  {s}: ", (FormatArg[]){{.s = script->name}});
@@ -1516,7 +1618,7 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
             } else {
                 // Object notation with command and optional fields
                 format(&state, "  {s}:\n", (FormatArg[]){{.s = script->name}});
-                
+
                 // Write depends if present
                 if (script->dependencies.size > 0) {
                     format(&state, "    depends: [", NULL);
@@ -1532,7 +1634,7 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                     }
                     format(&state, " ]\n", NULL);
                 }
-                
+
                 // Write inputs if present
                 if (script->inputs.size > 0) {
                     format(&state, "    inputs:\n", NULL);
@@ -1541,7 +1643,7 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                         format(&state, "      - {s}\n", (FormatArg[]){{.s = input}});
                     }
                 }
-                
+
                 // Write outputs if present
                 if (script->outputs.size > 0) {
                     format(&state, "    outputs:\n", NULL);
@@ -1550,7 +1652,7 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                         format(&state, "      - {s}\n", (FormatArg[]){{.s = output}});
                     }
                 }
-                
+
                 // Write command
                 format(&state, "    command: ", NULL);
                 writeYamlStringWithIndent(&state, script->command, 6);

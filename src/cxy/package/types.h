@@ -88,6 +88,15 @@ typedef struct PackageScript {
 } PackageScript;
 
 /**
+ * Represents an install script entry
+ */
+typedef struct PackageInstallScript {
+    cstring name;           // Script name/description (e.g., "openssl", "protobuf")
+    cstring script;         // Shell command to execute (inline or file path)
+    bool required;          // True if failure should abort install
+} PackageInstallScript;
+
+/**
  * Package metadata from Cxyfile.yaml
  */
 typedef struct PackageMetadata {
@@ -104,6 +113,8 @@ typedef struct PackageMetadata {
     DynArray tests;            // Array of PackageTest
     DynArray scriptEnv;        // Array of EnvVar - environment variables for scripts
     DynArray scripts;          // Array of PackageScript
+    DynArray install;          // Array of PackageInstallScript - production dependencies
+    DynArray installDev;       // Array of PackageInstallScript - development dependencies
 
     // Build configuration (supports both single and multiple builds)
     PackageBuildConfig build;  // Single build (legacy, backwards compatible)

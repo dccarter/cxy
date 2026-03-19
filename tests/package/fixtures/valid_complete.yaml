@@ -22,7 +22,7 @@ dependencies:
     version: 1.2.3
     tag: v1.2.3
 
-dev_dependencies:
+dev-dependencies:
   - name: test-framework
     repository: https://github.com/cxy-lang/test
     version: ^3.0.0

@@ -13,6 +13,7 @@
 #include "package/types.h"
 #include "package/env.h"
 #include "package/cache.h"
+#include "utils/async_tracker.h"
 #include "core/log.h"
 #include "core/format.h"
 #include "core/strpool.h"
@@ -21,6 +22,35 @@
 
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+/**
+ * Global log pointer for signal handler
+ */
+static Log *g_signal_log = NULL;
+
+/**
+ * Signal handler for cleanup on interruption
+ */
+static void signalHandler(int sig)
+{
+    // Call async tracker cleanup
+    asyncTrackerCleanup(g_signal_log);
+    
+    // Re-raise signal for default behavior
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/**
+ * Cleanup function registered with atexit
+ */
+static void cleanupOnExit(void)
+{
+    asyncTrackerCleanup(g_signal_log);
+}
 
 /**
  * Find a script by name in the scripts array
@@ -191,6 +221,23 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
         return false;
     }
 
+    // Determine build directory for async tracker
+    const char *buildDir = options->package.buildDir;
+    if (!buildDir || buildDir[0] == '\0') {
+        buildDir = ".cxy/build";
+    }
+
+    // Build full build path if relative
+    char fullBuildDir[2048];
+    if (buildDir[0] == '/') {
+        // Absolute path, use as-is
+        strncpy(fullBuildDir, buildDir, sizeof(fullBuildDir) - 1);
+        fullBuildDir[sizeof(fullBuildDir) - 1] = '\0';
+    } else {
+        // Relative path, make relative to packageDir
+        snprintf(fullBuildDir, sizeof(fullBuildDir), "%s/%s", packageDir, buildDir);
+    }
+
     // Handle --list flag
     if (listScripts) {
         listAvailableScripts(&meta, log, options->package.verbose);
@@ -215,6 +262,21 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
         free(packageDir);
         freePackageMetadata(&meta);
         return false;
+    }
+
+    // Initialize async tracker for background process management
+    g_signal_log = log;
+    if (!asyncTrackerInit(fullBuildDir, log)) {
+        logWarning(log, NULL, "failed to initialize async tracker, background process management disabled", NULL);
+    } else {
+        // Register cleanup handlers
+        atexit(cleanupOnExit);
+        signal(SIGINT, signalHandler);
+        signal(SIGTERM, signalHandler);
+
+        // Export tracker path so child cxy processes (async-cmd-start)
+        // can append to this tracker instead of creating their own.
+        setenv("CXY_ASYNC_TRACKER", asyncTrackerGetPath(), 1);
     }
 
     printStatusSticky(log, "Running script '%s' in package '%s'...", scriptName, meta.name);
@@ -348,6 +410,9 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
     if (chdir(originalDir) != 0) {
         logWarning(log, NULL, "failed to restore original directory", NULL);
     }
+
+    // Cleanup async processes (if any were started)
+    asyncTrackerCleanup(log);
 
     // Clear environment variables
     clearScriptEnvironment(&meta.scriptEnv, &builtins);
