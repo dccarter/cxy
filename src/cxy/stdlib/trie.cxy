@@ -56,6 +56,11 @@ pub class Trie[Data] {
         add(key, len!(key), &&data)
     }
 
+    @inline
+    func add(key: __string, data: Data) {
+        add(key.str(), key.size(), &&data)
+    }
+
     func find(key: string) : Optional[&Data] {
         var size = len!(key);
         var found = find(key, size);

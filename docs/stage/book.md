@@ -810,7 +810,7 @@ pub func cast[T](path: &PathLike): T {
             case string as s => return __string(s)
             case __string as s => return __copy!(s)
             case String as s => return s.__str()
-            case Path as &p => return p.__str()
+            case Path as p => return p.__str()
         }
     }
     else #if (#T == #String) {

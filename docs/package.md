@@ -877,6 +877,95 @@ The clean command:
 
 Build directory location is determined from the `build.output` field in Cxyfile.yaml or defaults to `.cxy/build`.
 
+### cxy package find-system
+
+Find system-installed libraries and output build configuration flags for use in install scripts.
+
+**Basic Usage:**
+```bash
+# Find openssl and output all flags
+cxy package find-system openssl --include-dir --lib-dir --lib
+
+# Find postgresql headers only
+cxy package find-system postgresql --include-dir
+
+# Output in JSON format
+cxy package find-system openssl --format json
+
+# Output version only
+cxy package find-system openssl --version
+```
+
+**Options:**
+- `--include-dir` - Output include/header directories as `--c-header-dir=<path>`
+- `--lib-dir` - Output library search directories as `--c-lib-dir=<path>`
+- `--lib` - Output library names to link as `--c-lib=<name>`
+- `--version` - Output package version as `--define=<PKG>_VERSION=<ver>`
+- `--cflags` - Output raw C compiler flags
+- `--ldflags` - Output raw linker flags
+- `--format <fmt>` - Output format: `flags` (default), `json`, or `yaml`
+- `--search-root <dir>` - Additional directory to search (repeatable)
+
+**How It Works:**
+
+`find-system` searches for packages using (in order):
+1. `pkg-config` if available
+2. Common system paths (`/usr`, `/usr/local`, `/opt/homebrew`, etc.)
+3. Any additional `--search-root` directories provided
+
+**Primary use case is in `install:` scripts** in `Cxyfile.yaml`, where the output flags are collected and written to `.install.yaml` for use during builds:
+
+```yaml
+install:
+  - name: openssl
+    required: true
+    script: |
+      cxy package find-system openssl --include-dir --lib-dir --lib
+
+  - name: postgresql
+    required: false
+    script: |
+      if cxy package find-system postgresql --include-dir --lib-dir --lib; then
+        echo "--define=ENABLE_POSTGRES=1"
+      else
+        echo "--define=ENABLE_POSTGRES=0"
+      fi
+```
+
+**Example Output (flags format):**
+```
+--c-header-dir=/usr/local/include/openssl
+--c-lib-dir=/usr/local/lib
+--c-lib=ssl
+--c-lib=crypto
+```
+
+**Example Output (json format):**
+```json
+{
+  "name": "openssl",
+  "version": "3.1.0",
+  "include_dirs": ["/usr/local/include/openssl"],
+  "lib_dirs": ["/usr/local/lib"],
+  "libs": ["ssl", "crypto"]
+}
+```
+
+**Exit Codes:**
+- `0` - Package found successfully
+- `1` - Package not found (use `required: false` in install scripts to handle gracefully)
+
+**Tip:** Use in combination with `--define` flags to conditionally enable features:
+```yaml
+install:
+  - name: optional-feature
+    required: false
+    script: |
+      if cxy package find-system libfoo --include-dir --lib-dir --lib; then
+        echo "--define=HAS_LIBFOO=1"
+      fi
+```
+
 ### cxy package publish
 
 Publish package by creating a git tag (not yet implemented).
@@ -1271,3 +1360,4 @@ Planned features for future releases:
 - [Standard Library](stdlib/) - Built-in modules and utilities
 - [Build System](build.md) - Compiler and build configuration
 - [Testing Guide](testing.md) - Writing and running tests
+- [Cxy Utils](cxy-utils.md) - Script utility commands (async processes, port management, locks, etc.)

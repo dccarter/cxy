@@ -535,7 +535,7 @@ const HTTP_PARSER_SETTINGS = parser.llhttp_settings_t{
 
 type RequestBuilder = func(req: &Request) -> !void
 
-class Session {
+pub class Session {
     - _port = 80`u16;
     - _headers = HeaderMap();
     - _timeout = 20000`u64; /* 20 sec */

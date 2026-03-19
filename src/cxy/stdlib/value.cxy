@@ -172,14 +172,14 @@ pub struct Value {
 
     const func getArray(): const Vector[Value] {
         match (_value) {
-            Vector[Value] as arr => return __copy!(arr)
+            Vector[Value] as arr => return arr
             ... => return null
         }
     }
 
     const func getObject(): const HashMap[String, Value] {
         match (_value) {
-            HashMap[String, Value] as obj => return __copy!(obj)
+            HashMap[String, Value] as obj => return obj
             ... => return null
         }
     }
@@ -208,21 +208,21 @@ pub struct Value {
 
     func asString(): !String {
         match (_value) {
-            String as s => return __copy!(s)
+            String as s => return s
             ... => raise TypeError(f"Expected string, got {typeName()}")
         }
     }
 
     func asArray(): !Vector[Value] {
         match (_value) {
-            Vector[Value] as arr => return __copy!(arr)
+            Vector[Value] as arr => return arr
             ... => raise TypeError(f"Expected array, got {typeName()}")
         }
     }
 
     func asObject(): !HashMap[String, Value] {
         match (_value) {
-            HashMap[String, Value] as obj => return __copy!(obj)
+            HashMap[String, Value] as obj => return obj
             ... => raise TypeError(f"Expected object, got {typeName()}")
         }
     }
@@ -465,7 +465,7 @@ pub struct Value {
         }
         else #if (Target.isString && Target.isClass) {
             match (_value) {
-                String as s => return __copy!(s)
+                String as s => return s
                 ... => raise TypeError(f"Expected string, got {typeName()}")
             }
         }

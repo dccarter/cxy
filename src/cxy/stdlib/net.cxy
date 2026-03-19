@@ -209,7 +209,7 @@ pub struct Address {
     @inline
     const func `!!`() => family() != AF_UNSPEC!
 
-    const func `str`(os: &OutputStream) {
+    const func toString(os: &OutputStream, includePort: bool = true) {
         var buffer: [char, 46] = [];
         var rc = false;
         if (family() == AF_INET!) {
@@ -229,11 +229,22 @@ pub struct Address {
 
         if (rc) {
             os.appendString(buffer !: string)
-            os.appendChar(':')
-            os.appendUnSignedInt(port())
+            if includePort {
+                os.appendChar(':')
+                os.appendUnSignedInt(port())
+            }
         }
-        else
+        else if includePort {
             os.appendString("0.0.0.0:0000")
+        }
+        else {
+            os.appendString("0.0.0.0")
+        }
+    }
+
+    @inline
+    const func `str`(os: &OutputStream) {
+        toString(os)
     }
 }
 
@@ -438,7 +449,7 @@ pub class Socket {
     }
 
     @inline
-    const func address() => _addr
+    const func address() => &_addr
 
     @inline
     const func raw() => _fd

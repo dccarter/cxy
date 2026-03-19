@@ -702,10 +702,10 @@ func serializeValue(
         }
         String as s => {
             os << "\""
-            escapeJsonString(os, s)
+            escapeJsonString(os, &s)
             os << "\""
         }
-        Vector[Value] as &arr => {
+        Vector[Value] as arr => {
             os << "["
             if (pretty && arr.size() > 0) {
                 os << "\n"
@@ -730,7 +730,7 @@ func serializeValue(
             }
             os << "]"
         }
-        HashMap[String, Value] as &obj => {
+        HashMap[String, Value] as obj => {
             os << "{"
             if (pretty && obj.size() > 0) {
                 os << "\n"

@@ -1,20 +1,22 @@
+import { parse } from "stdlib/json.cxy"
 
-func showField[NAME, T](obj: &const T) {
-    #const field = T.members.[NAME.value]
-    println(#{NAME.value}, " = ", obj.#{mk_ident!(NAME.value)})
+@json
+struct Address {
+    line1: String = null
 }
 
-struct User {
-    name: string = "Jane"
-    age: i32 = 0
-    func `init`(a: i32){ age = a}
+@json
+struct User[...T] {
+    name: String = null
+    address = Address{}
+    func `init`() {
+        info!("type of T is {t}", #T)
+    }
 }
 
+func hello[T, U, ...Z](y: U, ...x: auto) {
+    println(x)
+}
 func main(): !void {
-    #if (User.hasInit) {
-        println("We have init")
-    }
-    #if (User.hasDefaultInit) {
-        println("We have default init")
-    }
+    hello[i32, i32](10, 20)
 }

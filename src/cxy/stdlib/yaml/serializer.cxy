@@ -379,6 +379,11 @@ test {
     struct List {
         items = Vector[User]()
     }
+
+    func toYaml[T](os: &OutputStream, it: &const T, @unused item: bool = false): !void {
+        var serializer = YamlSerializer(os)
+        serializer.toYaml[T](it)
+    }
 }
 
 test "Serializer - simple scalar" {

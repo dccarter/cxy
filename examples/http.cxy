@@ -11,8 +11,8 @@ func stream(resp: &Response): !void {
 }
 
 pub func main(): !void  {
-    var server = Server[()](Config{address: Address("0.0.0.0", 8004)});
-    server("/hello", (@unused req: &const Request, resp: &Response) => {
+    var server = Server[](Config{address: Address("0.0.0.0", 8004)});
+    server("GET /hello", (@unused req: &const Request, resp: &Response) => {
         resp.body() << "Hello, World!"
     })
 

@@ -138,7 +138,7 @@ pub struct FlagValues {
         var val = values.[name]
         if (val) {
             match (*val) {
-                __string as s => return __copy!(s)
+                __string as s => return s
                 ... => return __string()
             }
         }

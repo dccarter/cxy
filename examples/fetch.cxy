@@ -1,7 +1,17 @@
-import { fetch } from "stdlib/fetch.cxy"
+import { fetch, Request, Session } from "stdlib/fetch.cxy"
+import { Method } from "stdlib/http.cxy"
 
-func main(): !void {
-    var resp = fetch("@POST https://httpbin.org/post")
+func doit(x: i32): !bool {
+    var sess = Session.create("https://httpbin.org")
+    var v = (req: &Request): !void => {
+        req.body()
+            << "Hello"
+    }
+    var resp = sess.perform(Method.Post, "/post", v)
     if (resp.ok())
         stdout << resp.body()
+    return true
+}
+func main(): !void {
+    doit(4)
 }

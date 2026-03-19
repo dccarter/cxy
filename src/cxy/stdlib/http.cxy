@@ -85,6 +85,7 @@ pub enum Status : i32 {
     UnsupportedMediaType        = 415,
     RequestRangeInvalid         = 416,
     ExpectationFailed           = 417,
+    TooManyRequests             = 429,
     InternalError               = 500,
     NotImplement                = 501,
     BadGateway                  = 502,
@@ -197,6 +198,8 @@ pub func statusText(status: Status) {
             return "HTTP/1.1 416 Requested range not satisfiable"
         case. ExpectationFailed =>
             return "HTTP/1.1 417 Expectation Failed"
+        case. TooManyRequests =>
+            return "HTTP/1.1 429 Too Many Requests"
         case. InternalError =>
             return "HTTP/1.1 500 Internal Server Error"
         case. NotImplement =>
@@ -403,23 +406,29 @@ pub class Response {
 pub class Request {
     - LOG_TAG = "HTTP_REQUEST";
 
-    - _headers = HeaderMap();
-    - _params = HashMap[__string, __string]();
-    - _cookies = HashMap[__string, __string]();
-    - _path: String = null;
-    - _uri: String = null;
-    - _body: String = null;
-    - _s1: String = null;
-    - _s2: String = null;
-    - _isComplete = false;
-    - _cookiesParsed = false;
-    - _parser: ^parser.llhttp_t = null;
-    - _middlewareContexts: ^void = null;
-    - _route: &Route
+    _headers = HeaderMap();
+    _params = HashMap[__string, __string]();
+    _cookies = HashMap[__string, __string]();
+    _path: String = null;
+    _uri: String = null;
+    _body: String = null;
+    _s1: String = null;
+    _s2: String = null;
+    _isComplete = false;
+    _cookiesParsed = false;
+    _parser: ^parser.llhttp_t = null;
+    _middlewareContexts: ^void = null;
+    _route: &Route
+    _addr: &Address
+    _ip: String = null
+
     @inline
-    func `init`(settings: ^const parser.llhttp_settings_t) {
+    func `init`(addr: &Address, settings: ^const parser.llhttp_settings_t) {
+        _addr = addr
         _parser = parser.llhttp_alloc(parser.llhttp_type_t.HTTP_REQUEST, settings)
         _parser.data = this
+        _ip = String()
+        _addr.toString(&_ip, false)
     }
 
     @inline
@@ -440,6 +449,9 @@ pub class Request {
 
     @[prop, inline]
     const func path() => &_path
+
+    @[prop, inline]
+    const func ip() => &_ip
 
     @[prop, inline]
     const func method() {
@@ -642,17 +654,19 @@ pub struct RouteAttrs {
 }
 
 class Route {
-    - prefix: __string
-    - handler: lambda_of!(#HandlerFn)
-    - params: Vector[__string]
-    - _methods: u32
-    - _attrs = RouteAttrs{};
+    prefix: __string
+    handler: lambda_of!(#HandlerFn)
+    params: Vector[__string]
+    _methods: u32
+    _attrs = RouteAttrs{};
+    _id: u64 = 0
 
-    func `init`(methods: u32, prefix: __string, fn: HandlerFn, params: Vector[__string]) {
+    func `init`(id: u64, methods: u32, prefix: __string, fn: HandlerFn, params: Vector[__string]) {
         handler = &&fn
         this.prefix = prefix
         this.params = &&params
         _methods = methods
+        _id = id
     }
 
     @inline
@@ -684,11 +698,16 @@ class Route {
 
     @inline
     const func attrs() => &_attrs
+
+    @[inline, prop]
+    const func id() => _id
 }
 
 class Router {
+    @static
     - LOG_TAG = "HTTP_ROUTER";
     - routes: Trie[Route]
+    - _idGenerator = 0 as u64
 
     func `init`() {
         routes = Trie[Route]();
@@ -706,8 +725,8 @@ class Router {
         var prefix = __string(path, i).substr(idx);
         var params = Vector[__string]();
         parseParams(&params, path, i)
-        var route = Route(methods, prefix, fn, &&params);
-        routes.add(path, i, route)
+        var route = Route(_idGenerator++, methods, prefix, &&fn, &&params);
+        routes.add(prefix, route)
         return route
     }
 
@@ -822,7 +841,7 @@ class Router {
                 j++;
             var value = __string(ptroff!(p + idx) !: string, j - idx);
             idx = j;
-            req.param(<__string>params.[<i32>i], value)
+            req.param(__copy!(params.[<i32>i]), value)
         }
 
         if (p.[idx] !=  '\0'`char && p.[idx] != '?'`char) {
@@ -866,7 +885,7 @@ pub struct Dependencies[T] {
     }
 }
 
-pub class Connection[Middlewares] {
+class Connection[Middlewares] {
     type Contexts = `Middlewares as T, i => T.Context, has_type!(#T, :Context)`
     @static
     - LOG_TAG = "HTTP_CONNECTION";
@@ -886,7 +905,7 @@ pub class Connection[Middlewares] {
     }
 
     func handle() {
-        req = Request(ptrof HTTP_PARSER_SETTINGS)
+        req = Request(sock.address(), ptrof HTTP_PARSER_SETTINGS)
         resp = Response()
         while (!_close && !!sock) {
             handleConnection()
@@ -1026,7 +1045,7 @@ pub class Connection[Middlewares] {
     }
 }
 
-pub class Server[Middlewares] {
+pub class Server[...Middlewares] {
     require!(Middlewares.isTuple, "requires a tuple of middlewares")
     type MwsWithContexts = `Middlewares as T, i => T, has_type!(#T, :Context)`
     type Contexts = `MwsWithContexts as T, i => T.Context, has_type!(#T, :Context)`

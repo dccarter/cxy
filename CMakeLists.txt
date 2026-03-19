@@ -109,6 +109,7 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/resolver.c
         src/cxy/package/env.c
         src/cxy/package/cache.c
+        src/cxy/package/install_scripts.c
         src/cxy/package/commands/create.c
         src/cxy/package/commands/add.c
         src/cxy/package/commands/build.c
@@ -119,7 +120,13 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/commands/run.c
         src/cxy/package/commands/remove.c
         src/cxy/package/commands/clean.c
-        src/cxy/package/commands/info.c)
+        src/cxy/package/commands/info.c
+        src/cxy/package/commands/find_system.c
+        src/cxy/utils/async_tracker.c
+        src/cxy/utils/commands/dispatch.c
+        src/cxy/utils/commands/async_cmd.c
+        src/cxy/utils/commands/wait_for.c
+        src/cxy/utils/commands/lock.c)
 
 
 

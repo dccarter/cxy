@@ -121,9 +121,9 @@ pub func cast[T](path: &PathLike): T {
     #if (#T == #__string) {
         match (path) {
             case string as s => return __string(s)
-            case __string as s => return __copy!(s)
+            case __string as s => return s
             case String as s => return s.__str()
-            case Path as &p => return p.__str()
+            case Path as p => return p.__str()
         }
     }
     else #if (#T == #String) {
@@ -133,9 +133,9 @@ pub func cast[T](path: &PathLike): T {
     else #if (#T == #Path) {
         match (path) {
             case string as s => return <T> Path(s)
-            case __string as s => return <T> Path(__copy!(s))
-            case String as s => return <T> Path(__copy!(s))
-            case Path as p => return __copy!(p)
+            case __string as s => return <T> Path(s)
+            case String as s => return <T> Path(s)
+            case Path as p => return p
         }
     }
     else {
