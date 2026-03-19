@@ -43,8 +43,8 @@ cstring substituteEnvVars(const char *template,
  * - PACKAGE_NAME: Package name from metadata
  * - PACKAGE_VERSION: Package version from metadata
  * - CXY_PACKAGES_DIR: Path to packages directory
- * - CXY_BUILD_DIR: Path to the build directory
- * - CXY_ASYNC_LAST_PID_FILE: Path to the last async PID file
+ * - BUILD_DIR: Path to the build directory
+ * - ASYNC_LAST_PID_FILE: Path to the last async PID file
  * 
  * @param meta Package metadata
  * @param packageDir Directory containing Cxyfile.yaml

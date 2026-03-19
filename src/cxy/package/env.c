@@ -151,7 +151,7 @@ DynArray buildBuiltinEnvVars(const PackageMetadata *meta,
     // CXY_BUILD_DIR
     if (buildDir && buildDir[0] != '\0') {
         EnvVar cxyBuildDir;
-        cxyBuildDir.name = makeString(strings, "CXY_BUILD_DIR");
+        cxyBuildDir.name = makeString(strings, "BUILD_DIR");
         cxyBuildDir.value = makeString(strings, buildDir);
         pushOnDynArray(&builtins, &cxyBuildDir);
 
@@ -159,7 +159,7 @@ DynArray buildBuiltinEnvVars(const PackageMetadata *meta,
         char lastPidPath[2048];
         snprintf(lastPidPath, sizeof(lastPidPath), "%s/.async-last-pid", buildDir);
         EnvVar cxyAsyncLastPidFile;
-        cxyAsyncLastPidFile.name = makeString(strings, "CXY_ASYNC_LAST_PID_FILE");
+        cxyAsyncLastPidFile.name = makeString(strings, "ASYNC_LAST_PID_FILE");
         cxyAsyncLastPidFile.value = makeString(strings, lastPidPath);
         pushOnDynArray(&builtins, &cxyAsyncLastPidFile);
     }
