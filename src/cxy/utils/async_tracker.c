@@ -18,6 +18,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/file.h>
 #include <dirent.h>
