@@ -153,6 +153,15 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
     u32 failCount = 0;
     u32 skippedCount = 0;
 
+    // Determine build directory for .install.yaml (used for both deps and root package)
+    char buildDir[1024];
+    if (options->package.buildDir && options->package.buildDir[0] != '\0') {
+        strncpy(buildDir, options->package.buildDir, sizeof(buildDir) - 1);
+        buildDir[sizeof(buildDir) - 1] = '\0';
+    } else {
+        snprintf(buildDir, sizeof(buildDir), "%s/.cxy/build", packageDir);
+    }
+
     // Only install dependencies if there are any
     if (resolverCtx.resolved.size > 0) {
         // Determine packages directory
@@ -221,6 +230,27 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
             if (gitCalculateChecksum(installedPath, &checksum, strings->mem_pool, log)) {
                 resolved->checksum = checksum;
             }
+
+            // Run dependency's own install scripts if it has any
+            PackageMetadata depMeta;
+            char *depDir = NULL;
+            initPackageMetadata(&depMeta, strings);
+            if (findAndLoadCxyfile(installedPath, &depMeta, strings, log, &depDir)) {
+                bool depHasScripts = depMeta.install.size > 0 ||
+                                     (includeDev && depMeta.installDev.size > 0);
+                if (depHasScripts) {
+                    printStatusSticky(log, "Running install scripts for '%s'...", resolved->name);
+                    if (!executeInstallScripts(&depMeta, depDir, buildDir, includeDev,
+                                               strings, log, options->package.verbose)) {
+                        logWarning(log, NULL, "install scripts for '{s}' failed",
+                                  (FormatArg[]){{.s = resolved->name}});
+                    }
+                }
+                free(depDir);
+                freePackageMetadata(&depMeta);
+            } else {
+                freePackageMetadata(&depMeta);
+            }
         } else {
             logError(log, NULL, "failed to install dependency '{s}'",
                     (FormatArg[]){{.s = resolved->name}});
@@ -275,20 +305,11 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
         }
     }
 
-    // Execute install scripts if any are defined
+    // Execute root package's own install scripts if any are defined
     if (failCount == 0 && (meta.install.size > 0 || (includeDev && meta.installDev.size > 0))) {
         printStatusSticky(log, "");
         printStatusSticky(log, "Running install scripts...");
-        
-        // Determine build directory for .install.yaml
-        char buildDir[1024];
-        if (options->package.buildDir && options->package.buildDir[0] != '\0') {
-            strncpy(buildDir, options->package.buildDir, sizeof(buildDir) - 1);
-            buildDir[sizeof(buildDir) - 1] = '\0';
-        } else {
-            snprintf(buildDir, sizeof(buildDir), "%s/.cxy/build", packageDir);
-        }
-        
+
         if (!executeInstallScripts(&meta, packageDir, buildDir, includeDev, strings, log, options->package.verbose)) {
             logError(log, NULL, "install scripts failed", NULL);
             freeResolverContext(&resolverCtx);
