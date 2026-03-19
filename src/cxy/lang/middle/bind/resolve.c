@@ -733,11 +733,11 @@ void bindCaseStmt(AstVisitor *visitor, AstNode *node)
     pushScope(ctx->env, node);
 
     astVisit(visitor, node->caseStmt.match);
-    if (node->caseStmt.variable) {
+    if (node->caseStmt.alias) {
         defineSymbol(ctx->env,
                      ctx->L,
-                     node->caseStmt.variable->ident.value,
-                     node->caseStmt.variable);
+                     node->caseStmt.alias->_name,
+                     node->caseStmt.alias);
     }
     astVisit(visitor, node->caseStmt.body);
 

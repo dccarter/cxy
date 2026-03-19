@@ -11,7 +11,7 @@ extern "C" {
 typedef struct Log Log;
 typedef struct StrPool StrPool;
 
-typedef enum { _cmdHelp, _cmdCompletion, cmdDev, cmdBuild, cmdTest, cmdPackage } Command;
+typedef enum { _cmdHelp, _cmdCompletion, cmdDev, cmdBuild, cmdTest, cmdPackage, cmdUtils } Command;
 // clang-format off
 #define DUMP_OPTIONS(ff)    \
     ff(NONE)                \
@@ -65,8 +65,19 @@ typedef enum {
     pkgSubList,
     pkgSubInfo,
     pkgSubClean,
-    pkgSubRun
+    pkgSubRun,
+    pkgSubFindSystem,
 } PackageSubcommand;
+
+typedef enum {
+    utlSubAsyncCmdStart,
+    utlSubAsyncCmdStop,
+    utlSubWaitFor,
+    utlSubWaitForPort,
+    utlSubFindFreePort,
+    utlSubEnvCheck,
+    utlSubLock,
+} UtilsSubcommand;
 
 // clang-format on
 
@@ -176,7 +187,35 @@ typedef struct Options {
             bool cleanBuild;         // Clean build directory
             bool cleanAll;           // Clean everything
             bool force;              // Skip confirmation prompts
+            // find-system subcommand
+            const char *findSystemPackage;  // Package name to find
+            const char *findSystemFormat;   // Output format: flags, json, yaml
+            DynArray findSystemSearchRoots; // Additional search root directories
+            bool findSystemIncludeDir;      // Output include directories
+            bool findSystemLibDir;          // Output library directories
+            bool findSystemLib;             // Output library names
+            bool findSystemVersion;         // Output version information
+            bool findSystemCFlags;          // Output compiler flags
+            bool findSystemLdFlags;         // Output linker flags
         } package;
+        struct {
+            UtilsSubcommand subcmd;
+            const char *cmd;                // Command string for async-cmd-start / wait-for
+            // async-cmd-start
+            bool captureOutput;             // Capture output to log file
+            // wait-for / wait-for-port
+            i64 waitForTimeout;             // Timeout in milliseconds (default: 30000)
+            i64 waitForPeriod;              // Poll period in milliseconds (default: 500)
+            // wait-for-port / find-free-port
+            i64 port;                       // Port number
+            i64 portRangeStart;             // Start of port range
+            i64 portRangeEnd;               // End of port range
+            // env-check
+            DynArray envVars;               // List of env var names to check
+            // lock
+            const char *lockName;           // Lock name (used as filename)
+            i64 lockTimeout;                // Timeout waiting for lock in milliseconds (default: 30000)
+        } utils;
     };
 } Options;
 

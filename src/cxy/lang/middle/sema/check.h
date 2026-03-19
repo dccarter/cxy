@@ -33,6 +33,7 @@ typedef struct {
             AstNode *currentStruct;
             AstNode *currentClass;
             AstNode *currentFunction;
+            AstNode *currentClosure;
             cstring fun;
             cstring cls;
             cstring mod;
@@ -46,6 +47,7 @@ typedef struct {
             AstNode *currentStruct;
             AstNode *currentClass;
             AstNode *currentFunction;
+            AstNode *currentEnclosure;
             cstring fun;
             cstring cls;
             cstring mod;

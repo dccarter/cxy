@@ -914,7 +914,8 @@ static void visitArrayExpr(ConstAstVisitor *visitor, const AstNode *node)
 {
     CodegenContext *ctx = getConstAstVisitorContext(visitor);
     const Type *type = resolveAndUnThisType(node->type->array.elementType);
-    if (!typeIs(type, Auto)) {
+    const AstNode *parent = node->parentScope;
+    if (!typeIs(type, Auto) && !nodeIs(parent, VarDecl)) {
         format(getState(ctx), "(", NULL);
         generateTypeName(ctx, getState(ctx), node->type);
         format(getState(ctx), ")", NULL);
@@ -1268,25 +1269,42 @@ static void visitBackendBfiCopy(ConstAstVisitor *visitor, const AstNode *node)
             csAssert0(func);
             generateBfiCallWithFunc(visitor, func, node);
         }
+        else if (isReferenceType(node->type)) {
+            format(getState(ctx), "*(", NULL);
+            astConstVisit(visitor, node);
+            format(getState(ctx), ")", NULL);
+        }
         else {
-            format(getState(ctx), "(", NULL);
-            generateTypeName(ctx, getState(ctx), type);
-            format(getState(ctx), "){{ __smart_ptr_get(", NULL);
             astConstVisit(visitor, node);
-            format(getState(ctx), "._0), ", NULL);
-            astConstVisit(visitor, node);
-            format(getState(ctx), "._1 }", NULL);
         }
     }
     else if (isUnionType(type)) {
-        const AstNode *func = type->tUnion.copyFunc->func.decl;
-        csAssert0(func);
-        generateBfiCallWithFunc(visitor, func, node);
+        const Type *copyFunc = type->tUnion.copyFunc;
+        if (copyFunc) {
+            generateBfiCallWithFunc(visitor, copyFunc->func.decl, node);
+        }
+        else if (isReferenceType(node->type)) {
+            format(getState(ctx), "*(", NULL);
+            astConstVisit(visitor, node);
+            format(getState(ctx), ")", NULL);
+        }
+        else {
+            astConstVisit(visitor, node);
+        }
     }
     else if (isStructType(type)) {
         const AstNode *func = findMemberDeclInType(type, S_CopyOverload);
-        csAssert0(func);
-        generateBfiCallWithFunc(visitor, func, node);
+        if (func != NULL) {
+            generateBfiCallWithFunc(visitor, func, node);
+        }
+        else if (isReferenceType(node->type)) {
+            format(getState(ctx), "*(", NULL);
+            astConstVisit(visitor, node);
+            format(getState(ctx), ")", NULL);
+        }
+        else {
+            astConstVisit(visitor, node);
+        }
     }
     else {
         astConstVisit(visitor, node);
@@ -1464,7 +1482,7 @@ static void visitBackendCallExpr(ConstAstVisitor *visitor, const AstNode *node)
         visitBackendBfiDeclare(visitor, node);
         break;
     case bfiMove:
-        if (nodeIs(args, MemberExpr) || nodeIs(args, IndexExpr))
+        if (nodeIs(args, MemberExpr) || nodeIs(args, IndexExpr) || hasFlag(args, UnionCast))
             format(getState(ctx), "builtins__MemberExpr_move(", NULL);
         else
             format(getState(ctx), "builtins__ManagedVariable_move(", NULL);
@@ -1738,10 +1756,10 @@ static void visitCaseStmt(ConstAstVisitor *visitor, const AstNode *node)
             format(getState(ctx),
                    "{u32}: {{{>}\n",
                    (FormatArg[]){{.u32 = node->caseStmt.idx}});
-            if (node->caseStmt.variable) {
-                astConstVisit(visitor, node->caseStmt.variable);
-                format(getState(ctx), "\n", NULL);
-            }
+            // if (node->caseStmt.variable) {
+            //     astConstVisit(visitor, node->caseStmt.variable);
+            //     format(getState(ctx), "\n", NULL);
+            // }
         }
         else {
             const AstNode *match = node->caseStmt.match;
@@ -1816,11 +1834,19 @@ static void visitVariableDecl(ConstAstVisitor *visitor, const AstNode *node)
     format(getState(ctx), " ", NULL);
     generateVariableName(getState(ctx), node);
     if (node->varDecl.init) {
-        bool nullInit = nodeIs(node->varDecl.init, NullLit) &&
-                        (isTupleType(node->type) || isUnionType(node->type));
+        bool nullInit = nodeIs(node->varDecl.init, NullLit);
         format(getState(ctx), " = ", NULL);
-        if (nullInit)
-            format(getState(ctx), " {{}", NULL);
+        if (nullInit) {
+            if (isTupleType(node->type) || isUnionType(node->type)) {
+                format(getState(ctx), " {{}", NULL);
+            }
+            else if (isNumericType(node->type)) {
+                format(getState(ctx), " 0", NULL);
+            }
+            else {
+                astConstVisit(visitor, node->varDecl.init);
+            }
+        }
         else
             astConstVisit(visitor, node->varDecl.init);
     }

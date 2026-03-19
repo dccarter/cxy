@@ -120,7 +120,7 @@ static void visitBackendCallExpr(AstVisitor *visitor, AstNode *node)
     case bfiCopy:
         if (isStructType(type))
             func = findMemberDeclInType(type, S_CopyOverload);
-        else if (isUnionType(type))
+        else if (isUnionType(type) && type->tUnion.copyFunc)
             func = type->tUnion.copyFunc->func.decl;
         else if (isTupleType(type) && type->tuple.copyFunc)
             func = type->tuple.copyFunc->func.decl;

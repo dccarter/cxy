@@ -1180,10 +1180,10 @@ static AstNode *parseArrayType(Parser *P)
                    .arrayType = {.elementType = type, .dim = dim}});
 }
 
-static AstNode *parseGenericParam(Parser *P)
+static AstNode *parseGenericParam(Parser *P, bool isFunc)
 {
     AstNodeList constraints = {NULL};
-    bool isVariadic = match(P, tokElipsis) != NULL;
+    bool isVariadic = !isFunc && match(P, tokElipsis) != NULL;
     Token tok = *consume0(P, tokIdent);
     if (match(P, tokColon)) {
         do {
@@ -1207,11 +1207,11 @@ static AstNode *parseGenericParam(Parser *P)
                                     .defaultValue = defaultValue}});
 }
 
-static AstNode *parseGenericParams(Parser *P)
+static AstNode *parseGenericParams(Parser *P, bool isFunc)
 {
     AstNodeList params = {};
     do {
-        AstNode *param = insertAstNode(&params, parseGenericParam(P));
+        AstNode *param = insertAstNode(&params, parseGenericParam(P, isFunc));
         if (hasFlag(param, Variadic) || check(P, tokRBracket))
             break;
     } while (match(P, tokComma));
@@ -1240,7 +1240,7 @@ static AstNode *parseFuncType(Parser *P)
     u64 flags = match(P, tokAsync) ? flgAsync : flgNone;
     consume0(P, tokFunc);
     if (match(P, tokLBracket)) {
-        gParams = parseGenericParams(P);
+        gParams = parseGenericParams(P, true);
         consume0(P, tokRBracket);
     }
 
@@ -2338,7 +2338,7 @@ static AstNode *funcDecl(Parser *P, u64 flags)
             reportUnexpectedToken(
                 P, "a '(', virtual functions cannot have generic parameters");
 
-        gParams = parseGenericParams(P);
+        gParams = parseGenericParams(P, true);
         consume0(P, tokRBracket);
     }
 
@@ -2591,7 +2591,7 @@ static AstNode *matchCaseStatement(Parser *P)
     u64 flags = flgNone;
     Token tok = *current(P);
     AstNode *match = NULL, *body = NULL;
-    AstNode *variable = NULL;
+    AstNode *alias = NULL;
     bool isMulti = previous(P)->tag == tokComma;
 
     if (match(P, tokElse, tokElipsis)) {
@@ -2609,16 +2609,13 @@ static AstNode *matchCaseStatement(Parser *P)
         match = parseType(P);
         P->inCase = false;
         if (!isMulti && !check(P, tokComma) && match(P, tokAs)) {
-            tok = *current(P);
-            bool isReference = match(P, tokBAnd);
-            variable = parseIdentifier(P);
-            variable =
+            tok = *consume0(P, tokIdent);
+            cstring name = getTokenString(P, &tok, false);
+            alias =
                 newAstNode(P,
                            &tok,
-                           &(AstNode){.tag = astVarDecl,
-                                      .varDecl = {.name = variable->ident.value,
-                                                  .names = variable}});
-            variable->flags |= (isReference ? flgReference : flgNone);
+                           &(AstNode){.tag = astAliasExpr,
+                                      .aliasExpr = {.name =  name}});
         }
     }
 
@@ -2637,7 +2634,7 @@ static AstNode *matchCaseStatement(Parser *P)
         &(AstNode){
             .tag = astCaseStmt,
             .flags = flags,
-            .caseStmt = {.match = match, .body = body, .variable = variable}});
+            .caseStmt = {.match = match, .body = body, .alias = alias}});
 }
 
 static AstNode *matchStatement(Parser *P)
@@ -3286,7 +3283,7 @@ static AstNode *classOrStructDecl(Parser *P, bool isPublic, bool isExtern)
 
     if (!isExtern) {
         if (match(P, tokLBracket)) {
-            gParams = parseGenericParams(P);
+            gParams = parseGenericParams(P, false);
             consume0(P, tokRBracket);
         }
 
@@ -3347,7 +3344,7 @@ static AstNode *interfaceDecl(Parser *P, bool isPublic)
     cstring name = getTokenString(P, consume0(P, tokIdent), false);
 
     if (match(P, tokLBracket)) {
-        gParams = parseGenericParams(P);
+        gParams = parseGenericParams(P, false);
         consume0(P, tokRBracket);
     }
 

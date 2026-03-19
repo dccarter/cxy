@@ -374,7 +374,15 @@ void checkCallExceptionBubbleUp(AstVisitor *visitor, AstNode *node)
     const Type *type = node->type;
     if (!isResultType(type))
         return;
-    const Type *ret = ctx->currentFunction->type->func.retType;
+    AstNode *func = ctx->currentEnclosure;
+    const Type *ret = NULL;
+    if (nodeIs(func, FuncDecl)) {
+         ret = func->type->func.retType;
+    }
+    else {
+        ret = func && func->closureExpr.ret? func->closureExpr.ret->type : NULL;
+    }
+
     if (!isResultType(ret)) {
         logError(ctx->L,
                  &node->loc,

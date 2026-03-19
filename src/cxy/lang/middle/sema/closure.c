@@ -365,6 +365,7 @@ void checkClosureExpr(AstVisitor *visitor, AstNode *node)
     TypingContext *ctx = getAstVisitorContext(visitor);
     AstNode *params = node->closureExpr.params, *param = params,
             *ret = node->closureExpr.ret, *body = node->closureExpr.body;
+    ctx->currentEnclosure = node;
     const Type *ret_ = ret ? checkType(visitor, ret) : makeAutoType(ctx->types);
 
     const Type *type = ret_;

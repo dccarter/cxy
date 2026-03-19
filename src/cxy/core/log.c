@@ -404,10 +404,7 @@ void printDiagnosticToConsole(const Diagnostic *diag, void *ctx)
     printDiagnosticToState(&state, diag, ctx);
     char *msg = formatStateToString(&state);
     printStatus(log, "");
-    if (diag->kind == dkError)
-        fputs(msg, stderr);
-    else
-        fputs(msg, stdout);
+    fputs(msg, stdout);
     freeFormatState(&state);
     free(msg);
 }

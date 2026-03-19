@@ -78,6 +78,7 @@ static void recordClonedAstNode(CloneAstConfig *config,
     case astClosureExpr:
     case astMatchStmt:
     case astBlockStmt:
+    case astAliasExpr:
         mapAstNode(&config->mapping, from, to);
         break;
     default:
@@ -2349,6 +2350,11 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
         CLONE_ONE(memberExpr, target);
         CLONE_ONE(memberExpr, member);
         break;
+
+    case astAliasExpr:
+        CLONE_ONE(aliasExpr, expr);
+        break;
+
     case astReturnStmt:
         CLONE_ONE(returnStmt, expr);
         break;
@@ -2380,7 +2386,7 @@ AstNode *cloneAstNode(CloneAstConfig *config, const AstNode *node)
         break;
     case astCaseStmt:
         CLONE_ONE(caseStmt, match);
-        CLONE_ONE(caseStmt, variable);
+        CLONE_ONE(caseStmt, alias);
         CLONE_ONE(caseStmt, body);
         break;
 

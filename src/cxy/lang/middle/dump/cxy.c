@@ -714,6 +714,17 @@ static void dumpStructExpr(ConstAstVisitor *visitor, const AstNode *node)
     dumpManyAstNodesEnclosed(visitor, node->structExpr.fields, "{{", ", ", "}");
 }
 
+static void dumpAliasExpr(ConstAstVisitor *visitor, const AstNode *node)
+{
+    DumpContext *ctx = getConstAstVisitorContext(visitor);
+    format(ctx->state, "{s}",
+            (FormatArg[]){{.s = node->aliasExpr.name}});
+    if (node->aliasExpr.expr != NULL) {
+        format(ctx->state, " := ", NULL);
+        astConstVisit(visitor, node->aliasExpr.expr);
+    }
+}
+
 static void dumpBlockStmt(ConstAstVisitor *visitor, const AstNode *node)
 {
     DumpContext *ctx = getConstAstVisitorContext(visitor);
@@ -868,11 +879,11 @@ static void dumpCaseStmt(ConstAstVisitor *visitor, const AstNode *node)
         printKeyword(ctx->state, "default");
     }
 
-    if (node->caseStmt.variable) {
+    if (node->caseStmt.alias) {
         AddSpace();
         printKeyword(ctx->state, "as");
         AddSpace();
-        astConstVisit(visitor, node->caseStmt.variable);
+        astConstVisit(visitor, node->caseStmt.alias);
     }
     if (node->caseStmt.body) {
         format(ctx->state, " => ", NULL);
@@ -1326,6 +1337,7 @@ AstNode *dumpCxySource(CompilerDriver *driver, AstNode *node, FILE *file)
         [astArrayExpr] = dumpArrayExpr,
         [astFieldExpr] = dumpFieldExpr,
         [astStructExpr] = dumpStructExpr,
+        [astAliasExpr] = dumpAliasExpr,
         [astMacroCallExpr] = dumpMacroCallExpr,
         [astUnionValueExpr] = dumpUnionValueExpr,
         [astPointerOf] = dumpPointerOfExpr,

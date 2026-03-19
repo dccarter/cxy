@@ -236,10 +236,13 @@ static AstNode *makeCopyNode(AstVisitor *visitor,
     const Type *type = args->type ?: evalType(ctx, args);
     if (typeIs(type, Error))
         return NULL;
-    if (!nodeIsLeftValue(args)) {
-        logError(ctx->L, &args->loc, "expecting a lvalue expression", NULL);
+    if (!nodeIsLeftValue(args) && !isReferenceType(type)) {
+        logError(ctx->L, &args->loc,
+                "expecting a lvalue expression or a reference typed node",
+                NULL);
         return NULL;
     }
+
     if (isReferenceType(type))
         type = type->reference.referred;
     return makeBackendCallExpr(

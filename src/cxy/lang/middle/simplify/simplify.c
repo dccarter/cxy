@@ -226,7 +226,7 @@ static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
     }
 
     var->varDecl.init =
-        makeNullLiteral(ctx->pool, &var->loc, NULL, makeNullType(ctx->types));
+        makeNullLiteral(ctx->pool, &var->loc, NULL, var->type);
 
     range = makeVarDecl(ctx->pool,
                         &range->loc,
@@ -842,6 +842,10 @@ static void visitIdentifier(AstVisitor *visitor, AstNode *node)
             node->ident.resolvesTo = f2e->target;
         }
     }
+    else if (nodeIs(target, AliasExpr)) {
+        // We need to substitute the alias expression
+        replaceAstNode(node, deepCloneAstNode(ctx->pool, target->aliasExpr.expr));
+    }
 }
 
 static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
@@ -1359,37 +1363,30 @@ void visitMatchStmt(AstVisitor *visitor, AstNode *node)
 
     for (AstNode *esac = node->matchStmt.cases; esac; esac = esac->next) {
         AstNode *match = esac->caseStmt.match,
-                *variable = esac->caseStmt.variable,
+                *alias = esac->caseStmt.alias,
                 *body = esac->caseStmt.body;
         if (match) {
             esac->caseStmt.match = makeIntegerLiteral(
                 ctx->pool, &match->loc, esac->caseStmt.idx, NULL, expr->type);
-            if (variable) {
-                variable->flags |= (cond->flags & flgConst) | flgTemporary;
-                variable->varDecl.init =
+            if (alias) {
+                alias->aliasExpr.expr =
                     makeCastExpr(ctx->pool,
-                                 &variable->loc,
+                                 &alias->loc,
                                  flgUnionCast,
                                  deepCloneAstNode(ctx->pool, cond),
                                  makeTypeReferenceNode(
-                                     ctx->pool, variable->type, &variable->loc),
+                                     ctx->pool, alias->type, &alias->loc),
                                  NULL,
-                                 cond->type);
-                variable->varDecl.init->castExpr.idx = esac->caseStmt.idx;
-                if (nodeIs(body, BlockStmt)) {
-                    variable->next = body->blockStmt.stmts;
-                    body->blockStmt.stmts = variable;
-                }
-                else {
-                    variable->next = body;
+                                 alias->type);
+                alias->aliasExpr.expr->castExpr.idx = esac->caseStmt.idx;
+                if (!nodeIs(body, BlockStmt)) {
                     esac->caseStmt.body =
                         makeBlockStmt(ctx->pool,
                                       &body->loc,
-                                      variable,
+                                      esac->caseStmt.body,
                                       NULL,
                                       makeVoidType(ctx->types));
                 }
-                esac->caseStmt.variable = NULL;
             }
         }
         else if (!nodeIs(body, BlockStmt)) {

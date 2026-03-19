@@ -438,9 +438,9 @@ static void visitMatchStmt(AstVisitor *visitor, AstNode *node)
 
         ctx->currentBB = bb;
         insertAstNode(&ctx->bbs, bb);
-        if (case_->caseStmt.variable) {
+        if (case_->caseStmt.alias) {
             // visit the variable before generate code
-            astVisit(visitor, case_->caseStmt.variable);
+            astVisit(visitor, case_->caseStmt.alias);
         }
         astVisit(visitor, case_->caseStmt.body);
         // branch to the end

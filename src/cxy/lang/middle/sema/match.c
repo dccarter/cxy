@@ -44,13 +44,9 @@ void checkMatchCaseStmt(AstVisitor *visitor, AstNode *node)
             return;
         }
 
-        if (node->caseStmt.variable) {
-            AstNode *variable = node->caseStmt.variable;
+        if (node->caseStmt.alias) {
             const Type *type = node->caseStmt.match->type;
-            if (isComplexType(type) || hasFlag(variable, Reference))
-                type = makeReferenceType(
-                    ctx->types, type, (condition->flags & flgConst));
-            node->caseStmt.variable->type = type;
+            node->caseStmt.alias->type = type;
         }
     }
     else {

@@ -3,6 +3,7 @@
 #include "driver/driver.h"
 #include "driver/options.h"
 #include "package/commands/commands.h"
+#include "utils/commands/commands.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,9 @@ int main(int argc, char **argv)
     switch (driver.options.cmd) {
     case cmdPackage:
         status = dispatchPackageCommand(&driver.options, &strings, &log);
+        goto exit;
+    case cmdUtils:
+        status = dispatchUtilsCommand(&driver.options, &strings, &log);
         goto exit;
     case _cmdHelp:
     case _cmdCompletion:

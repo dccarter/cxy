@@ -372,13 +372,18 @@ Command(package,
         "Package management commands (create, add, install, etc.)",
         Positionals());
 
+Command(utils,
+        "Utility commands for use within scripts (async processes, port management, etc.)",
+        Positionals());
+
 // clang-format off
 #define BUILD_COMMANDS(f)                                                      \
     PARSER_BUILTIN_COMMANDS(f)                                                 \
     f(dev)                                                                     \
     f(build)                                                                   \
     f(test)                                                                    \
-    f(package)
+    f(package)                                                                 \
+    f(utils)
 
 #define DEV_CMD_LAYOUT(f, ...)                                                 \
     f(dev.lastStage, Local, Int, 0, ## __VA_ARGS__)                             \
@@ -421,7 +426,18 @@ Command(package,
     f(list)                                                                 \
     f(info)                                                                 \
     f(clean)                                                                \
-    f(run)
+    f(run)                                                                  \
+    f(find_system)
+
+#define UTILS_SUBCOMMANDS(f)                                                \
+    PARSER_BUILTIN_COMMANDS(f)                                              \
+    f(async_cmd_start)                                                      \
+    f(async_cmd_stop)                                                       \
+    f(wait_for)                                                             \
+    f(wait_for_port)                                                        \
+    f(find_free_port)                                                       \
+    f(env_check)                                                            \
+    f(lock)
 
 // Package subcommand option layouts
 #define PKG_CREATE_CMD_LAYOUT(f, ...)                                          \
@@ -491,6 +507,40 @@ Command(package,
 #define PKG_RUN_CMD_LAYOUT(f, ...)                                             \
     f(package.listScripts, Local, Option, 0, ## __VA_ARGS__)                  \
     f(package.noCache, Local, Option, 1, ## __VA_ARGS__)
+
+#define PKG_FIND_SYSTEM_CMD_LAYOUT(f, ...)                                     \
+    f(package.findSystemFormat, Local, String, 0, ## __VA_ARGS__)             \
+    f(package.findSystemSearchRoots, Local, Array, 1, ## __VA_ARGS__)         \
+    f(package.findSystemIncludeDir, Local, Option, 2, ## __VA_ARGS__)         \
+    f(package.findSystemLibDir, Local, Option, 3, ## __VA_ARGS__)             \
+    f(package.findSystemLib, Local, Option, 4, ## __VA_ARGS__)                \
+    f(package.findSystemVersion, Local, Option, 5, ## __VA_ARGS__)            \
+    f(package.findSystemCFlags, Local, Option, 6, ## __VA_ARGS__)             \
+    f(package.findSystemLdFlags, Local, Option, 7, ## __VA_ARGS__)
+
+#define UTL_ASYNC_CMD_START_CMD_LAYOUT(f, ...)                                 \
+    f(utils.captureOutput, Local, Option, 0, ## __VA_ARGS__)
+
+#define UTL_ASYNC_CMD_STOP_CMD_LAYOUT(f, ...)                                  \
+    /* No specific options for async-cmd-stop */
+
+#define UTL_WAIT_FOR_CMD_LAYOUT(f, ...)                                        \
+    f(utils.waitForTimeout, Local, Int, 0, ## __VA_ARGS__)                     \
+    f(utils.waitForPeriod, Local, Int, 1, ## __VA_ARGS__)
+
+#define UTL_WAIT_FOR_PORT_CMD_LAYOUT(f, ...)                                   \
+    f(utils.waitForTimeout, Local, Int, 0, ## __VA_ARGS__)                     \
+    f(utils.waitForPeriod, Local, Int, 1, ## __VA_ARGS__)
+
+#define UTL_FIND_FREE_PORT_CMD_LAYOUT(f, ...)                                  \
+    f(utils.portRangeStart, Local, Int, 0, ## __VA_ARGS__)                     \
+    f(utils.portRangeEnd, Local, Int, 1, ## __VA_ARGS__)
+
+#define UTL_ENV_CHECK_CMD_LAYOUT(f, ...)                                       \
+    /* No specific options - vars are positional, set via getPositionalArray */
+
+#define UTL_LOCK_CMD_LAYOUT(f, ...)                                            \
+    f(utils.lockTimeout, Local, Int, 0, ## __VA_ARGS__)
 // clang-format on
 
 static void parseSpaceSeperatedList(DynArray *into,
@@ -828,6 +878,34 @@ static int parsePackageCommand(
             Opt(Name("no-cache"),
                 Help("Disable script caching (force re-run)")));
 
+    Command(find_system,
+            "Find system packages and output build configuration",
+            Positionals(Str(Name("package"),
+                           Help("Package name to find (e.g., openssl, postgresql)"),
+                           Def(""))),
+            Str(Name("format"),
+                Help("Output format: flags (default), json, yaml"),
+                Def("flags")),
+            Use(cmdArrayArgument,
+                Name("search-root"),
+                Help("Additional search root directory (repeatable)"),
+                Def("[]")),
+            Opt(Name("include-dir"),
+                Help("Output include/header directories")),
+            Opt(Name("lib-dir"),
+                Help("Output library directories")),
+            Opt(Name("lib"),
+                Help("Output library names to link")),
+            Opt(Name("version"),
+                Help("Output package version")),
+            Opt(Name("cflags"),
+                Help("Output compiler flags")),
+            Opt(Name("ldflags"),
+                Help("Output linker flags")));
+    
+    // Override the command name to use hyphen instead of underscore
+    find_system.meta.name = "find-system";
+
     Parser("cxy package",
            CXY_VERSION,
            PACKAGE_SUBCOMMANDS,
@@ -929,7 +1007,13 @@ static int parsePackageCommand(
         }
         UnloadCmd(cmd, options, PKG_RUN_CMD_LAYOUT);
     }
-
+    else if (cmd->id == CMD_find_system) {
+        options->package.subcmd = pkgSubFindSystem;
+        if (hasPositional(cmd, 0)) {
+            options->package.findSystemPackage = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, PKG_FIND_SYSTEM_CMD_LAYOUT);
+    }
     return cmdPackage;
     CMD_parse_error:
     return -1;
@@ -939,6 +1023,166 @@ static int parsePackageCommandFwd(void *ctx, int argc, char **argv)
 {
     ParseContext *pctx = (ParseContext *)ctx;
     return parsePackageCommand(&argc, argv, pctx->strings, pctx->options, pctx->log);
+}
+
+static int parseUtilsCommand(
+    int *argc, char **argv, StrPool *strings, Options *options, Log *log)
+{
+    Command(async_cmd_start,
+            "Start a background command (for use within scripts)",
+            Positionals(Str(Name("cmd"),
+                           Help("Command to run in background (e.g. \"./server --port 8080\")"),
+                           Def(""))),
+            Opt(Name("capture"),
+                Help("Capture output to log file instead of terminal")));
+
+    async_cmd_start.meta.name = "async-cmd-start";
+
+    Command(async_cmd_stop,
+            "Stop a background command by PID",
+            Positionals(Str(Name("pid"),
+                           Help("Process ID to stop"),
+                           Def(""))));
+
+    async_cmd_stop.meta.name = "async-cmd-stop";
+
+    Command(wait_for,
+            "Poll a command until it exits 0 or timeout is reached",
+            Positionals(Str(Name("cmd"),
+                           Help("Command to poll (e.g. \"curl 0.0.0.0:80\")"),
+                           Def(""))),
+            Int(Name("timeout"),
+                Help("Total timeout in milliseconds"),
+                Def("30000")),
+            Int(Name("period"),
+                Help("Poll interval in milliseconds"),
+                Def("500")));
+
+    wait_for.meta.name = "wait-for";
+
+    Command(wait_for_port,
+            "Wait until a TCP port is open and accepting connections",
+            Positionals(Int(Name("port"),
+                           Help("Port number to wait for"),
+                           Def("0"))),
+            Int(Name("timeout"),
+                Help("Total timeout in milliseconds"),
+                Def("30000")),
+            Int(Name("period"),
+                Help("Poll interval in milliseconds"),
+                Def("500")));
+
+    wait_for_port.meta.name = "wait-for-port";
+
+    Command(find_free_port,
+            "Find and print an available TCP port",
+            Positionals(),
+            Int(Name("range-start"),
+                Help("Start of port range to search"),
+                Def("8000")),
+            Int(Name("range-end"),
+                Help("End of port range to search"),
+                Def("9000")));
+
+    find_free_port.meta.name = "find-free-port";
+
+    Command(env_check,
+            "Assert that required environment variables are set",
+            Positionals(Use(cmdArrayArgument,
+                           Name("vars"),
+                           Help("Environment variable names to check"),
+                           Many())));
+
+    env_check.meta.name = "env-check";
+
+    Command(lock,
+            "Run a command while holding a named lock file, preventing concurrent execution",
+            Positionals(Str(Name("name"),
+                           Help("Lock name (e.g. \"db-migrate\")"),
+                           Def("")),
+                        Str(Name("cmd"),
+                           Help("Command to run while holding the lock"),
+                           Def(""))),
+            Int(Name("timeout"),
+                Help("Timeout waiting for lock in milliseconds (0 = fail immediately)"),
+                Def("30000")));
+
+    lock.meta.name = "lock";
+
+    Parser("cxy utils",
+           CXY_VERSION,
+           UTILS_SUBCOMMANDS,
+           DefaultCmd(help),
+           DisableVersionOpt(),
+           Opt(Name("quiet"),
+               Sf('q'),
+               Help("Suppress non-error output")),
+           Opt(Name("verbose"),
+               Help("Enable verbose output")));
+    SubParser(P);
+
+    int selected = argparse(argc, &argv, parser);
+    CmdCommand *cmd = parser.cmds[selected];
+
+    if (cmd->id == CMD_async_cmd_start) {
+        options->utils.subcmd = utlSubAsyncCmdStart;
+        if (hasPositional(cmd, 0)) {
+            options->utils.cmd = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_ASYNC_CMD_START_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_async_cmd_stop) {
+        options->utils.subcmd = utlSubAsyncCmdStop;
+        if (hasPositional(cmd, 0)) {
+            options->utils.cmd = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_ASYNC_CMD_STOP_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_wait_for) {
+        options->utils.subcmd = utlSubWaitFor;
+        if (hasPositional(cmd, 0)) {
+            options->utils.cmd = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_WAIT_FOR_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_wait_for_port) {
+        options->utils.subcmd = utlSubWaitForPort;
+        if (hasPositional(cmd, 0)) {
+            options->utils.port = getPositionalInt(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_WAIT_FOR_PORT_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_find_free_port) {
+        options->utils.subcmd = utlSubFindFreePort;
+        UnloadCmd(cmd, options, UTL_FIND_FREE_PORT_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_env_check) {
+        options->utils.subcmd = utlSubEnvCheck;
+        if (hasPositional(cmd, 0)) {
+            options->utils.envVars = getPositionalArray(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_ENV_CHECK_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_lock) {
+        options->utils.subcmd = utlSubLock;
+        if (hasPositional(cmd, 0)) {
+            options->utils.lockName = getPositionalString(cmd, 0);
+        }
+        if (hasPositional(cmd, 1)) {
+            options->utils.cmd = getPositionalString(cmd, 1);
+        }
+        UnloadCmd(cmd, options, UTL_LOCK_CMD_LAYOUT);
+    }
+
+    return cmdUtils;
+    CMD_parse_error:
+    return -1;
+}
+
+static int parseUtilsCommandFwd(void *ctx, int argc, char **argv)
+{
+    ParseContext *pctx = (ParseContext *)ctx;
+    return parseUtilsCommand(&argc, argv, pctx->strings, pctx->options, pctx->log);
 }
 
 bool parseCommandLineOptions(
@@ -1039,10 +1283,15 @@ bool parseCommandLineOptions(
             Def(".cxy/packages")));
 
     CustomParser(package, parsePackageCommandFwd, &ctx);
+    CustomParser(utils, parseUtilsCommandFwd, &ctx);
 
     int selected = argparse(argc, &argv, parser);
     if (selected == CMD_package) {
         options->cmd = cmdPackage;
+        return true;
+    }
+    if (selected == CMD_utils) {
+        options->cmd = cmdUtils;
         return true;
     }
 
@@ -1161,4 +1410,5 @@ void deinitCommandLineOptions(Options *options)
     freeDynArray(&options->package.packages);
     freeDynArray(&options->package.testFiles);
     freeDynArray(&options->package.rest);
+    freeDynArray(&options->package.findSystemSearchRoots);
 }

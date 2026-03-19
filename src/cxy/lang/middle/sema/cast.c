@@ -51,7 +51,6 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
 {
     if (isLiteralExpr(node) && typeIs(node->type, Primitive)) {
         AstNode *expr = node->castExpr.expr;
-        expr->type = node->type;
         if (isIntegerType(node->type)) {
             if (nodeIs(expr, FloatLit)) {
                 expr->tag = astIntegerLit;
@@ -89,6 +88,7 @@ static void castLiteral(TypingContext *ctx, AstNode *node)
             else {
                 csAssert0(nodeIs(expr, IntegerLit));
             }
+            expr->type = node->type;
             castIntegerLiteral(node->type, expr);
             replaceAstNodeWith(node, expr);
         }

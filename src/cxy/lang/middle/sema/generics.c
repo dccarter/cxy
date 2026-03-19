@@ -117,6 +117,7 @@ static const Type *closureArgToClosureParamType(TypingContext *ctx,
 }
 
 static bool inferGenericFunctionTypes(AstVisitor *visitor,
+                                      FileLoc *loc,
                                       const AstNode *generic,
                                       const Type **paramTypes,
                                       u64 index)
@@ -147,6 +148,16 @@ static bool inferGenericFunctionTypes(AstVisitor *visitor,
     }
 
     for (; param; param = param->next, index++) {
+        if (param->genericParam.inferIndex == 0) {
+            logError(
+                ctx->L,
+                loc, "cannot infer param {s}, it must be explicitly specified",
+                (FormatArg[]){{.s = param->_name}});
+            logNote(ctx->L, loc, "define here", NULL);
+            status = false;
+            continue;
+        }
+
         if (hasFlag(param, Variadic)) {
             arg = getNodeAtIndex(call->callExpr.args,
                                  param->genericParam.inferIndex - 1);
@@ -190,7 +201,7 @@ static bool inferGenericFunctionTypes(AstVisitor *visitor,
     }
 
     free(argTypes);
-    return true;
+    return status;
 }
 
 static bool transformVariadicFunctionCallArgs(AstVisitor *visitor,
@@ -284,8 +295,9 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
 
     TypingContext *ctx = getAstVisitorContext(visitor);
     u64 variadicArgumentsCount = 0;
+    bool isVariadic = false;
+    const AstNode *decl = generic->genericDecl.decl;
     if (hasFlag(generic, Variadic)) {
-        const AstNode *decl = generic->genericDecl.decl;
         // transform function call params
         if (!transformVariadicFunctionCallArgs(
                 visitor, decl, &variadicArgumentsCount)) //
@@ -293,15 +305,30 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             return node->type = ERROR_TYPE(ctx);
         }
     }
+    else if (isClassOrStructAstNode(decl)) {
+        AstNode *lastParam = getLastAstNode(generic->genericDecl.params);
+        isVariadic = hasFlag(lastParam, Variadic);
+    }
 
     const Type *type = generic->type;
     AstNode *args = node->pathElement.args, *arg = args;
     u64 index = 0, argsCount = countAstNodes(args),
-        paramsCount = type->generic.paramsCount + variadicArgumentsCount;
-    const Type **paramTypes = NULL;
+        paramsCount = type->generic.paramsCount + variadicArgumentsCount,
+        variadicCount = 0, variadicIndex = 0;
+    const Type **paramTypes = NULL, **variadicTupleType = NULL;
 
-    if (argsCount > paramsCount)
-        return node->type = ERROR_TYPE(ctx);
+    if (argsCount > paramsCount) {
+        if (!isVariadic) {
+            return node->type = ERROR_TYPE(ctx);
+        }
+        variadicCount = argsCount - paramsCount + 1;
+        variadicTupleType =  mallocOrDie(sizeof(Type *) * variadicCount);
+    }
+    else {
+        if (isVariadic && argsCount == paramsCount)
+            variadicCount = 1;
+        variadicTupleType =  mallocOrDie(sizeof(Type *) * variadicCount);
+    }
 
     paramTypes = mallocOrDie(sizeof(Type *) * paramsCount);
     for (; arg; index++, arg = arg->next) {
@@ -315,13 +342,32 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
             arg->literal.value = value;
             arg->type = NULL;
         }
-        csAssert0(index < paramsCount);
-        paramTypes[index] = maybeUnThisType(checkType(visitor, arg));
+        const Type *argType = maybeUnThisType(checkType(visitor, arg));
+        if (index < paramsCount) {
+            if (isVariadic && paramsCount - index == 1) {
+                variadicTupleType[variadicIndex++] = argType;
+            }
+            else {
+                paramTypes[index] = argType;
+            }
+        } else {
+            csAssert0(isVariadic);
+            variadicTupleType[variadicIndex++] = argType;
+        }
     }
+    if (isVariadic) {
+        paramTypes[paramsCount-1] =
+            makeTupleType(ctx->types, variadicTupleType, variadicCount, flgVariadic);
+        if (index < paramsCount && paramsCount - index == 1) {
+            index++;
+        }
+    }
+    free(variadicTupleType);
 
     if (index < paramsCount) {
         AstNode *it = getNodeAtIndex(generic->genericDecl.params, index);
         bool isFuncDecl = nodeIs(generic->genericDecl.decl, FuncDecl);
+        u16 inferrable = generic->genericDecl.inferrable;
         // maybe inferred arguments?
         if (!isFuncDecl && it->genericParam.defaultValue) {
             if (!resolveGenericDeclDefaults(
@@ -330,9 +376,9 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
                 goto resolveGenericDeclError;
             }
         }
-        else if (isFuncDecl && (index >= generic->genericDecl.inferrable)) {
+        else if (isFuncDecl && index >= inferrable) {
             if (!inferGenericFunctionTypes(
-                    visitor, generic, paramTypes, index)) {
+                    visitor, &node->loc, generic, paramTypes, index)) {
                 // infers generic function types
                 goto resolveGenericDeclError;
             }
@@ -465,6 +511,7 @@ const Type *resolveGenericDecl(AstVisitor *visitor,
 
 resolveGenericDeclError:
     free(paramTypes);
+
     logError(ctx->L,
              &node->loc,
              "resolving generic declaration failed '{t}' failed",

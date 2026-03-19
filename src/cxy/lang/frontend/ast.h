@@ -43,6 +43,7 @@ struct Plugin;
     f(NewExpr)                              \
     f(SpreadExpr)                           \
     f(BackendCall)                          \
+    f(AliasExpr)                            \
     f(UnionValueExpr)
 
 #define CXY_LANG_AST_STMT_TAGS(f)           \
@@ -471,34 +472,6 @@ struct AstNode {
         } resultType;
 
         struct {
-            u64 len;
-            AstNode *elements;
-            bool isLiteral;
-        } arrayExpr;
-
-        struct {
-            AstNode *target;
-            AstNode *member;
-        } memberExpr;
-
-        struct {
-            AstNode *start;
-            AstNode *end;
-            AstNode *step;
-            bool down;
-        } rangeExpr;
-
-        struct {
-            AstNode *expr;
-            AstNode *allocator;
-        } newExpr;
-
-        struct {
-            AstNode *target;
-            AstNode *index;
-        } indexExpr;
-
-        struct {
             const char *name;
             AstNode *defaultValue;
             AstNode *constraints;
@@ -741,6 +714,39 @@ struct AstNode {
         } structExpr;
 
         struct {
+            u64 len;
+            AstNode *elements;
+            bool isLiteral;
+        } arrayExpr;
+
+        struct {
+            AstNode *target;
+            AstNode *member;
+        } memberExpr;
+
+        struct {
+            AstNode *start;
+            AstNode *end;
+            AstNode *step;
+            bool down;
+        } rangeExpr;
+
+        struct {
+            AstNode *expr;
+            AstNode *allocator;
+        } newExpr;
+
+        struct {
+            AstNode *target;
+            AstNode *index;
+        } indexExpr;
+
+        struct {
+            cstring name;
+            AstNode *expr;
+        } aliasExpr;
+
+        struct {
             AstNode *expr;
         } exprStmt, groupExpr, spreadExpr;
 
@@ -803,7 +809,7 @@ struct AstNode {
         struct {
             AstNode *match;
             AstNode *body;
-            AstNode *variable;
+            AstNode *alias;
             u32 idx;
         } caseStmt;
 

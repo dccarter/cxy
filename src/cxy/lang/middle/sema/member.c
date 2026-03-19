@@ -46,8 +46,8 @@ static const Type *determineMemberTargetType(TypingContext *ctx,
     if (type == NULL) {
         logError(ctx->L,
                  &node->loc,
-                 "shorthand member expression not supported on current context",
-                 NULL);
+                 "shorthand member expression not supported on current context {s}",
+                 (FormatArg[]){{.s = getAstNodeName(parent)}});
         return NULL;
     }
 

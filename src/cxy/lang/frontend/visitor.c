@@ -35,6 +35,7 @@
     case astBranch:                                                            \
     case astPhi:                                                               \
     case astComptimeOnly:                                                      \
+    case astAliasExpr:                                                         \
         break;                                                                 \
     case astAttr:                                                              \
         MODE##VisitManyNodes(visitor, node->attr.args);                        \
@@ -276,7 +277,7 @@
         break;                                                                 \
     case astCaseStmt:                                                          \
         MODE##Visit(visitor, node->caseStmt.match);                            \
-        MODE##Visit(visitor, node->caseStmt.variable);                         \
+        MODE##Visit(visitor, node->caseStmt.alias);                            \
         MODE##Visit(visitor, node->caseStmt.body);                             \
         break;                                                                 \
     case astBasicBlock:                                                        \

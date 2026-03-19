@@ -388,6 +388,7 @@ const Type *checkFunctionBody(AstVisitor *visitor, AstNode *node)
     ctx->returnState = false;
     ctx->explicitCatch = false;
     ctx->currentFunction = node;
+    ctx->currentEnclosure = node;
     ctx->fun = getDeclarationName(node);
 
     const Type *body_ = checkType(visitor, body);
