@@ -236,6 +236,44 @@ bool utilsAsyncCmdStartCommand(const Options *options, StrPool *strings, Log *lo
     return false;
 }
 
+bool utilsAsyncCmdStatusCommand(const Options *options, StrPool *strings, Log *log)
+{
+    if (!attachToParentTracker(log)) {
+        return false;
+    }
+
+    const char *pid_str = options->utils.cmd;
+    if (!pid_str || pid_str[0] == '\0') {
+        logError(log, NULL,
+                "no PID specified. "
+                "Usage: cxy utils async-cmd-status <pid>", NULL);
+        return false;
+    }
+
+    pid_t pid = (pid_t)atoi(pid_str);
+    if (pid <= 0) {
+        logError(log, NULL, "invalid PID: {s}", (FormatArg[]){{.s = pid_str}});
+        return false;
+    }
+
+    if (kill(pid, 0) == 0) {
+        printf("running\n");
+        fflush(stdout);
+        return true;  // exit 0 - process is alive
+    }
+
+    if (errno == ESRCH) {
+        printf("stopped\n");
+        fflush(stdout);
+        return false;  // exit 1 - process is gone
+    }
+
+    // EPERM or other - process exists but we can't signal it
+    logError(log, NULL, "cannot check status of process {i}: {s}",
+            (FormatArg[]){{.i = (int)pid}, {.s = strerror(errno)}});
+    return false;
+}
+
 bool utilsAsyncCmdLogsCommand(const Options *options, StrPool *strings, Log *log)
 {
     if (!attachToParentTracker(log)) {

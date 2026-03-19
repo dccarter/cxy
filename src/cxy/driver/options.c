@@ -434,6 +434,7 @@ Command(utils,
     f(async_cmd_start)                                                      \
     f(async_cmd_stop)                                                       \
     f(async_cmd_logs)                                                       \
+    f(async_cmd_status)                                                     \
     f(wait_for)                                                             \
     f(wait_for_port)                                                        \
     f(find_free_port)                                                       \
@@ -527,6 +528,9 @@ Command(utils,
 
 #define UTL_ASYNC_CMD_LOGS_CMD_LAYOUT(f, ...)                                  \
     f(utils.logsFollow, Local, Option, 0, ## __VA_ARGS__)
+
+#define UTL_ASYNC_CMD_STATUS_CMD_LAYOUT(f, ...)                                \
+    /* No specific options for async-cmd-status */
 
 #define UTL_WAIT_FOR_CMD_LAYOUT(f, ...)                                        \
     f(utils.waitForTimeout, Local, Int, 0, ## __VA_ARGS__)                     \
@@ -1032,6 +1036,14 @@ static int parsePackageCommandFwd(void *ctx, int argc, char **argv)
 static int parseUtilsCommand(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
+    Command(async_cmd_status,
+            "Check whether a background command is still running",
+            Positionals(Str(Name("pid"),
+                           Help("Process ID to check"),
+                           Def(""))));
+
+    async_cmd_status.meta.name = "async-cmd-status";
+
     Command(async_cmd_logs,
             "Print (or follow) the captured log output of a background command",
             Positionals(Str(Name("pid"),
@@ -1159,6 +1171,13 @@ static int parseUtilsCommand(
             options->utils.cmd = getPositionalString(cmd, 0);
         }
         UnloadCmd(cmd, options, UTL_ASYNC_CMD_LOGS_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_async_cmd_status) {
+        options->utils.subcmd = utlSubAsyncCmdStatus;
+        if (hasPositional(cmd, 0)) {
+            options->utils.cmd = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_ASYNC_CMD_STATUS_CMD_LAYOUT);
     }
     else if (cmd->id == CMD_wait_for) {
         options->utils.subcmd = utlSubWaitFor;

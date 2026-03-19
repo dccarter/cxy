@@ -73,6 +73,7 @@ typedef enum {
     utlSubAsyncCmdStart,
     utlSubAsyncCmdStop,
     utlSubAsyncCmdLogs,
+    utlSubAsyncCmdStatus,
     utlSubWaitFor,
     utlSubWaitForPort,
     utlSubFindFreePort,

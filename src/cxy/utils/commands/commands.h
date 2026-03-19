@@ -44,6 +44,13 @@ bool utilsAsyncCmdStopCommand(const Options *options, struct StrPool *strings, L
 bool utilsAsyncCmdLogsCommand(const Options *options, struct StrPool *strings, Log *log);
 
 /**
+ * Check whether a background command is still running.
+ * Usage: cxy utils async-cmd-status <pid>
+ * Exits 0 if running, 1 if stopped.
+ */
+bool utilsAsyncCmdStatusCommand(const Options *options, struct StrPool *strings, Log *log);
+
+/**
  * Poll a command until it exits 0 or timeout is reached.
  * Usage: cxy utils wait-for "<cmd>" [--timeout <ms>] [--period <ms>]
  */

@@ -23,6 +23,9 @@ bool dispatchUtilsCommand(const Options *options, struct StrPool *strings, Log *
         case utlSubAsyncCmdLogs:
             return utilsAsyncCmdLogsCommand(options, strings, log);
 
+        case utlSubAsyncCmdStatus:
+            return utilsAsyncCmdStatusCommand(options, strings, log);
+
         case utlSubWaitFor:
             return utilsWaitForCommand(options, strings, log);
 
