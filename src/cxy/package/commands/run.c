@@ -299,7 +299,7 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
     }
 
     // Build built-in environment variables
-    DynArray builtins = buildBuiltinEnvVars(&meta, packageDir, fullPackagesDir, strings);
+    DynArray builtins = buildBuiltinEnvVars(&meta, packageDir, fullPackagesDir, fullBuildDir, strings);
 
     // Resolve environment variables (substitute {{VAR}} references between env vars)
     if (!resolveEnvVars(&meta.scriptEnv, &builtins, strings, log)) {

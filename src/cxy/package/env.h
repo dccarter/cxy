@@ -43,16 +43,20 @@ cstring substituteEnvVars(const char *template,
  * - PACKAGE_NAME: Package name from metadata
  * - PACKAGE_VERSION: Package version from metadata
  * - CXY_PACKAGES_DIR: Path to packages directory
+ * - CXY_BUILD_DIR: Path to the build directory
+ * - CXY_ASYNC_LAST_PID_FILE: Path to the last async PID file
  * 
  * @param meta Package metadata
  * @param packageDir Directory containing Cxyfile.yaml
  * @param packagesDir Directory for installed packages (e.g., ".cxy/packages")
+ * @param buildDir Build output directory (e.g., ".cxy/build")
  * @param strings String pool for allocating values
  * @return Array of EnvVar with built-in variables
  */
 DynArray buildBuiltinEnvVars(const PackageMetadata *meta,
                              const char *packageDir,
                              const char *packagesDir,
+                             const char *buildDir,
                              struct StrPool *strings);
 
 /**
