@@ -16,6 +16,7 @@
 #include "core/mempool.h"
 #include "core/utils.h"
 
+#include <yaml.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -171,22 +172,157 @@ static bool executeInstallScript(const PackageInstallScript *script,
 }
 
 /**
- * Write .install.yaml or .install.dev.yaml file with collected flags
+ * Per-package entry read from an existing .install.yaml
+ */
+typedef struct {
+    cstring  name;
+    DynArray flags; // DynArray of cstring
+} InstallYamlEntry;
+
+/**
+ * Read an existing .install.yaml into an array of InstallYamlEntry.
+ * Returns the number of entries read (0 if file absent or empty).
+ * Caller must freeDynArray on each entry's flags array.
+ */
+static u32 readInstallYamlEntries(const char *path,
+                                  InstallYamlEntry *entries,
+                                  u32 maxEntries,
+                                  StrPool *strings,
+                                  Log *log)
+{
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+
+    yaml_parser_t parser;
+    yaml_event_t  event;
+
+    if (!yaml_parser_initialize(&parser)) {
+        fclose(fp);
+        return 0;
+    }
+    yaml_parser_set_input_file(&parser, fp);
+
+    typedef enum {
+        ES_ROOT, ES_PACKAGES, ES_PACKAGE_MAP, ES_FLAGS_SEQ
+    } EntryState;
+
+    EntryState state       = ES_ROOT;
+    cstring    lastKey     = NULL;
+    cstring    pendingName = NULL;
+    u32        count       = 0;
+    bool       ok          = true;
+
+    while (ok) {
+        if (!yaml_parser_parse(&parser, &event)) { ok = false; break; }
+
+        switch (event.type) {
+            case YAML_STREAM_END_EVENT:
+                yaml_event_delete(&event);
+                goto done;
+
+            case YAML_MAPPING_START_EVENT:
+                if (state == ES_PACKAGES && count < maxEntries && pendingName) {
+                    entries[count].name  = pendingName;
+                    entries[count].flags = newDynArray(sizeof(cstring));
+                    pendingName = NULL;
+                    state = ES_PACKAGE_MAP;
+                }
+                break;
+
+            case YAML_MAPPING_END_EVENT:
+                if (state == ES_PACKAGE_MAP) { count++; state = ES_PACKAGES; }
+                else if (state == ES_PACKAGES) state = ES_ROOT;
+                lastKey = NULL;
+                break;
+
+            case YAML_SEQUENCE_START_EVENT:
+                if (state == ES_PACKAGE_MAP && lastKey &&
+                    strcmp(lastKey, "flags") == 0)
+                    state = ES_FLAGS_SEQ;
+                break;
+
+            case YAML_SEQUENCE_END_EVENT:
+                if (state == ES_FLAGS_SEQ) { state = ES_PACKAGE_MAP; lastKey = NULL; }
+                break;
+
+            case YAML_SCALAR_EVENT: {
+                cstring val = (cstring)event.data.scalar.value;
+                if (state == ES_ROOT) {
+                    if (strcmp(val, "packages") == 0) state = ES_PACKAGES;
+                } else if (state == ES_PACKAGES) {
+                    // scalar here is the package name key - store until MAPPING_START
+                    pendingName = makeString(strings, val);
+                } else if (state == ES_PACKAGE_MAP) {
+                    lastKey = makeString(strings, val);
+                } else if (state == ES_FLAGS_SEQ) {
+                    cstring f = makeString(strings, val);
+                    pushOnDynArray(&entries[count].flags, &f);
+                }
+                break;
+            }
+
+            default: break;
+        }
+        yaml_event_delete(&event);
+    }
+
+done:
+    yaml_parser_delete(&parser);
+    fclose(fp);
+    return ok ? count : 0;
+}
+
+/**
+ * Write .install.yaml or .install.dev.yaml, merging with any existing content.
  */
 static bool writeInstallYaml(const char *buildDir,
                              const char *packageName,
                              const DynArray *flags,
                              bool useDev,
+                             StrPool *strings,
                              Log *log)
 {
     char installYamlPath[1024];
     const char *filename = useDev ? ".install.dev.yaml" : ".install.yaml";
     snprintf(installYamlPath, sizeof(installYamlPath), "%s/%s", buildDir, filename);
 
+    // Read existing entries so we can preserve other packages' flags
+#define MAX_INSTALL_ENTRIES 64
+    InstallYamlEntry existing[MAX_INSTALL_ENTRIES];
+    u32 existingCount = readInstallYamlEntries(installYamlPath, existing,
+                                               MAX_INSTALL_ENTRIES, strings, log);
+
+    // Find or create the slot for the current package
+    int cur = -1;
+    for (u32 i = 0; i < existingCount; i++) {
+        if (strcmp(existing[i].name, packageName) == 0) { cur = (int)i; break; }
+    }
+    if (cur < 0 && existingCount < MAX_INSTALL_ENTRIES) {
+        cur = (int)existingCount++;
+        existing[cur].name  = makeString(strings, packageName);
+        existing[cur].flags = newDynArray(sizeof(cstring));
+    }
+
+    // Merge new flags in — skip duplicates
+    if (cur >= 0) {
+        for (u32 fi = 0; fi < flags->size; fi++) {
+            cstring newFlag = ((cstring *)flags->elems)[fi];
+            bool found = false;
+            for (u32 ei = 0; ei < existing[cur].flags.size; ei++) {
+                if (strcmp(((cstring *)existing[cur].flags.elems)[ei], newFlag) == 0) {
+                    found = true; break;
+                }
+            }
+            if (!found) pushOnDynArray(&existing[cur].flags, &newFlag);
+        }
+    }
+
+    // Rewrite the file with all packages
     FILE *fp = fopen(installYamlPath, "w");
     if (!fp) {
         logError(log, NULL, "failed to create {s}: {s}",
                 (FormatArg[]){{.s = filename}, {.s = strerror(errno)}});
+        for (u32 i = 0; i < existingCount; i++) freeDynArray(&existing[i].flags);
         return false;
     }
 
@@ -194,15 +330,18 @@ static bool writeInstallYaml(const char *buildDir,
     fprintf(fp, "# DO NOT EDIT MANUALLY - will be regenerated on install\n");
     fprintf(fp, "\n");
     fprintf(fp, "packages:\n");
-    fprintf(fp, "  %s:\n", packageName);
-    fprintf(fp, "    flags:\n");
 
-    for (u32 i = 0; i < flags->size; i++) {
-        cstring flag = ((cstring *)flags->elems)[i];
-        fprintf(fp, "      - %s\n", flag);
+    for (u32 i = 0; i < existingCount; i++) {
+        fprintf(fp, "  %s:\n", existing[i].name);
+        fprintf(fp, "    flags:\n");
+        for (u32 fi = 0; fi < existing[i].flags.size; fi++) {
+            fprintf(fp, "      - %s\n", ((cstring *)existing[i].flags.elems)[fi]);
+        }
+        freeDynArray(&existing[i].flags);
     }
 
     fclose(fp);
+#undef MAX_INSTALL_ENTRIES
     return true;
 }
 
@@ -340,7 +479,7 @@ cleanup:
             char installYamlPath[1024];
             snprintf(installYamlPath, sizeof(installYamlPath), "%s/%s", buildDir, filename);
 
-            if (writeInstallYaml(buildDir, meta->name, &allFlags, includeDev, log)) {
+            if (writeInstallYaml(buildDir, meta->name, &allFlags, includeDev, strings, log)) {
                 printStatusAlways(log, "\n " cBGRN "✔" cDEF " Install complete — %u flag%s written to " cCYN "%s" cDEF "\n",
                                  allFlags.size, allFlags.size == 1 ? "" : "s",
                                  installYamlPath);
@@ -374,69 +513,113 @@ bool readInstallYamlFlags(const char *buildDir,
     const char *filename = useDev ? ".install.dev.yaml" : ".install.yaml";
     snprintf(installYamlPath, sizeof(installYamlPath), "%s/%s", buildDir, filename);
 
-    // Check if file exists
+    // If dev file doesn't exist, fall back to regular install.yaml
     struct stat st;
     if (stat(installYamlPath, &st) != 0) {
-        // If dev file doesn't exist, try falling back to regular install.yaml
         if (useDev) {
             snprintf(installYamlPath, sizeof(installYamlPath), "%s/.install.yaml", buildDir);
-            if (stat(installYamlPath, &st) != 0) {
-                // Neither file exists - not an error, just no flags to add
-                return true;
-            }
+            if (stat(installYamlPath, &st) != 0)
+                return true; // Neither file exists - not an error
         } else {
-            // File doesn't exist - not an error, just no flags to add
-            return true;
+            return true; // File doesn't exist - not an error
         }
     }
 
     FILE *fp = fopen(installYamlPath, "r");
-    if (!fp) {
-        // Can't open file - not a fatal error
-        return true;
+    if (!fp)
+        return true; // Can't open - not a fatal error
+
+    yaml_parser_t parser;
+    yaml_event_t  event;
+
+    if (!yaml_parser_initialize(&parser)) {
+        logError(log, NULL, "failed to initialize YAML parser for {s}", (FormatArg[]){{.s = installYamlPath}});
+        fclose(fp);
+        return false;
     }
 
-    char line[4096];
-    bool inFlags = false;
+    yaml_parser_set_input_file(&parser, fp);
 
-    while (fgets(line, sizeof(line), fp)) {
-        // Skip comments and empty lines
-        if (line[0] == '#' || line[0] == '\n') {
-            continue;
-        }
+    // State machine:
+    //   top-level key "packages" -> mapping of package-name -> mapping
+    //   inside each package mapping, key "flags" -> sequence of flag strings
+    typedef enum {
+        RS_ROOT,          // waiting for top-level "packages" key
+        RS_PACKAGES,      // inside packages mapping, reading package names
+        RS_PACKAGE_MAP,   // inside a single package's mapping, looking for "flags"
+        RS_FLAGS_SEQ,     // inside the flags sequence, collecting values
+    } ReadState;
 
-        // Check if we're in the flags section
-        if (strstr(line, "flags:") != NULL) {
-            inFlags = true;
-            continue;
-        }
+    ReadState state   = RS_ROOT;
+    cstring   lastKey = NULL;
+    bool      success = true;
 
-        // Parse flag lines (indented with spaces or tabs, starting with -)
-        if (inFlags && (line[0] == ' ' || line[0] == '\t')) {
-            char *flagStart = strchr(line, '-');
-            if (flagStart) {
-                flagStart++; // Skip the '-'
-                while (*flagStart == ' ' || *flagStart == '\t') {
-                    flagStart++;
-                }
-
-                // Remove trailing newline
-                size_t len = strlen(flagStart);
-                if (len > 0 && flagStart[len - 1] == '\n') {
-                    flagStart[len - 1] = '\0';
-                }
-
-                if (flagStart[0] != '\0') {
-                    cstring flag = makeString(strings, flagStart);
-                    pushOnDynArray(flags, &flag);
-                }
-            }
-        } else if (inFlags && line[0] != ' ' && line[0] != '\t') {
-            // End of flags section
+    while (success) {
+        if (!yaml_parser_parse(&parser, &event)) {
+            logError(log, NULL, "YAML parse error in {s}", (FormatArg[]){{.s = installYamlPath}});
+            success = false;
             break;
         }
+
+        switch (event.type) {
+            case YAML_STREAM_END_EVENT:
+                yaml_event_delete(&event);
+                goto done;
+
+            case YAML_MAPPING_START_EVENT:
+                if (state == RS_PACKAGES)
+                    state = RS_PACKAGE_MAP;
+                break;
+
+            case YAML_MAPPING_END_EVENT:
+                if (state == RS_PACKAGE_MAP)
+                    state = RS_PACKAGES;
+                else if (state == RS_PACKAGES)
+                    state = RS_ROOT;
+                lastKey = NULL;
+                break;
+
+            case YAML_SEQUENCE_START_EVENT:
+                if (state == RS_PACKAGE_MAP && lastKey &&
+                    strcmp(lastKey, "flags") == 0)
+                    state = RS_FLAGS_SEQ;
+                break;
+
+            case YAML_SEQUENCE_END_EVENT:
+                if (state == RS_FLAGS_SEQ) {
+                    state   = RS_PACKAGE_MAP;
+                    lastKey = NULL;
+                }
+                break;
+
+            case YAML_SCALAR_EVENT: {
+                cstring value = (cstring)event.data.scalar.value;
+
+                if (state == RS_ROOT) {
+                    if (strcmp(value, "packages") == 0)
+                        state = RS_PACKAGES;
+                } else if (state == RS_PACKAGES) {
+                    // package name key — nothing to store, just transition handled
+                    // by MAPPING_START above; the scalar here is the package name
+                    (void)value;
+                } else if (state == RS_PACKAGE_MAP) {
+                    lastKey = makeString(strings, value);
+                } else if (state == RS_FLAGS_SEQ) {
+                    cstring flag = makeString(strings, value);
+                    pushOnDynArray(flags, &flag);
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
+
+        yaml_event_delete(&event);
     }
 
+done:
+    yaml_parser_delete(&parser);
     fclose(fp);
-    return true;
+    return success;
 }
