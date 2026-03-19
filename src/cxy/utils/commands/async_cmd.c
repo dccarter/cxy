@@ -23,6 +23,8 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 
+#define LOGS_READ_BUF_SIZE 4096
+
 pid_t spawnAsyncProcess(const char *command,
                         const char **args,
                         u32 argCount,
@@ -232,6 +234,74 @@ bool utilsAsyncCmdStartCommand(const Options *options, StrPool *strings, Log *lo
     }
 
     return false;
+}
+
+bool utilsAsyncCmdLogsCommand(const Options *options, StrPool *strings, Log *log)
+{
+    if (!attachToParentTracker(log)) {
+        return false;
+    }
+
+    const char *pid_str = options->utils.cmd;
+    if (!pid_str || pid_str[0] == '\0') {
+        logError(log, NULL,
+                "no PID specified. "
+                "Usage: cxy utils async-cmd-logs <pid> [--follow]", NULL);
+        return false;
+    }
+
+    pid_t pid = (pid_t)atoi(pid_str);
+    if (pid <= 0) {
+        logError(log, NULL, "invalid PID: {s}", (FormatArg[]){{.s = pid_str}});
+        return false;
+    }
+
+    const char *buildDir = g_async_tracker.build_dir;
+    if (!buildDir || buildDir[0] == '\0') {
+        buildDir = ".cxy/build";
+    }
+
+    char logPath[1024];
+    snprintf(logPath, sizeof(logPath), "%s/.async-cmd-%d.log", buildDir, pid);
+
+    FILE *fp = fopen(logPath, "r");
+    if (!fp) {
+        logError(log, NULL, "no log file found for PID {i} (looked at {s})",
+                (FormatArg[]){{.i = (int)pid}, {.s = logPath}});
+        return false;
+    }
+
+    bool follow = options->utils.logsFollow;
+    char buf[LOGS_READ_BUF_SIZE];
+
+    // Drain whatever is already written
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+        fwrite(buf, 1, n, stdout);
+    }
+    fflush(stdout);
+
+    if (follow) {
+        // Keep tailing until the process is gone
+        while (kill(pid, 0) == 0 || errno != ESRCH) {
+            clearerr(fp);
+            while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+                fwrite(buf, 1, n, stdout);
+                fflush(stdout);
+            }
+            usleep(100000); // 100 ms poll
+        }
+
+        // Final drain after process exits
+        clearerr(fp);
+        while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+            fwrite(buf, 1, n, stdout);
+        }
+        fflush(stdout);
+    }
+
+    fclose(fp);
+    return true;
 }
 
 bool utilsAsyncCmdStopCommand(const Options *options, StrPool *strings, Log *log)

@@ -38,6 +38,12 @@ bool utilsAsyncCmdStartCommand(const Options *options, struct StrPool *strings, 
 bool utilsAsyncCmdStopCommand(const Options *options, struct StrPool *strings, Log *log);
 
 /**
+ * Print (or follow) the captured log output of a background command.
+ * Usage: cxy utils async-cmd-logs <pid> [--follow]
+ */
+bool utilsAsyncCmdLogsCommand(const Options *options, struct StrPool *strings, Log *log);
+
+/**
  * Poll a command until it exits 0 or timeout is reached.
  * Usage: cxy utils wait-for "<cmd>" [--timeout <ms>] [--period <ms>]
  */

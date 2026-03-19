@@ -433,6 +433,7 @@ Command(utils,
     PARSER_BUILTIN_COMMANDS(f)                                              \
     f(async_cmd_start)                                                      \
     f(async_cmd_stop)                                                       \
+    f(async_cmd_logs)                                                       \
     f(wait_for)                                                             \
     f(wait_for_port)                                                        \
     f(find_free_port)                                                       \
@@ -523,6 +524,9 @@ Command(utils,
 
 #define UTL_ASYNC_CMD_STOP_CMD_LAYOUT(f, ...)                                  \
     /* No specific options for async-cmd-stop */
+
+#define UTL_ASYNC_CMD_LOGS_CMD_LAYOUT(f, ...)                                  \
+    f(utils.logsFollow, Local, Option, 0, ## __VA_ARGS__)
 
 #define UTL_WAIT_FOR_CMD_LAYOUT(f, ...)                                        \
     f(utils.waitForTimeout, Local, Int, 0, ## __VA_ARGS__)                     \
@@ -1028,6 +1032,17 @@ static int parsePackageCommandFwd(void *ctx, int argc, char **argv)
 static int parseUtilsCommand(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
+    Command(async_cmd_logs,
+            "Print (or follow) the captured log output of a background command",
+            Positionals(Str(Name("pid"),
+                           Help("Process ID whose log to read"),
+                           Def(""))),
+            Opt(Name("follow"),
+                Sf('f'),
+                Help("Follow log output as the process writes it (like tail -f)")));
+
+    async_cmd_logs.meta.name = "async-cmd-logs";
+
     Command(async_cmd_start,
             "Start a background command (for use within scripts)",
             Positionals(Str(Name("cmd"),
@@ -1137,6 +1152,13 @@ static int parseUtilsCommand(
             options->utils.cmd = getPositionalString(cmd, 0);
         }
         UnloadCmd(cmd, options, UTL_ASYNC_CMD_STOP_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_async_cmd_logs) {
+        options->utils.subcmd = utlSubAsyncCmdLogs;
+        if (hasPositional(cmd, 0)) {
+            options->utils.cmd = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, UTL_ASYNC_CMD_LOGS_CMD_LAYOUT);
     }
     else if (cmd->id == CMD_wait_for) {
         options->utils.subcmd = utlSubWaitFor;

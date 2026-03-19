@@ -72,6 +72,7 @@ typedef enum {
 typedef enum {
     utlSubAsyncCmdStart,
     utlSubAsyncCmdStop,
+    utlSubAsyncCmdLogs,
     utlSubWaitFor,
     utlSubWaitForPort,
     utlSubFindFreePort,
@@ -203,6 +204,8 @@ typedef struct Options {
             const char *cmd;                // Command string for async-cmd-start / wait-for
             // async-cmd-start
             bool captureOutput;             // Capture output to log file
+            // async-cmd-logs
+            bool logsFollow;                // Follow log output (like tail -f)
             // wait-for / wait-for-port
             i64 waitForTimeout;             // Timeout in milliseconds (default: 30000)
             i64 waitForPeriod;              // Poll period in milliseconds (default: 500)
