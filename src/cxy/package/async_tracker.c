@@ -10,6 +10,7 @@
 
 #include "async_tracker.h"
 #include "core/log.h"
+#include "core/utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,13 +90,10 @@ bool asyncTrackerInit(const char *buildDir, Log *log)
     }
 
     // Create build directory if it doesn't exist
-    struct stat st;
-    if (stat(buildDir, &st) != 0) {
-        if (mkdir(buildDir, 0755) != 0) {
-            logError(log, NULL, "failed to create build directory: {s}",
-                    (FormatArg[]){{.s = strerror(errno)}});
-            return false;
-        }
+    if (!makeDirectory(buildDir, true)) {
+        logError(log, NULL, "failed to create build directory: {s}",
+                (FormatArg[]){{.s = strerror(errno)}});
+        return false;
     }
 
     g_async_tracker.cxy_pid = getpid();
