@@ -1,5 +1,5 @@
 /**
- * Credits: https://github.com/dccarter/cxy/blob/main/src/cxy/lang/parser.h
+ * Credits: https://github.com/cxy-lang/cxy/blob/main/src/cxy/lang/parser.h
  */
 
 #pragma once

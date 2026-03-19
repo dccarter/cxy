@@ -180,7 +180,7 @@ buildFailure() {
     reportError $1
     cp -rf ${LOG_FILE} /tmp/cxy-build.log
     echo "Build command output saved at /tmp/cxy-build.log"
-    echo "  Feel free to report an error at https://github.com/dccarter/cxy/issues with build log"
+    echo "  Feel free to report an error at https://github.com/cxy-lang/cxy/issues with build log"
     rm -rf ${WORKING_DIR}
     exit -1
 }
@@ -190,7 +190,7 @@ checkBackendToolChain
 
 LLVM_ROOT_DIR=`llvm-config --prefix`
 echo -e "${Bgreen}2. Downloading Cxy compiler sources from github...${reset}"
-git clone --quiet https://github.com/dccarter/cxy.git ${WORKING_DIR}/compiler 2>&1 >> ${LOG_FILE}
+git clone --quiet https://github.com/cxy-lang/cxy.git ${WORKING_DIR}/compiler 2>&1 >> ${LOG_FILE}
 result=$?
 if [[ "${result}" -ne 0 ]] ; then
   buildFailure "Downloading cxy compiler failed..."

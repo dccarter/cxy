@@ -17,7 +17,6 @@
 #include "core/mempool.h"
 #include "core/utils.h"
 
-#include <_stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
