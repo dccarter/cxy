@@ -129,7 +129,6 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/utils/commands/lock.c)
 
 
-
 set(CXY_3RD_PARTY_SOURCES
         src/3rdParty/cJSON.c
         src/3rdParty/toml/toml.c)
@@ -143,8 +142,10 @@ set(CXY_FRONTEND_SOURCES
         src/cxy/lang/frontend/lexer.c
         src/cxy/lang/frontend/module.c
         src/cxy/lang/frontend/operator.c
+        src/cxy/lang/frontend/strings.c
         src/cxy/lang/frontend/parser.c
         src/cxy/lang/frontend/strings.c
+        src/cxy/lang/frontend/typegraph.c
         src/cxy/lang/frontend/ttable.c
         src/cxy/lang/frontend/types.c
         src/cxy/lang/frontend/visitor.c)
@@ -241,6 +242,7 @@ if (ENABLE_LLVM_BACKEND)
 else ()
     set(CXY_LANG_BACKEND_SOURCES
             src/cxy/lang/backend/c/generate.c
+            src/cxy/lang/backend/c/pre.c
     )
 endif ()
 
@@ -262,9 +264,11 @@ set(CXY_PLUGIN_LIB_SOURCES
         src/cxy/lang/frontend/capture.c
         src/cxy/lang/frontend/operator.c
         src/cxy/lang/frontend/strings.c
-        src/cxy/lang/frontend
         src/cxy/lang/frontend/ttable.c
         src/cxy/lang/frontend/types.c
+        src/cxy/lang/frontend/lexer.c
+        src/cxy/lang/frontend/parser.c
+        src/cxy/lang/middle/builtins.c
         src/cxy/plugin/plugin.c
         src/cxy/plugin/shared.c
 )
@@ -320,6 +324,8 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/install/lib)
 add_library(cxy-plugin STATIC
         ${CXY_CORE_SOURCES}
         ${CXY_PLUGIN_LIB_SOURCES})
+target_compile_definitions(cxy-plugin
+        PUBLIC CXY_PLUGIN_LIB)
 
 add_custom_command(
         TARGET cxy-plugin POST_BUILD
@@ -353,7 +359,13 @@ if (ENABLE_LLVM_BACKEND)
 else ()
     target_link_libraries(cxy-core msgpack-c yaml ${CLANG_LIBS})
     target_link_libraries(cxy cxy-core)
-endif()
+endif ()
+
+if (APPLE)
+    target_link_options(cxy PRIVATE -Wl,-export_dynamic)
+else ()
+    target_link_options(cxy PRIVATE -Wl,--export-dynamic)
+endif ()
 
 target_compile_definitions(cxy-core PRIVATE
         -DCXY_VERSION="${CXY_VERSION}"
@@ -368,6 +380,7 @@ set(CXY_STD_LIB_SOURCES
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/args.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/base64.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/coro.cxy
+        ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/crypto.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fetch.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/fserver.cxy
         ${CMAKE_SOURCE_DIR}/src/cxy/stdlib/hash.cxy
@@ -394,27 +407,27 @@ set(CXY_STD_LIB_SOURCES
 )
 
 set(CXY_STDLIB_PLUGINS
-    jsonrpc.c
+        jsonrpc.c
 )
 
-if(NOT TARGET FileCheck)
+if (NOT TARGET FileCheck)
     # Download the LLVM FileCheck utility for tests.
     set(FILE_CHECK_SRC_PATH "llvmorg-${LLVM_PACKAGE_VERSION}/llvm/utils/FileCheck/FileCheck.cpp")
     set(FILE_CHECK_SRC_URL "https://raw.githubusercontent.com/llvm/llvm-project/${FILE_CHECK_SRC_PATH}")
     set(FILE_CHECK_SRC_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_CHECK_SRC_PATH}")
-    if(NOT EXISTS "${FILE_CHECK_SRC_FILE}")
+    if (NOT EXISTS "${FILE_CHECK_SRC_FILE}")
         message(STATUS "Downloading LLVM FileCheck source from ${FILE_CHECK_SRC_URL}")
         file(DOWNLOAD "${FILE_CHECK_SRC_URL}" "${FILE_CHECK_SRC_FILE}")
-    endif()
+    endif ()
     add_executable(FileCheck ${FILE_CHECK_SRC_FILE})
     llvm_map_components_to_libnames(FILE_CHECK_NEEDED_LIBS filecheck support)
     target_link_libraries(FileCheck ${FILE_CHECK_NEEDED_LIBS})
-endif()
+endif ()
 
 add_executable(lex-tester
-    tests/utils/lexer.cpp
-    src/cxy/lang/frontend/lexer.c
-    ${CXY_CORE_SOURCES}
+        tests/utils/lexer.cpp
+        src/cxy/lang/frontend/lexer.c
+        ${CXY_CORE_SOURCES}
 )
 
 add_library(demo-plugin SHARED examples/plugin.c)
@@ -427,6 +440,21 @@ target_link_libraries(
 )
 
 set_target_properties(demo-plugin
+        PROPERTIES
+        PREFIX ""
+        SUFFIX ""
+)
+
+add_library(parser-plugin SHARED examples/parser-plugin.c)
+target_include_directories(
+        parser-plugin
+        PRIVATE ${CMAKE_BINARY_DIR}/install/include)
+target_link_libraries(
+        parser-plugin
+        cxy-plugin
+)
+
+set_target_properties(parser-plugin
         PROPERTIES
         PREFIX ""
         SUFFIX ""
@@ -470,50 +498,50 @@ include(CTest)
 enable_testing()
 
 # Add doctest C++ testing framework
-if(ENABLE_UNIT_TESTS)
+if (ENABLE_UNIT_TESTS)
     # Create unit test executable
     add_executable(cxy_unit_tests
-        tests/utils/test_ast.cpp
-        tests/utils/ast.cpp
-        tests/lang/parser/test_literals.cpp
-        tests/lang/parser/test_primitive_types.cpp
-        tests/lang/parser/test_optional_parens.cpp
-        tests/lang/parser/test_for_loop.cpp
-        tests/lang/parser/test_switch_statement.cpp
-        tests/lang/parser/parser_utils.cpp
-        tests/unit/test_utils.cpp
-        tests/package/test_semver.cpp
-        tests/package/test_version_constraints.cpp
-        tests/package/test_cxyfile_parser.cpp
-        tests/package/test_scripts.cpp
-        tests/package/test_validators.cpp
-        tests/package/test_gitops.cpp
-        tests/package/test_resolver.cpp
-        tests/package/test_cache.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
-        src/cxy/plugin/shared.c
+            tests/utils/test_ast.cpp
+            tests/utils/ast.cpp
+            tests/lang/parser/test_literals.cpp
+            tests/lang/parser/test_primitive_types.cpp
+            tests/lang/parser/test_optional_parens.cpp
+            tests/lang/parser/test_for_loop.cpp
+            tests/lang/parser/test_switch_statement.cpp
+            tests/lang/parser/parser_utils.cpp
+            tests/unit/test_utils.cpp
+            tests/package/test_semver.cpp
+            tests/package/test_version_constraints.cpp
+            tests/package/test_cxyfile_parser.cpp
+            tests/package/test_scripts.cpp
+            tests/package/test_validators.cpp
+            tests/package/test_gitops.cpp
+            tests/package/test_resolver.cpp
+            tests/package/test_cache.cpp
+            ${CMAKE_CURRENT_BINARY_DIR}/generated/src/builtins.c
+            src/cxy/plugin/shared.c
     )
 
     target_link_libraries(cxy_unit_tests
-        cxy-core
+            cxy-core
     )
 
     target_include_directories(cxy_unit_tests PRIVATE
-        src/cxy
-        src/3rdParty
-        tests/utils
-        tests
+            src/cxy
+            src/3rdParty
+            tests/utils
+            tests
     )
 
     target_compile_definitions(cxy_unit_tests PRIVATE
-        -DCXY_VERSION="${CXY_VERSION}"
-        -DCXY_BUILD_ID="${CXY_BUILD_ID}"
-        -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"
+            -DCXY_VERSION="${CXY_VERSION}"
+            -DCXY_BUILD_ID="${CXY_BUILD_ID}"
+            -DTEST_ROOT_DIR="${CMAKE_SOURCE_DIR}"
     )
 
     # Add unit test to CTest
     add_test(NAME unit_tests COMMAND cxy_unit_tests)
-endif()
+endif ()
 
 # Add stdlib test cases
 set(CXY_OPEN_SSL_OPTIONS "")
@@ -531,9 +559,9 @@ foreach (CXY_SRC ${CXY_STD_LIB_SOURCES})
     file(RELATIVE_PATH _FILE ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
     message(STATUS "Adding stdlib test case ${CXY_SRC}")
     add_test(NAME "${_FILE}"
-             COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
+            COMMAND cxy test ${CXY_OPEN_SSL_OPTIONS} --no-progress --stdlib ${CMAKE_SOURCE_DIR}/src/cxy ${CXY_SRC})
 endforeach ()
 
-if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/plugins)
+if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/plugins)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugins)
-endif()
+endif ()

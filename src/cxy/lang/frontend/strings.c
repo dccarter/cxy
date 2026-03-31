@@ -5,7 +5,7 @@
 #include "strings.h"
 #include "core/strpool.h"
 
-#define f(name, ...) cstring S_##name = NULL;
+#define f(name, ...) ATTR_WEAK cstring S_##name = NULL;
 CXY_BUILTIN_NAMES(f, f)
 AST_UNARY_EXPR_LIST(f)
 AST_BINARY_EXPR_LIST(f)
@@ -14,13 +14,13 @@ f(Truthy);
 #undef f
 
 #define f(name, ...)                                                           \
-    cstring S_##name = NULL;                                                   \
-    cstring S_##name##_ = NULL;
+    ATTR_WEAK cstring S_##name = NULL;                                         \
+    ATTR_WEAK cstring S_##name##_ = NULL;
 AST_OVERLOAD_ONLY_OPS(f)
 #undef f
-cstring S_Deref_;
+ATTR_WEAK cstring S_Deref_;
 
-#define f(name, ...) cstring S_##name##_eq = NULL;
+#define f(name, ...) ATTR_WEAK cstring S_##name##_eq = NULL;
 AST_ASSIGN_EXPR_LIST(f)
 #undef f
 

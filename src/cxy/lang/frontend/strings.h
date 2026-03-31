@@ -101,6 +101,7 @@ extern "C" {
     f(unlikely)                 \
     f(atomic)                   \
     f(forced)                   \
+    f(val)                      \
     f(__init)                   \
     f(__defaults_init)          \
     f(__startup)                \
@@ -151,6 +152,11 @@ extern "C" {
     f(__smart_ptr_alloc_trace)
 
 // clang-format on
+#ifdef CXY_PLUGIN_LIB
+#define ATTR_WEAK __attribute((weak))
+#else
+#define ATTR_WEAK
+#endif
 
 #define f(name, ...) extern cstring S_##name;
 CXY_BUILTIN_NAMES(f, f)
