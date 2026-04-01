@@ -101,7 +101,8 @@ void buildModuleType(TypeTable *types, AstNode *node, bool isBuiltinModule)
 
     node->type = makeModuleType(
         types,
-        isBuiltinModule ? S___builtins : node->program.module->moduleDecl.name,
+        isBuiltinModule ? S___builtins : (
+            node->program.module != NULL? node->program.module->moduleDecl.name : makeString(types->strPool, "__main")),
         node->loc.fileName,
         members,
         i,

@@ -20,8 +20,8 @@ typedef struct MemPool MemPool;
 #endif
 
 typedef struct StrPool {
-    MemPool *mem_pool;
-    HashTable hash_table;
+    MemPool *pool;
+    HashTable table;
 } StrPool;
 
 StrPool newStrPool(MemPool *);

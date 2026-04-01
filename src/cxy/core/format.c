@@ -416,6 +416,40 @@ void printEscapedChar(FormatState *state, char chr)
     }
 }
 
+uint32_t decodeUtf8Char(const char **pp)
+{
+    const unsigned char *p = (const unsigned char *)*pp;
+    uint32_t ch;
+    if (p[0] < 0x80) {
+        ch = p[0];
+        *pp += 1;
+    }
+    else if ((p[0] & 0xE0) == 0xC0) {
+        ch = ((uint32_t)(p[0] & 0x1F) << 6) |
+             (uint32_t)(p[1] & 0x3F);
+        *pp += 2;
+    }
+    else if ((p[0] & 0xF0) == 0xE0) {
+        ch = ((uint32_t)(p[0] & 0x0F) << 12) |
+             ((uint32_t)(p[1] & 0x3F) << 6) |
+             (uint32_t)(p[2] & 0x3F);
+        *pp += 3;
+    }
+    else if ((p[0] & 0xF8) == 0xF0) {
+        ch = ((uint32_t)(p[0] & 0x07) << 18) |
+             ((uint32_t)(p[1] & 0x3F) << 12) |
+             ((uint32_t)(p[2] & 0x3F) << 6) |
+             (uint32_t)(p[3] & 0x3F);
+        *pp += 4;
+    }
+    else {
+        // Invalid lead byte — emit the raw byte and advance by 1
+        ch = p[0];
+        *pp += 1;
+    }
+    return ch;
+}
+
 void printUtf8(FormatState *state, uint32_t chr, bool escaped)
 {
     if (escaped) {

@@ -251,6 +251,7 @@ pub struct Optional[T] {
     @inline const func `deref`() { return val }
     @inline const func `&.`() { return &val }
     @inline const func `is`[T]() => val is #T
+    @inline const func ref() { assert!(ok); return &val }
 
     #if (T.isPrimitive) {
         @inline const func `==`(other: &const T) => ok && val == other
@@ -1270,11 +1271,7 @@ pub struct Slice[T] {
         return This(ptroff!(data + start), count)
     }
 
-    #if (!T.isPointer && !T.isUnresolved &&
-            ( !(T.isStruct || T.isClass) ||
-              has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
-            )
-    ) {
+    #if (T.isPrintable) {
         const func `str`(sb: &OutputStream) {
             sb.appendChar('[')
             for (const i: 0..len) {
@@ -1305,6 +1302,41 @@ pub func toHexString(os: &OutputStream, data: ^const void, len: u64, caps: bool 
                << hexChars.[c & 0xF]
         }
     }
+}
+
+pub class Bytes {
+    _data: ^u8 = null
+    _len: u64 = 0
+
+    func `init`(len: u64) {
+        _data = malloc(len) !: ^u8
+        _len = len
+    }
+
+    func `deinit`() {
+        if (_data != null)
+            free(_data !: ^void)
+    }
+
+    func `[]`(index: u64) {
+        assert!(index < _len)
+        return _data.[index]
+    }
+
+    func `[]=`(index: u64, value: u8) {
+        assert!(index < _len)
+        _data.[index] = value
+    }
+
+    @inline
+    const func `str`(os: &OutputStream) {
+        toHexString(os, _data !: ^const void, _len)
+    }
+
+    func data() => _data
+
+    const func size() => _len
+    const func data() => _data
 }
 
 macro ref(ptr) __smart_ptr_get((ptr!) !: sptr)

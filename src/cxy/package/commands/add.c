@@ -200,7 +200,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
     if (repository && repository[0] != '\0') {
         // Normalize the repository URL first
         cstring normalizedUrl = NULL;
-        if (!gitNormalizeRepositoryUrl(repository, &normalizedUrl, strings->mem_pool, log)) {
+        if (!gitNormalizeRepositoryUrl(repository, &normalizedUrl, strings->pool, log)) {
             logError(log, NULL, "failed to normalize repository URL: {s}",
                     (FormatArg[]){{.s = repository}});
             free(packageDir);
@@ -225,7 +225,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
         printStatusSticky(log, " Fetching available versions...");
         DynArray tags = newDynArray(sizeof(GitTag));
 
-        if (!gitFetchTags(normalizedUrl, &tags, strings->mem_pool, log)) {
+        if (!gitFetchTags(normalizedUrl, &tags, strings->pool, log)) {
             logError(log, NULL, "failed to fetch tags from repository '{s}'",
                     (FormatArg[]){{.s = normalizedUrl}});
             freeDynArray(&tags);
@@ -254,7 +254,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
         }
 
         // Install dependency to validate it's a valid Cxy package
-        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, noInstall, options->package.verbose)) {
+        if (!installDependency(&newDep, packagesDir, strings->pool, log, noInstall, options->package.verbose)) {
             logError(log, NULL, "failed to install dependency - not a valid Cxy package or installation failed", NULL);
             freeDynArray(&tags);
             free(packageDir);
@@ -266,7 +266,7 @@ bool packageAddCommand(const Options *options, StrPool *strings, Log *log)
         freeDynArray(&tags);
     } else if (path && path[0] != '\0') {
         // Validate local path dependency
-        if (!installDependency(&newDep, packagesDir, strings->mem_pool, log, true, options->package.verbose)) {
+        if (!installDependency(&newDep, packagesDir, strings->pool, log, true, options->package.verbose)) {
             logError(log, NULL, "local path '{s}' does not contain a valid Cxy package",
                     (FormatArg[]){{.s = path}});
             free(packageDir);

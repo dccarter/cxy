@@ -7,6 +7,7 @@ import { Vector } from "./vector.cxy"
 import { HashMap } from "./hash.cxy"
 import { Trie } from "./trie.cxy"
 import { split } from "./utils.cxy"
+import { percentDecode } from "./base64.cxy"
 
 import { Address, BufferedSocketOutputStream } from "./net.cxy"
 import { TcpSocket, TcpListener } from "./tcp.cxy"
@@ -102,18 +103,18 @@ pub func methodFromString(method: __string) {
     var maybe = (Method.Unknown, "");
 
     switch(x) {
-        case 'D'`char => maybe = (Method.Delete, "DELETE")
-        case 'G'`char => maybe = (Method.Get, "GET")
-        case 'H'`char => maybe = (Method.Head, "HEAD")
-        case 'P'`char => {
-            if (toupper(method.[1]) == 'O'`char)
+        case 'D' => maybe = (Method.Delete, "DELETE")
+        case 'G' => maybe = (Method.Get, "GET")
+        case 'H' => maybe = (Method.Head, "HEAD")
+        case 'P' => {
+            if (toupper(method.[1]) == 'O')
                 maybe = (Method.Post, "POST")
             else
                 maybe = (Method.Put, "PUT")
         }
-        case 'C'`char => maybe = (Method.Connect, "CONNECT")
-        case 'O'`char => maybe = (Method.Options, "OPTIONS")
-        case 'T'`char => maybe = (Method.Trace, "TRACE")
+        case 'C' => maybe = (Method.Connect, "CONNECT")
+        case 'O' => maybe = (Method.Options, "OPTIONS")
+        case 'T' => maybe = (Method.Trace, "TRACE")
         default  => return (Method.Unknown, 0`u64)
     }
 
@@ -381,6 +382,18 @@ pub class Response {
     }
 
     @inline
+    func redirect(location: String, status: Status = .Found) {
+        _headers.[String("Location")] = &&location
+        end(status)
+    }
+
+    @inline
+    func redirect(location: __string, status: Status = .Found) {
+        _headers.[String("Location")] = String(location)
+        end(status)
+    }
+
+    @inline
     func header(name: String, value: String) {
         _headers.[&&name] = &&value
     }
@@ -409,13 +422,16 @@ pub class Request {
     _headers = HeaderMap();
     _params = HashMap[__string, __string]();
     _cookies = HashMap[__string, __string]();
+    _qparams = HashMap[__string, __string]();
     _path: String = null;
     _uri: String = null;
     _body: String = null;
     _s1: String = null;
     _s2: String = null;
+    _decodedParams: String = null;
     _isComplete = false;
     _cookiesParsed = false;
+    _qparamsParsed = false;
     _parser: ^parser.llhttp_t = null;
     _middlewareContexts: ^void = null;
     _route: &Route
@@ -511,12 +527,16 @@ pub class Request {
     func clear() {
         _headers.clear()
         _params.clear()
+        _qparams.clear()
         _s1 = null
         _s2 = null
         _uri = null
         _path = null
         _body = null
+        _decodedParams = null
         _isComplete = false
+        _cookiesParsed = false
+        _qparamsParsed = false
         if (_parser != null)
             parser.llhttp_reset(_parser)
     }
@@ -542,14 +562,37 @@ pub class Request {
         if !cookie {
             return false
         }
-        var pairs = split(cookie&.__str(), ";")
-        for pair, _ in pairs {
-            var kv = split(__copy!(pair), "=")
-            if kv.size() == 2 {
-                _cookies.[kv.[0].trim()] = kv.[1].trim()
+
+        var cookieStr = cookie&.__str()
+        var pos = 0`i64
+        var len = cookieStr.size() as i64
+
+        while pos < len {
+            var remaining = cookieStr.substr(pos)
+            var semicolonPos = remaining.indexOf(';')
+
+            // Determine the end of this cookie pair
+            var pairEnd = !!semicolonPos ? *semicolonPos : len - pos
+            var pair = remaining.substr(0, <i64>pairEnd)
+
+            // Parse the key=value pair
+            var eqPos = pair.indexOf('=')
+            if eqPos {
+                var key = pair.substr(0, <i64>*eqPos).trim()
+                var value = pair.substr(*eqPos + 1).trim()
+                _cookies.[key] = value
+            } else {
+                _cookies.[pair.trim()] = __string()
             }
-            else {
-                _cookies.[kv.[0].trim()] = __string()
+
+            // Move to next pair (skip semicolon)
+            pos += <i64>pairEnd
+            if pos < len && cookieStr.[pos] == ';' {
+                pos++  // skip semicolon
+            }
+            // Skip leading whitespace after semicolon
+            while pos < len && cookieStr.[pos] == ' ' {
+                pos++
             }
         }
 
@@ -558,6 +601,96 @@ pub class Request {
 
     @inline
     const func cookie(name: __string) => _cookies.[name]
+
+    func parseQParams() {
+        if _qparamsParsed {
+            return true
+        }
+
+        // Find the '?' in the path
+        var queryStart = _path.indexOf('?')
+        if !queryStart {
+            _qparamsParsed = true
+            return false
+        }
+
+        // Extract query string after '?'
+        var queryString = _path.substr(*queryStart + 1)
+
+        // Create decode buffer and reserve space
+        _decodedParams = String()
+        _decodedParams.reserve(queryString.size())
+
+        var pos = 0`i64
+        var len = queryString.size() as i64
+
+        while pos < len {
+            // Find the '=' and '&' separators
+            var remaining = queryString.substr(pos)
+            var eqPos = remaining.indexOf('=')
+            var ampPos = remaining.indexOf('&')
+
+            if !!eqPos {
+                // We have key=value
+                var keyPart = remaining.substr(0, <i64>*eqPos)
+
+                var start = _decodedParams.size()
+                percentDecode(&_decodedParams, &keyPart)
+                var key = _decodedParams.substr(start)
+
+                var valueEnd = !!ampPos ? *ampPos : len - pos
+                var valuePart = remaining.substr(*eqPos + 1, <i64>(valueEnd - *eqPos - 1))
+
+                start = _decodedParams.size()
+                percentDecode(&_decodedParams, &valuePart)
+                var value = _decodedParams.substr(start)
+
+                _qparams.[key] = value
+
+                pos += <i64>(valueEnd + 1)
+            } else if !!ampPos {
+                // We have key without value
+                var keyPart = remaining.substr(0, <i64>*ampPos)
+
+                var start = _decodedParams.size()
+                percentDecode(&_decodedParams, &keyPart)
+                var key = _decodedParams.substr(start)
+
+                _qparams.[key] = __string()
+
+                pos += <i64>(*ampPos + 1)
+            } else {
+                // Last key without value
+                var start = _decodedParams.size()
+                percentDecode(&_decodedParams, &remaining)
+                var key = _decodedParams.substr(start)
+
+                _qparams.[key] = __string()
+                break
+            }
+        }
+
+        _qparamsParsed = true
+        return true
+    }
+
+    @inline
+    const func qparam(name: __string) => _qparams.[name]
+
+    @inline
+    const func qparam(name: __string, def: __string) {
+        var q = _qparams.[name]
+        if !q {
+            return def
+        }
+        return __copy!(*q)
+    }
+
+    @inline
+    func qparams() {
+        parseQParams()
+        return &_qparams
+    }
 }
 
 func requestParserOnMessageBegin(p: ^parser.llhttp_t) {
@@ -649,22 +782,128 @@ type HandlerFn = func(req: &const Request, res: &Response) -> void
 pub struct RouteAttrs {
     isStatic = false
     parseCookies = false
+    parseQueryParams = false
     parseForm = false
     replyType: String = null
 }
 
-class Route {
+enum SegmentType {
+    Static,
+    Dynamic
+}
+
+struct RouteSegment {
+    kind: SegmentType
+    value: __string
+
+    func `init`(kind: SegmentType, value: __string) {
+        this.kind = kind
+        this.value = value
+    }
+}
+
+class RouteLeaf {
+    _routes: Vector[Route]
+
+    func `init`() {
+        _routes = Vector[Route]()
+    }
+
+    func add(route: Route) {
+        _routes.push(&&route)
+        return _routes.back()
+    }
+
+    @private
+    func matchPattern(remainingPath: __string, pattern: &Vector[RouteSegment], req: &Request, isStatic: bool = false) {
+        var pos = 0`i64
+        var len = remainingPath.size() as i64
+
+        for segment, _ in pattern {
+            if segment.kind == SegmentType.Static {
+                // Must match exactly
+                var segLen = segment.value.size() as i64
+                if pos + segLen > len {
+                    return false
+                }
+                for (const j: 0..segLen) {
+                    if remainingPath.[pos + j] != segment.value.[j] {
+                        return false
+                    }
+                }
+                pos += segLen
+            } else {
+                // Dynamic segment - extract until next '/' or '?' or end
+                if pos >= len || remainingPath.[pos] != '/' {
+                    return false
+                }
+                pos++  // skip '/'
+                var start = pos
+                while pos < len && remainingPath.[pos] != '/' && remainingPath.[pos] != '?' {
+                    pos++
+                }
+                if start == pos {
+                    return false  // empty param
+                }
+                var value = remainingPath.substr(start, pos - start)
+                req.param(segment.value, value)
+            }
+        }
+
+        // Check we consumed the entire path (or stopped at query string)
+        // Static routes own their entire subtree, so any remaining path is allowed
+        return pos == len || (pos < len && remainingPath.[pos] == '?') || isStatic
+    }
+
+    func find(method: Method, remainingPath: __string, req: &Request): Optional[&Route] {
+        // Try to find matching route - prioritize exact matches (fewer dynamic segments)
+        var bestMatch: &Route
+        var found = false
+
+        var bestDynamicCount = 999999 as i32
+        for route, _ in _routes {
+            if !route.isMethodSupported(method) {
+                continue
+            }
+
+            // Count dynamic segments
+            var dynamicCount = 0 as i32
+            for seg, _ in route.pattern {
+                if seg.kind == SegmentType.Dynamic {
+                    dynamicCount++
+                }
+            }
+
+            // Try to match this route
+            if matchPattern(remainingPath, &route.pattern, req, route.attrs().isStatic) {
+                // Prefer routes with fewer dynamic segments (more specific)
+                if dynamicCount < bestDynamicCount {
+                    bestMatch = route
+                    bestDynamicCount = dynamicCount
+                }
+                found = true
+            }
+        }
+
+        if !found {
+            return null
+        }
+        return bestMatch
+    }
+}
+
+pub class Route {
     prefix: __string
     handler: lambda_of!(#HandlerFn)
-    params: Vector[__string]
+    pattern: Vector[RouteSegment]
     _methods: u32
     _attrs = RouteAttrs{};
     _id: u64 = 0
 
-    func `init`(id: u64, methods: u32, prefix: __string, fn: HandlerFn, params: Vector[__string]) {
+    func `init`(id: u64, methods: u32, prefix: __string, fn: HandlerFn, pattern: Vector[RouteSegment]) {
         handler = &&fn
         this.prefix = prefix
-        this.params = &&params
+        this.pattern = &&pattern
         _methods = methods
         _id = id
     }
@@ -706,39 +945,52 @@ class Route {
 class Router {
     @static
     - LOG_TAG = "HTTP_ROUTER";
-    - routes: Trie[Route]
+    - routes: Trie[RouteLeaf]
     - _idGenerator = 0 as u64
 
     func `init`() {
-        routes = Trie[Route]();
+        routes = Trie[RouteLeaf]();
     }
 
-    - func add(methods: u32, path: string, idx: i64, fn: HandlerFn) {
-        assert!(path.[idx] == '/'`char)
+    func add(methods: u32, path: string, idx: i64, fn: HandlerFn) {
+        assert!(path.[idx] == '/')
         var i = idx;
-        while (path.[i] !=  '\0'`char && path.[i] != '{'`char) {
+        while path.[i] != '\0' && path.[i] != '{' {
             i++
         }
 
-        if (path.[i] == '{'`char)
+        if path.[i] == '{' {
             i--;
+        }
         var prefix = __string(path, i).substr(idx);
-        var params = Vector[__string]();
-        parseParams(&params, path, i)
-        var route = Route(_idGenerator++, methods, prefix, &&fn, &&params);
-        routes.add(prefix, route)
-        return route
+        var pattern = Vector[RouteSegment]();
+        parsePattern(&pattern, path, i)
+        var route = Route(_idGenerator++, methods, prefix, &&fn, &&pattern);
+
+        // Find or create RouteLeaf (must be exact match, not just prefix)
+        var leaf = routes.find(prefix.str(), prefix.size())
+        if leaf {
+            var consumed, leafData = leaf.ref()
+            if consumed == prefix.size() {
+                // Exact match - reuse existing leaf
+                return leafData.add(&&route)
+            }
+        }
+        // Not found or not exact match - create new leaf
+        var newLeaf = RouteLeaf()
+        routes.add(prefix, newLeaf)
+        return newLeaf.add(&&route)
     }
 
     func add(path: string, fn: HandlerFn) {
         var methods = Method.Get;
         var idx = 0`i64;
-        if (path.[0] != '/'`char) {
+        if (path.[0] != '/') {
             var parsedMethod = methodFromString(path);
             assert!(parsedMethod.0 != .Unknown)
             methods = parsedMethod.0
             idx = <i64>parsedMethod.1;
-            while (path.[idx] == ' '`char)
+            while (path.[idx] == ' ')
                 idx++
         }
 
@@ -753,29 +1005,29 @@ class Router {
             return;
         }
 
-        var consumed, route = found.move();
-        var args = path.substr(consumed);
-        if (!route.attrs().isStatic) {
-            match (parseRouteArgs(req, &route.params, args)) {
-                case Status as value => {
-                    resp.end(value)
-                    return;
-                }
-                case u64 as value => {
-                    // TODO parse route arguments
-                    args = args.substr(value)
-                }
-            }
-        }
-        else {
-            req.uri(String(args))
+        var consumed, leaf = found.move();
+        var remainingPath = path.substr(consumed);
+
+        var route = leaf.find(req.method(), remainingPath, req)
+        if !route {
+            TRC!("Route not found: no matching pattern for method '" << req.method() << "'")
+            resp.end(Status.NotFound)
+            return;
         }
 
-        if route.attrs().parseCookies {
+        if route&.attrs().isStatic {
+            req.uri(String(remainingPath))
+        }
+
+        if route&.attrs().parseCookies {
             req.parseCookies()
         }
 
-        route(req, resp)
+        if route&.attrs().parseQueryParams {
+            req.parseQParams()
+        }
+
+        (*route)(req, resp)
     }
 
     func find(req: &Request, resp: &Response): Optional[&Route] {
@@ -787,69 +1039,63 @@ class Router {
             return null;
         }
 
-        var consumed, route = found.move();
-        if (!route.isMethodSupported(req.method())) {
-            TRC!("Route not found: unsupported method '" << req.method() << "'")
+        var consumed, leaf = found.move();
+        var remainingPath = path.substr(consumed);
+
+        var route = leaf.find(req.method(), remainingPath, req)
+        if !route {
+            TRC!("Route not found: no matching pattern for method '" << req.method() << "'")
             resp.end(Status.NotFound)
             return null;
         }
 
-        var args = path.substr(consumed);
-        if (!route.attrs().isStatic) {
-            match (parseRouteArgs(req, &route.params, args)) {
-                case Status as value => {
-                    resp.end(value)
-                    return null;
-                }
-                case u64 as value => {
-                    // TODO parse route arguments
-                    args = args.substr(value)
-                }
-            }
+        if route&.attrs().isStatic {
+            req.uri(String(remainingPath))
         }
-        else {
-            req.uri(String(args))
-        }
-        return &route
+
+        return route
     }
 
-    - func parseParams(params: &Vector[__string], path: string, idx: i64) : void {
-        var s = path !: ^const char;
-        while (path.[idx] == '/'`char) {
-            idx++
-            assert!(path.[idx++] == '{'`char)
-            var i = idx;
-            while (path.[i] != '\0'`char && path.[i] != '}'`char)
-                i++
-            assert!(path.[i] == '}'`char)
-            var name = __string(ptroff!(s + idx) !: string, i - idx);
-            idx = i + 1
-            params.push(name)
-        }
-    }
+    @private
+    func parsePattern(pattern: &Vector[RouteSegment], path: string, idx: i64) : void {
+        var s = __string(path)
+        var pathLen = s.size()
 
-    - func parseRouteArgs(req: &Request, params: &Vector[__string], path: __string) : u64 | Status {
-        var p = path.data();
-        var idx = 0`u64;
-        for (var i: 0..params.size()) {
-            if (p.[idx++] != '/'`char) {
-                TRC!("bad request: route missing parameters")
-                return Status.BadRequest
+        while idx < pathLen && path.[idx] != '\0' {
+            if path.[idx] == '/' {
+                // Check if this is a dynamic segment
+                if idx + 1 < pathLen && path.[idx + 1] == '{' {
+                    // Dynamic segment
+                    idx += 2  // skip "/{"
+                    var start = idx
+                    while idx < pathLen && path.[idx] != '\0' && path.[idx] != '}' {
+                        idx++
+                    }
+                    if idx >= pathLen || path.[idx] != '}' {
+                        ERR!("Unclosed parameter brace in route pattern: " << s)
+                        assert!(false)
+                    }
+                    var name = s.substr(start, idx - start)
+                    pattern.push(RouteSegment(SegmentType.Dynamic, name))
+                    idx++  // skip '}'
+                } else {
+                    // Static segment - collect until next '{' or end
+                    var start = idx
+                    idx++  // include the '/'
+                    while idx < pathLen && path.[idx] != '\0' && path.[idx] != '{' {
+                        idx++
+                    }
+                    if idx < pathLen && path.[idx] == '{' {
+                        idx--  // don't include the '/' before '{'
+                    }
+                    var staticPart = s.substr(start, idx - start)
+                    pattern.push(RouteSegment(SegmentType.Static, staticPart))
+                }
+            } else {
+                // Shouldn't happen if path starts with '/'
+                idx++
             }
-            var j = idx;
-            while (p.[j] !=  '\0'`char && p.[j] != '/'`char && p.[j] != '?'`char)
-                j++;
-            var value = __string(ptroff!(p + idx) !: string, j - idx);
-            idx = j;
-            req.param(__copy!(params.[<i32>i]), value)
         }
-
-        if (p.[idx] !=  '\0'`char && p.[idx] != '?'`char) {
-            TRC!("bad request: too many path params: " << path)
-            return Status.BadRequest
-        }
-
-        return idx
     }
 }
 
@@ -867,7 +1113,8 @@ pub struct Dependencies[T] {
 
     @inline func `init`(){}
 
-    - func init[Mws, Contexts](ctxs: &Contexts) {
+    @private
+    func init[Mws, Contexts](ctxs: &Contexts) {
         #const WithContexts = #`Mws as U,i => U, has_type!(U, :Context)`
         #for (const i: 0..T.membersCount) {
             #const Mw = typeat!(#T, i);
@@ -896,12 +1143,18 @@ class Connection[Middlewares] {
     - resp: Response
     - config: ^Config
     - _close: bool = false;
+    - _notFoundRoute: Optional[&Route] = null
 
-    func `init`(config: ^Config, mws: ^Middlewares, router: ^Router, sock: TcpSocket) {
+    func `init`(config: ^Config,
+                mws: ^Middlewares,
+                router: ^Router,
+                sock: TcpSocket,
+                notFoundRoute: Optional[&Route] = null) {
         this.router = router
         this.sock = &&sock
         this.config = config
         this.mws = mws
+        this._notFoundRoute = &&notFoundRoute
     }
 
     func handle() {
@@ -914,7 +1167,8 @@ class Connection[Middlewares] {
         }
     }
 
-    - func handleConnection(): void {
+    @private
+    func handleConnection(): void {
         if (!receive())
             return;
 
@@ -926,8 +1180,13 @@ class Connection[Middlewares] {
         TRC!( (methodName(req.method())) << " " << req.path() )
         var route = (*router).find(&req, &resp);
 
-        if (!route) {
-            resp.end(Status.NotFound)
+        if !route {
+            if !_notFoundRoute {
+                resp.end(Status.NotFound)
+            } else {
+                // invoke not found route handler
+                (*_notFoundRoute)(&req, &resp)
+            }
             sendResponse()
             return;
         }
@@ -936,12 +1195,17 @@ class Connection[Middlewares] {
             req.parseCookies()
         }
 
+        if route&.attrs().parseQueryParams {
+            req.parseQParams()
+        }
+
         invokeRouteHandler(*route)
 
         sendResponse()
     }
 
-    - func invokeRouteHandler(route: &Route) : void {
+    @private
+    func invokeRouteHandler(route: &Route) : void {
         req.route(route)
         var ctxs: Contexts = null;
         @unused var deps: `Middlewares as T,i => Dependencies[T.Deps], has_type!(#T, :Deps)` = null;
@@ -981,7 +1245,8 @@ class Connection[Middlewares] {
         route(&req, &resp)
     }
 
-    - func receive() : bool {
+    @private
+    func receive() : bool {
         var buf: [char, 8192] = [];
         while (!req.isComplete()) {
             var received = sock.receive(buf, 8192);
@@ -1001,11 +1266,12 @@ class Connection[Middlewares] {
         return req.isComplete()
     }
 
-    - func sendResponse() : void {
+    @private
+    func sendResponse() : void {
         var sos = BufferedSocketOutputStream(sock);
         var line0 = __string(statusText(resp.status()));
         sos << line0 << "\r\n"
-        if (resp.status() != .Ok && resp.empty()) {
+        if (resp.status() != .Ok && resp.empty() && resp.status() != .NoContent) {
             resp.body() << line0.substr(9)
         }
 
@@ -1055,6 +1321,7 @@ pub class Server[...Middlewares] {
     - config: Config
     - listener: TcpListener
     - router: Router
+    - notFoundRoute: Route = null
 
     func `init`(config: Config = Config{}) {
         // initialize middlewares
@@ -1081,7 +1348,7 @@ pub class Server[...Middlewares] {
                 }
                 #const DepsCtxs = Dependencies[Deps];
                 #if (has_type!(#M, :Context)) {
-                    #const Func = #func(_: &const Request, _: &Response, _: &M.Context, _: DepsCtxs) -> void;
+                    #const Func = #func(_: &const Request, _: &Response, _: &M.Context, _: &DepsCtxs) -> void;
                     require!(has_member!(#M, "before", #Func),
                              "middleware {t} must implement `before` handler of type {t}", #M, #Func)
                     require!(has_member!(#M, "after", #Func),
@@ -1177,16 +1444,33 @@ pub class Server[...Middlewares] {
         listener.close()
     }
 
-    @[noinline]
-    - func handleConnection(sock: TcpSocket): void {
+    @[noinline, private]
+    func handleConnection(sock: TcpSocket): void {
         // receive request
         TRC!("Connection " << sock.address())
-        var connection = Connection[Middlewares](ptrof config, ptrof mws, ptrof router, &&sock);
-        connection.handle()
+        if notFoundRoute != null {
+            var connection = Connection[Middlewares](ptrof config, ptrof mws, ptrof router, &&sock, &notFoundRoute);
+            connection.handle()
+        }
+        else {
+            var connection = Connection[Middlewares](ptrof config, ptrof mws, ptrof router, &&sock);
+            connection.handle()
+        }
     }
 
     func `()`(route: string, handler: HandlerFn) {
         return router.add(route, &&handler)
+    }
+
+    func notFound(handler: HandlerFn) {
+        notFoundRoute = Route(
+            0,
+            0,
+            "",
+            &&handler,
+            null
+        )
+        notFoundRoute([Method.Get])
     }
 }
 
@@ -1241,4 +1525,220 @@ pub class Cors {
         #if (has_member!(#Cfg, "allowHeaders", #string))
             allowHeaders = String(cfg.allowHeaders)
     }
+}
+
+
+test "Query parameter parsing" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._path = String("/search?q=hello+world&page=2&filter=new%26old")
+
+    req.parseQParams()
+
+    ok!(*req.qparam("q") == "hello world")
+    ok!(*req.qparam("page") == "2")
+    ok!(*req.qparam("filter") == "new&old")
+}
+
+test "Query parameter parsing without query string" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._path = String("/search")
+
+    var result = req.parseQParams()
+
+    ok!(!result)
+    ok!(req.qparams().empty())
+}
+
+test "Route pattern matching with different parameter counts" {
+    var router = Router()
+    var state = {called: 0}
+
+    // Add routes with same prefix but different patterns
+    router.add("GET /home/{arg1}/{arg2}", (@unused req: &const Request, @unused res: &Response) => {
+        state.called = 2
+    })
+    router.add("GET /home/{arg1}/{arg2}/{arg3}", (@unused req: &const Request, @unused res: &Response) => {
+        state.called = 3
+    })
+
+    var addr = Address()
+    var req1 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req1._path = String("/home/a/b")
+    req1._parser.method = 1`u8  // GET
+    var resp1 = Response()
+    router.handle(req1._path.__str(), &req1, &resp1)
+    ok!(state.called == 2)
+
+    var req2 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req2._path = String("/home/x/y/z")
+    req2._parser.method = 1`u8  // GET
+    var resp2 = Response()
+    router.handle(req2._path.__str(), &req2, &resp2)
+    ok!(state.called == 3)
+}
+
+test "Route pattern matching with middle parameters" {
+    var router = Router()
+    var params = {id: __string()}
+
+    router.add("GET /home/{id}/edit", (req: &const Request, @unused res: &Response) => {
+        var val = req.param("id")
+        if val {
+            params.id = __copy!(*val)
+        }
+    })
+
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._path = String("/home/123/edit")
+    req._parser.method = 1`u8  // GET
+    var resp = Response()
+    router.handle(req._path.__str(), &req, &resp)
+    ok!(params.id == "123")
+}
+
+test "Route pattern matching with different HTTP methods" {
+    var router = Router()
+    var params = {method: __string()}
+
+    router.add("GET /home", (@unused req: &const Request, @unused res: &Response) => {
+        params.method = "GET".s
+    })
+    router.add("POST /home", (@unused req: &const Request, @unused res: &Response) => {
+        params.method = "POST".s
+    })
+
+    var addr = Address()
+    var req1 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req1._path = String("/home")
+    req1._parser.method = 1`u8  // GET
+    var resp1 = Response()
+    router.handle(req1._path.__str(), &req1, &resp1)
+    ok!(params.method == "GET")
+
+    var req2 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req2._path = String("/home")
+    req2._parser.method = 3`u8  // POST
+    var resp2 = Response()
+    router.handle(req2._path.__str(), &req2, &resp2)
+    ok!(params.method == "POST")
+}
+
+test "Route pattern matching with multiple middle parameters" {
+    var router = Router()
+    var params = {id: __string(), commentId: __string()}
+
+    router.add("GET /home/{id}/comments/{commentId}", (req: &const Request, @unused res: &Response) => {
+        var val1 = req.param("id")
+        var val2 = req.param("commentId")
+        if val1 {
+            params.id = __copy!(*val1)
+        }
+        if val2 {
+            params.commentId = __copy!(*val2)
+        }
+    })
+
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._path = String("/home/user123/comments/comment456")
+    req._parser.method = 1`u8  // GET
+    var resp = Response()
+    router.handle(req._path.__str(), &req, &resp)
+    ok!(params.id == "user123")
+    ok!(params.commentId == "comment456")
+}
+
+test "Cookie parsing with simple values" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._headers.["Cookie"] = String("session=abc123; user=john; theme=dark")
+
+    req.parseCookies()
+
+    ok!(*req.cookie("session") == "abc123")
+    ok!(*req.cookie("user") == "john")
+    ok!(*req.cookie("theme") == "dark")
+}
+
+test "Cookie parsing with values containing equals signs" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    // Base64-encoded token with '=' characters
+    req._headers.["Cookie"] = String("token=eyJhbGc=iOiJIUzI1NiI=; data=key=value")
+
+    req.parseCookies()
+
+    ok!(*req.cookie("token") == "eyJhbGc=iOiJIUzI1NiI=")
+    ok!(*req.cookie("data") == "key=value")
+}
+
+test "Cookie parsing with whitespace" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._headers.["Cookie"] = String("  session = abc123 ;  user = john  ")
+
+    req.parseCookies()
+
+    ok!(*req.cookie("session") == "abc123")
+    ok!(*req.cookie("user") == "john")
+}
+
+test "Cookie parsing without values" {
+    var addr = Address()
+    var req = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req._headers.["Cookie"] = String("flag1; flag2=value; flag3")
+
+    req.parseCookies()
+
+    var flag1 = req.cookie("flag1")
+    ok!(!!flag1)
+    ok!(flag1&.size() == 0)
+    ok!(*req.cookie("flag2") == "value")
+    var flag3 = req.cookie("flag3")
+    ok!(!!flag3)
+    ok!(flag3&.size() == 0)
+}
+
+test "Route pattern matching with common prefix at different levels" {
+    var router = Router()
+    var state = {route: __string()}
+
+    router.add("GET /admin", (@unused req: &const Request, @unused res: &Response) => {
+        state.route = "admin".s
+    })
+    router.add("GET /admin/tokens", (@unused req: &const Request, @unused res: &Response) => {
+        state.route = "admin/tokens".s
+    })
+    router.add("GET /admin/packages", (@unused req: &const Request, @unused res: &Response) => {
+        state.route = "admin/packages".s
+    })
+
+    var addr = Address()
+
+    // Test /admin
+    var req1 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req1._path = String("/admin")
+    req1._parser.method = 1`u8  // GET
+    var resp1 = Response()
+    router.handle(req1._path.__str(), &req1, &resp1)
+    ok!(state.route == "admin")
+
+    // Test /admin/tokens
+    var req2 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req2._path = String("/admin/tokens")
+    req2._parser.method = 1`u8  // GET
+    var resp2 = Response()
+    router.handle(req2._path.__str(), &req2, &resp2)
+    ok!(state.route == "admin/tokens")
+
+    // Test /admin/packages
+    var req3 = Request(&addr, ptrof HTTP_PARSER_SETTINGS)
+    req3._path = String("/admin/packages")
+    req3._parser.method = 1`u8  // GET
+    var resp3 = Response()
+    router.handle(req3._path.__str(), &req3, &resp3)
+    ok!(state.route == "admin/packages")
 }

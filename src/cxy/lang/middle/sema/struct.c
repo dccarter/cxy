@@ -457,7 +457,7 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
                        node,
                        node->flags & (flgTypeApplicable | flgReferenceMembers));
     node->structDecl.thisType = node->type;
-
+    node->infligt = true;
     ctx->currentStruct = node;
     evaluateStructMembers(visitor, node);
     ctx->currentStruct = NULL;
@@ -491,6 +491,7 @@ void checkStructDecl(AstVisitor *visitor, AstNode *node)
         retype = count != membersCount;
         membersCount = count;
     }
+    node->infligt = false;
 
     ctx->currentStruct = node;
     if (checkMemberFunctions(visitor, node, members) || retype) {

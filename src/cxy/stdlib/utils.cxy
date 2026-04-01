@@ -97,3 +97,41 @@ pub func split(s: __string, delims: __string): Vector[__string] {
 
     return parts
 }
+
+pub func toLower(s: __string): String {
+    var result = String()
+    for c, _ in s {
+        if c >= 'A' && c <= 'Z' {
+            result << <char>(c + ('a' - 'A'))
+        } else {
+            result << c
+        }
+    }
+    return &&result
+}
+
+pub func toUpper(s: __string): String {
+    var result = String()
+    for c, _ in s {
+        if c >= 'a' && c <= 'z' {
+            result << <char>(c - ('a' - 'A'))
+        } else {
+            result << c
+        }
+    }
+    return &&result
+}
+
+pub func escapeHtml(os: &OutputStream, s: __string) {
+    for i in 0..s.size() {
+        var c = s.[i]
+        switch (c) {
+            case '&'  as char => os << "&amp;"
+            case '<'  as char => os << "&lt;"
+            case '>'  as char => os << "&gt;"
+            case '"'  as char => os << "&quot;"
+            case '\'' as char => os << "&#39;"
+            ...           => os << c
+        }
+    }
+}

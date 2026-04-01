@@ -396,6 +396,66 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
         // Only pass rest args to the final script in the chain
         const DynArray *argsToPass = (i == executionOrder.size - 1) ? restArgs : NULL;
 
+        // Build SCRIPT_INPUTS: expand globs and flatten to space-separated string
+        cstring scriptInputsValue = NULL;
+        if (currentScript->inputs.size > 0) {
+            DynArray substitutedInputs = newDynArray(sizeof(cstring));
+            for (u32 j = 0; j < currentScript->inputs.size; j++) {
+                cstring pattern = ((cstring *)currentScript->inputs.elems)[j];
+                cstring substituted = substituteEnvVars(pattern, &meta.scriptEnv, &builtins, strings, log);
+                if (substituted)
+                    pushOnDynArray(&substitutedInputs, &substituted);
+            }
+            DynArray expandedInputs = newDynArray(sizeof(cstring));
+            expandInputGlobs(&substitutedInputs, packageDir, &expandedInputs, strings, log);
+            freeDynArray(&substitutedInputs);
+
+            FormatState fs = newFormatState(NULL, true);
+            for (u32 j = 0; j < expandedInputs.size; j++) {
+                if (j > 0) append(&fs, " ", 1);
+                appendString(&fs, ((cstring *)expandedInputs.elems)[j]);
+            }
+            char *flat = formatStateToString(&fs);
+            freeFormatState(&fs);
+            scriptInputsValue = makeString(strings, flat);
+            free(flat);
+            freeDynArray(&expandedInputs);
+        }
+
+        // Build SCRIPT_OUTPUTS: flatten patterns to space-separated string (no glob expansion)
+        cstring scriptOutputsValue = NULL;
+        if (currentScript->outputs.size > 0) {
+            FormatState fs = newFormatState(NULL, true);
+            for (u32 j = 0; j < currentScript->outputs.size; j++) {
+                cstring pattern = ((cstring *)currentScript->outputs.elems)[j];
+                cstring substituted = substituteEnvVars(pattern, &meta.scriptEnv, &builtins, strings, log);
+                if (j > 0) append(&fs, " ", 1);
+                appendString(&fs, substituted ? substituted : pattern);
+            }
+            char *flat = formatStateToString(&fs);
+            freeFormatState(&fs);
+            scriptOutputsValue = makeString(strings, flat);
+            free(flat);
+        }
+
+        // Push into builtins so {{SCRIPT_INPUTS}} / {{SCRIPT_OUTPUTS}} substitution works,
+        // and also setenv so $SCRIPT_INPUTS / $SCRIPT_OUTPUTS work in shell
+        u32 builtinsCountBefore = builtins.size;
+        if (scriptInputsValue) {
+            EnvVar inputsVar = { .name = "SCRIPT_INPUTS", .value = scriptInputsValue };
+            pushOnDynArray(&builtins, &inputsVar);
+            setenv("SCRIPT_INPUTS", scriptInputsValue, 1);
+        } else {
+            unsetenv("SCRIPT_INPUTS");
+        }
+        if (scriptOutputsValue) {
+            EnvVar outputsVar = { .name = "SCRIPT_OUTPUTS", .value = scriptOutputsValue };
+            pushOnDynArray(&builtins, &outputsVar);
+            setenv("SCRIPT_OUTPUTS", scriptOutputsValue, 1);
+        } else {
+            unsetenv("SCRIPT_OUTPUTS");
+        }
+
         // Execute the script with environment variables (show output if verbose is enabled)
         if (!executeScript(currentScriptName, currentScript->command, argsToPass,
                           &meta.scriptEnv, &builtins, strings, log, options->package.verbose)) {
@@ -404,7 +464,16 @@ bool packageRunCommand(const Options *options, StrPool *strings, Log *log)
             allSuccess = false;
             break;
         }
+
+        // Pop script-specific vars back off builtins
+        builtins.size = builtinsCountBefore;
+        unsetenv("SCRIPT_INPUTS");
+        unsetenv("SCRIPT_OUTPUTS");
     }
+
+    // Clear script-specific environment variables
+    unsetenv("SCRIPT_INPUTS");
+    unsetenv("SCRIPT_OUTPUTS");
 
     // Restore original directory
     if (chdir(originalDir) != 0) {

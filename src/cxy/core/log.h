@@ -87,7 +87,7 @@ typedef struct DiagnosticMemoryPrintCtx {
     Log *L;
 } DiagnosticMemoryPrintCtx;
 
-Log newLog(DiagnosticHandler handler, void *ctx);
+Log newLog(MemPool *pool, DiagnosticHandler handler, void *ctx);
 void freeLog(Log *);
 
 void logError(Log *, const FileLoc *, const char *, const FormatArg *);

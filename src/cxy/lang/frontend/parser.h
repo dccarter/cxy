@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/log.h"
+#include "core/htable.h"
 #include "token.h"
 
 #ifdef __cplusplus
@@ -37,6 +38,7 @@ typedef struct {
     bool testMode : 1;
     bool isPackage : 1;
     Token ahead[TOKEN_BUFFER];
+    HashTable pluginAliases; // alias -> Plugin*, cleared per module in parseProgram
 } Parser;
 
 Parser makeParser(Lexer *, CompilerDriver *, bool testMode);

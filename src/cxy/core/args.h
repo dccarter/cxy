@@ -100,6 +100,7 @@ typedef struct CommandLineParser {
     bool isSubParser;
     CmdCommand **cmds;
     CmdFlag *args;
+    void *ctx;
     char error[128];
 } CmdParser;
 

@@ -47,36 +47,36 @@ static size_t alignTo(size_t size, size_t align)
     return offset != 0 ? size + align - offset : size;
 }
 
-void *allocFromMemPool(MemPool *mem_pool, size_t size)
+void *allocFromMemPool(MemPool *pool, size_t size)
 {
     if (size == 0)
         return NULL;
     size = alignTo(size, sizeof(max_align_t));
-    if (!mem_pool->cur) {
-        mem_pool->first = mem_pool->cur = allocMemBlock(NULL, size);
+    if (!pool->cur) {
+        pool->first = pool->cur = allocMemBlock(NULL, size);
     }
     else {
         // Try to re-use the next memory pools if they are appropriately sized
-        while (remainingMem(mem_pool->cur) < size) {
-            if (!mem_pool->cur->next) {
-                mem_pool->cur = allocMemBlock(mem_pool->cur, size);
+        while (remainingMem(pool->cur) < size) {
+            if (!pool->cur->next) {
+                pool->cur = allocMemBlock(pool->cur, size);
                 break;
             }
-            mem_pool->cur = mem_pool->cur->next;
-            assert(mem_pool->cur->size == 0 &&
+            pool->cur = pool->cur->next;
+            assert(pool->cur->size == 0 &&
                    "next memory pool block must have been reset");
         }
     }
-    assert(remainingMem(mem_pool->cur) >= size);
-    void *ptr = ((char *)mem_pool->cur->data) + mem_pool->cur->size;
-    mem_pool->cur->size += size;
+    assert(remainingMem(pool->cur) >= size);
+    void *ptr = ((char *)pool->cur->data) + pool->cur->size;
+    pool->cur->size += size;
     return ptr;
 }
 
-void *callocFromMemPool(MemPool *mem_pool, size_t count, size_t size)
+void *callocFromMemPool(MemPool *pool, size_t count, size_t size)
 {
     size_t total_size = count * size;
-    void *ptr = allocFromMemPool(mem_pool, total_size);
+    void *ptr = allocFromMemPool(pool, total_size);
     memset(ptr, 0, total_size);
     return ptr;
 }
@@ -143,35 +143,35 @@ void freeMemToPoolCache(MemPool *pool,
     poolCache->count++;
 }
 
-void resetMemPool(MemPool *mem_pool)
+void resetMemPool(MemPool *pool)
 {
-    MemBlock *block = mem_pool->first;
+    MemBlock *block = pool->first;
     while (block) {
         block->size = 0;
         block = block->next;
     }
-    mem_pool->cur = mem_pool->first;
+    pool->cur = pool->first;
 }
 
-void freeMemPool(MemPool *mem_pool)
+void freeMemPool(MemPool *pool)
 {
-    MemBlock *block = mem_pool->first;
+    MemBlock *block = pool->first;
     while (block) {
         MemBlock *next = block->next;
         free(block);
         block = next;
     }
-    mem_pool->first = mem_pool->cur = NULL;
-    memset(mem_pool->caches, 0, sizeof(mem_pool->caches));
-    TrackedMemoryItem *item = mem_pool->trackedAllocations.first;
+    pool->first = pool->cur = NULL;
+    memset(pool->caches, 0, sizeof(pool->caches));
+    TrackedMemoryItem *item = pool->trackedAllocations.first;
     for (; item;) {
         TrackedMemoryItem *cur = item;
         item = item->next;
         free(cur);
     }
-    mem_pool->trackedAllocations.first = mem_pool->trackedAllocations.last =
+    pool->trackedAllocations.first = pool->trackedAllocations.last =
         NULL;
-    mem_pool->trackedAllocations.allocated = 0;
+    pool->trackedAllocations.allocated = 0;
 }
 
 void getMemPoolStats(const MemPool *pool, MemPoolStats *stats)

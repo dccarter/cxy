@@ -63,6 +63,18 @@ static cstring getPluginPath(CompilerDriver *driver,
     return NULL;
 }
 
+Plugin *findPluginByPath(CompilerDriver *driver, const FileLoc *loc, cstring path)
+{
+    path = getPluginPath(driver, loc, path);
+    if (path == NULL)
+        return NULL;
+    return findInHashTable(&driver->plugins,
+                           &(Plugin){.path = path},
+                           hashStr(hashInit(), path),
+                           sizeof(Plugin),
+                           comparePlugins);
+}
+
 static cstring findCxyPluginDir(CompilerDriver *driver)
 {
     char *cxyPluginDir = getenv("CXY_PLUGINS_DIR");
@@ -144,32 +156,36 @@ Plugin *loadPlugin(CompilerDriver *driver,
         dlclose(handle);
         return NULL;
     }
-    printStatus(driver->L, "initializing plugin '{s}'", name);
+    printStatus(driver->L, "initializing plugin '{s}'", (FormatArg []){{.s = name}});
 
     plugin = callocFromMemPool(driver->pool, 1, sizeof(Plugin));
     plugin->name = name;
     plugin->path = path;
     plugin->handle = handle;
-    plugin->actions = newHashTable(sizeof(CxyPluginAction));
+    plugin->actions = newHashTable(sizeof(CxyPluginAction), driver->pool);
     plugin->types = driver->types;
     plugin->ctx.L = driver->L;
     plugin->ctx.pool = driver->pool;
     plugin->ctx.strings = driver->strings;
-
-    insertInHashTable(&driver->plugins,
-                      plugin,
-                      hashStr(hashInit(), path),
-                      sizeof(Plugin),
-                      comparePlugins);
+    plugin->driver = driver;
 
     if (!initFn(&plugin->ctx, loc)) {
         logError(driver->L,
                  loc,
                  "'{s}:pluginInit' failed",
                  (FormatArg[]){{.s = name}});
-        // handle will be closed during driver deinit;
+        dlclose(handle);
         return NULL;
     }
+
+    // Insert after initFn so that plugin state set during initialization
+    // (e.g. ip, actions, state) is captured in the hash table copy.
+    insertInHashTable(&driver->plugins,
+                      plugin,
+                      hashStr(hashInit(), path),
+                      sizeof(Plugin),
+                      comparePlugins);
+
     return plugin;
 }
 
@@ -196,10 +212,19 @@ AstNode *invokeCxyPluginAction(Plugin *plugin,
     return result;
 }
 
+Plugin *findPluginByName(CompilerDriver *driver, cstring name) {
+    HashtableIt it = newHashTableIt(&driver->plugins, sizeof(Plugin));
+    while (hashTableItHasNext(&it)) {
+        Plugin *p = hashTableItNext(&it);
+        if (p->name == name) return p;  // names are interned, == is safe
+    }
+    return NULL;
+}
+
 void pluginInit(CompilerDriver *driver)
 {
     CXY_pluginsDir = findCxyPluginDir(driver);
-    driver->plugins = newHashTable(sizeof(Plugin));
+    driver->plugins = newTempHashTable(sizeof(Plugin));
 }
 
 void pluginDeinit(CompilerDriver *driver)

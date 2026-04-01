@@ -154,7 +154,7 @@ pub struct Statement {
         return sqlite3.sqlite3_step(_stmt) == SQLITE_ROW!
     }
 
-    func column[T](index: i32 = 0): !T => readColumn[T](index)
+    func column[T](index: i32 = 0): !T => readColumn[T](_stmt, index)
 
     func read[T](): !T {
         var count = sqlite3.sqlite3_column_count(_stmt)
@@ -172,7 +172,16 @@ pub struct Statement {
             return &&res
         }
         else #if (T.isStruct) {
-            var res = T();
+            var res: T = null
+            #if T.hasDefaultInit {
+                res = T();
+            }
+            else #if !T.hasInit {
+                res = T{};
+            }
+            else {
+                error!("type `{t}` needs to be default constructible", #T)
+            }
             #for (const member: T.members, member.isField) {
                 #const sqlAttr = member.attributes.[:sql]
                 #if (sqlAttr) {
@@ -193,7 +202,7 @@ pub struct Statement {
     func `>>`[T](vec: &T): !void {
         require!(T.annotations.[:isVector], "T must be a vector type")
         while (next()) {
-            vec.push(read[T.elementType]())
+            vec.push(read[T.ElementType]())
         }
     }
 }

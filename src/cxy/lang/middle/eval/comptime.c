@@ -79,6 +79,66 @@ static inline const Type *actualType(const Type *type)
     }
 }
 
+static bool isTypeInFlight(const Type *type)
+{
+    AstNode *decl = getTypeDecl(type);
+    if (!nodeIs(decl, StructDecl) && !nodeIs(decl, StructDecl))
+        return false;
+    return decl->infligt;
+}
+
+static bool isTypePrintable(const Type *type)
+{
+    if (type == NULL || isTypeInFlight(type))
+        return false;
+    switch (type->tag) {
+    case typString:
+    case typEnum:
+    case typPrimitive:
+        return true;
+    case typPointer:
+        return isTypePrintable(type->pointer.pointed);
+    case typReference:
+        return isTypePrintable(type->reference.referred);
+    case typAlias:
+        return isTypePrintable(type->alias.aliased);
+    case typArray:
+        return isTypePrintable(type->array.elementType);
+    case typResult:
+        return isTypePrintable(getResultTargetType(type));
+    case typOptional:
+        return isTypePrintable(type->optional.target);
+    case typTuple:
+    case typUnion:
+        for (int i = 0; i < type->tuple.count; i++) {
+            if (!isTypePrintable(type->tuple.members[i]))
+                return false;
+        }
+        return true;
+    case typUntaggedUnion:
+        for (int i = 0; i < type->untaggedUnion.members->count; i++) {
+            if (!isTypePrintable(type->untaggedUnion.members->members[i].type))
+                return false;
+        }
+        return true;
+    case typStruct:
+        if (findClassMember(type, S_StringOverload) != NULL)
+            return true;
+        for (int i = 0; i < type->tStruct.members->count; i++) {
+            const AstNode *decl = type->tStruct.members->members[i].decl;
+            if (!nodeIs(decl, FieldDecl))
+                continue;
+            if (!isTypePrintable(type->tStruct.members->members[i].type))
+                return false;
+        }
+        return true;
+    case typClass:
+        return findClassMember(type, S_StringOverload) != NULL;
+    default:
+        return false;
+    }
+}
+
 static AstNode *getName(EvalContext *ctx,
                         const FileLoc *loc,
                         AstNode *node,
@@ -849,6 +909,18 @@ static AstNode *isLiteral(EvalContext *ctx,
                                   .boolLiteral.value = typeIs(type, Literal)});
 }
 
+static AstNode *isPrintable(EvalContext *ctx,
+                            const FileLoc *loc,
+                            AstNode *node,
+                            attr(unused) AstNode *args)
+{
+    const Type *type = node->type ?: evalType(ctx, node);
+    return makeAstNode(ctx->pool,
+                       loc,
+                       &(AstNode){.tag = astBoolLit,
+                                  .boolLiteral.value = isTypePrintable(type)});
+}
+
 static AstNode *hasDeinit(EvalContext *ctx,
                           const FileLoc *loc,
                           AstNode *node,
@@ -868,9 +940,9 @@ static AstNode *hasDeinit(EvalContext *ctx,
 }
 
 static AstNode *hasInit(EvalContext *ctx,
-                          const FileLoc *loc,
-                          AstNode *node,
-                          attr(unused) AstNode *args)
+                        const FileLoc *loc,
+                        AstNode *node,
+                        attr(unused) AstNode *args)
 {
 
     const Type *type = node->type ?: evalType(ctx, node);
@@ -896,16 +968,16 @@ static bool funcHasDefaultInit(const Type *type)
         return false;
     AstNode *it = decl->list.first;
     for (; it; it = it->list.link) {
-        if ( it->type->func.paramsCount == 0)
+        if (it->type->func.paramsCount == 0)
             return true;
     }
     return false;
 }
 
 static AstNode *hasDefaultInit(EvalContext *ctx,
-                              const FileLoc *loc,
-                              AstNode *node,
-                              attr(unused) AstNode *args)
+                               const FileLoc *loc,
+                               AstNode *node,
+                               attr(unused) AstNode *args)
 {
 
     const Type *type = node->type ?: evalType(ctx, node);
@@ -918,8 +990,7 @@ static AstNode *hasDefaultInit(EvalContext *ctx,
     return makeAstNode(
         ctx->pool,
         loc,
-        &(AstNode){.tag = astBoolLit,
-                   .boolLiteral.value = value});
+        &(AstNode){.tag = astBoolLit, .boolLiteral.value = value});
 }
 
 static AstNode *hasBaseType(EvalContext *ctx,
@@ -996,7 +1067,7 @@ AstNode *evalPluginMemberAccess(EvalContext *ctx,
 
 static void initDefaultMembers(EvalContext *ctx)
 {
-    defaultMembers = newHashTable(sizeof(AstNodeGetMember));
+    defaultMembers = newHashTable(sizeof(AstNodeGetMember), ctx->pool);
 #define ADD_MEMBER(name, G)                                                    \
     insertAstNodeGetter(&defaultMembers, makeString(ctx->strings, name), G)
 
@@ -1045,6 +1116,7 @@ static void initDefaultMembers(EvalContext *ctx)
     ADD_MEMBER("isAnonymousStruct", isAnonymousStruct);
     ADD_MEMBER("isResultType", isResultTypeComptime);
     ADD_MEMBER("isLiteral", isLiteral);
+    ADD_MEMBER("isPrintable", isPrintable);
     ADD_MEMBER("hasBase", hasBaseType);
     ADD_MEMBER("hasDeinit", hasDeinit);
     ADD_MEMBER("hasInit", hasInit);
@@ -1084,7 +1156,7 @@ static AstNode *getClassBase(EvalContext *ctx,
 
 static void initStructDeclMembers(EvalContext *ctx)
 {
-    structDeclMembers = newHashTable(sizeof(AstNodeGetMember));
+    structDeclMembers = newHashTable(sizeof(AstNodeGetMember), ctx->pool);
 #define ADD_MEMBER(name, G)                                                    \
     insertAstNodeGetter(&structDeclMembers, makeString(ctx->strings, name), G)
 
@@ -1104,7 +1176,7 @@ static AstNode *getStructFieldType(EvalContext *ctx,
 
 static void initStructFieldMembers(EvalContext *ctx)
 {
-    fieldDeclMembers = newHashTable(sizeof(AstNodeGetMember));
+    fieldDeclMembers = newHashTable(sizeof(AstNodeGetMember), ctx->pool);
 #define ADD_MEMBER(name, G)                                                    \
     insertAstNodeGetter(&fieldDeclMembers, makeString(ctx->strings, name), G)
 

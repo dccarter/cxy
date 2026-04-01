@@ -41,7 +41,7 @@ static inline void addOverridableBuiltin(cstring name)
 
 bool isBuiltinsInitialized() { return cxy_builtins.module != NULL; }
 
-void initializeBuiltins(Log *L)
+void initializeBuiltins(Log *L, MemPool *pool)
 {
     if (cxy_builtins.L != NULL) {
         logWarning(
@@ -51,7 +51,7 @@ void initializeBuiltins(Log *L)
     csAssert0(cxy_builtins.module == NULL);
     cxy_builtins.L = L;
     cxy_builtins.module = NULL;
-    cxy_builtins.overrides = newHashTable(sizeof(BuiltinOverride));
+    cxy_builtins.overrides = newHashTable(sizeof(BuiltinOverride), pool);
 #define f(name) addOverridableBuiltin(S_##name);
     OVERRIDABLE_BUILTINS(f)
 #undef f

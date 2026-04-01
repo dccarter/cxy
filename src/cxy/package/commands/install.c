@@ -52,7 +52,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
 
     // Initialize resolver context
     ResolverContext resolverCtx;
-    initResolverContext(&resolverCtx, strings->mem_pool, log);
+    initResolverContext(&resolverCtx, strings->pool, log);
     resolverCtx.allowDevDeps = includeDev;
 
     bool lockLoaded = false;
@@ -112,7 +112,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
                 printStatusSticky(log, " Lockfile out of sync with Cxyfile.yaml, re-resolving...");
                 lockLoaded = false;
                 freeResolverContext(&resolverCtx);
-                initResolverContext(&resolverCtx, strings->mem_pool, log);
+                initResolverContext(&resolverCtx, strings->pool, log);
                 resolverCtx.allowDevDeps = includeDev;
             }
         } else {
@@ -162,16 +162,17 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
         snprintf(buildDir, sizeof(buildDir), "%s/.cxy/build", packageDir);
     }
 
+    // Determine packages directory (used for both deps and root package install scripts)
+    char targetPackagesDir[1024];
+    if (packagesDir && packagesDir[0] != '\0') {
+        strncpy(targetPackagesDir, packagesDir, sizeof(targetPackagesDir) - 1);
+        targetPackagesDir[sizeof(targetPackagesDir) - 1] = '\0';
+    } else {
+        snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
+    }
+
     // Only install dependencies if there are any
     if (resolverCtx.resolved.size > 0) {
-        // Determine packages directory
-        char targetPackagesDir[1024];
-        if (packagesDir && packagesDir[0] != '\0') {
-            strncpy(targetPackagesDir, packagesDir, sizeof(targetPackagesDir) - 1);
-            targetPackagesDir[sizeof(targetPackagesDir) - 1] = '\0';
-        } else {
-            snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
-        }
 
         if (offline) {
             printStatusSticky(log, " Running in offline mode - using only cached packages");
@@ -210,7 +211,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
                    resolved->name,
                    resolved->isDev ? " (dev)" : "");
 
-        if (installDependency(&dep, targetPackagesDir, strings->mem_pool, log, false, options->package.verbose)) {
+        if (installDependency(&dep, targetPackagesDir, strings->pool, log, false, options->package.verbose)) {
             successCount++;
 
             // Get commit hash and checksum after installation
@@ -220,14 +221,14 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
             // Get current commit if not already set
             if (!resolved->commit && resolved->repository) {
                 cstring commit = NULL;
-                if (gitGetCurrentCommit(installedPath, &commit, strings->mem_pool, log)) {
+                if (gitGetCurrentCommit(installedPath, &commit, strings->pool, log)) {
                     resolved->commit = commit;
                 }
             }
 
             // Calculate checksum
             cstring checksum = NULL;
-            if (gitCalculateChecksum(installedPath, &checksum, strings->mem_pool, log)) {
+            if (gitCalculateChecksum(installedPath, &checksum, strings->pool, log)) {
                 resolved->checksum = checksum;
             }
 
@@ -240,7 +241,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
                                      (includeDev && depMeta.installDev.size > 0);
                 if (depHasScripts) {
                     printStatusSticky(log, "Running install scripts for '%s'...", resolved->name);
-                    if (!executeInstallScripts(&depMeta, depDir, buildDir, includeDev,
+                    if (!executeInstallScripts(&depMeta, depDir, targetPackagesDir, buildDir, includeDev,
                                                strings, log, options->package.verbose)) {
                         logWarning(log, NULL, "install scripts for '{s}' failed",
                                   (FormatArg[]){{.s = resolved->name}});
@@ -293,7 +294,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
          */
         if (options->package.verify) {
             printStatusSticky(log, "Verifying installed packages against lock file...");
-            bool ok = verifyLockFile(lockfilePath, targetPackagesDir, strings->mem_pool, log);
+            bool ok = verifyLockFile(lockfilePath, targetPackagesDir, strings->pool, log);
             if (!ok) {
                 logError(log, NULL, "lockfile verification failed", NULL);
                 freeResolverContext(&resolverCtx);
@@ -310,7 +311,7 @@ bool packageInstallCommand(const Options *options, StrPool *strings, Log *log)
         printStatusSticky(log, "");
         printStatusSticky(log, "Running install scripts...");
 
-        if (!executeInstallScripts(&meta, packageDir, buildDir, includeDev, strings, log, options->package.verbose)) {
+        if (!executeInstallScripts(&meta, packageDir, targetPackagesDir, buildDir, includeDev, strings, log, options->package.verbose)) {
             logError(log, NULL, "install scripts failed", NULL);
             freeResolverContext(&resolverCtx);
             free(packageDir);

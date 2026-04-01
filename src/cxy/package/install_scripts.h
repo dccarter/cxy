@@ -36,6 +36,7 @@ typedef struct Log Log;
  */
 bool executeInstallScripts(const PackageMetadata *meta,
                            const char *packageDir,
+                           const char *packagesDir,
                            const char *buildDir,
                            bool includeDev,
                            StrPool *strings,

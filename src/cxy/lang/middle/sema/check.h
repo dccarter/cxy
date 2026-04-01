@@ -52,7 +52,6 @@ typedef struct {
             cstring cls;
             cstring mod;
             cstring path;
-
             bool shallow;
             bool explicitCatch;
         };
@@ -66,6 +65,11 @@ typedef struct {
         AstNode *expr;
     } catcher;
 } TypingContext;
+
+typedef struct CallArgs {
+    const Type *type;
+    const AstNode *node;
+} CallArgs;
 
 const FileLoc *manyNodesLoc_(FileLoc *dst, AstNode *nodes);
 #define manyNodesLoc(nodes) manyNodesLoc_(&(FileLoc){}, (nodes))

@@ -233,6 +233,79 @@ bool getFileModTime(const char *path, u64 *mtime, Log *log)
     return true;
 }
 
+bool isPluginUpToDate(const char *entryFile,
+                      const DynArray *inputs,
+                      const char *packageDir,
+                      const char *outputFile,
+                      const DynArray *builtins,
+                      struct StrPool *strings,
+                      Log *log,
+                      bool *upToDate)
+{
+    *upToDate = false;
+
+    // If the output doesn't exist, rebuild unconditionally
+    u64 outputMtime;
+    if (!getFileModTime(outputFile, &outputMtime, log))
+        return true;
+
+    // Find the latest mtime across all inputs, starting with the entry file
+    u64 latestInputMtime = 0;
+
+    u64 entryMtime;
+    if (!getFileModTime(entryFile, &entryMtime, log)) {
+        // Entry file missing — let the build fail with a proper error
+        return true;
+    }
+    latestInputMtime = entryMtime;
+
+    // Expand and check any additional glob patterns
+    if (inputs != NULL && inputs->size > 0) {
+        // Substitute {{VAR}} in each pattern before glob expansion
+        static const DynArray emptyEnv = {0};
+        DynArray substituted = newDynArray(sizeof(cstring));
+        for (u32 i = 0; i < inputs->size; i++) {
+            cstring pattern = ((cstring *)inputs->elems)[i];
+            cstring resolved = substituteEnvVars(pattern, &emptyEnv, builtins, strings, log);
+            pushOnDynArray(&substituted, resolved ? &resolved : &pattern);
+        }
+
+        DynArray expanded = newDynArray(sizeof(cstring));
+        bool ok = expandInputGlobs(&substituted, packageDir, &expanded, strings, log);
+        freeDynArray(&substituted);
+
+        if (!ok) {
+            freeDynArray(&expanded);
+            return false;
+        }
+
+        for (u32 i = 0; i < expanded.size; i++) {
+            cstring file = ((cstring *)expanded.elems)[i];
+            char fullPath[2048];
+            if (file[0] == '/') {
+                strncpy(fullPath, file, sizeof(fullPath) - 1);
+                fullPath[sizeof(fullPath) - 1] = '\0';
+            } else {
+                snprintf(fullPath, sizeof(fullPath), "%s/%s", packageDir, file);
+            }
+
+            u64 mtime;
+            if (!getFileModTime(fullPath, &mtime, log)) {
+                // Missing input — treat as dirty
+                freeDynArray(&expanded);
+                return true;
+            }
+            if (mtime > latestInputMtime)
+                latestInputMtime = mtime;
+        }
+        freeDynArray(&expanded);
+    }
+
+    // Up to date if the output is strictly newer than every input
+    *upToDate = outputMtime > latestInputMtime;
+    return true;
+}
+
 bool checkScriptCacheWithEnv(const PackageScript *script,
                              const char *packageDir,
                              const DynArray *envVars,

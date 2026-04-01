@@ -29,7 +29,7 @@ static void quietDiagnosticHandler(const Diagnostic* diagnostic, void* ctx) {
  * Create a test log with quiet handler
  */
 static Log createTestLog() {
-    Log log = newLog(quietDiagnosticHandler, nullptr);
+    Log log = newLog(nullptr, quietDiagnosticHandler, nullptr);
     log.maxErrors = 100;
     log.ignoreStyles = true;
     return log;

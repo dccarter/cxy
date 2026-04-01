@@ -12,9 +12,10 @@ int main(int argc, char **argv)
 {
     FormatState state = newFormatState("    ", !isColorSupported(stderr));
     CompilerDriver driver = {.cxyBinaryPath = argv[0]};
-    Log log = newLog(NULL, NULL);
     MemPool pool = newMemPool();
+    Log log = newLog(&pool, NULL, NULL);
     StrPool strings = newStrPool(&pool);
+    driver.options.strings = &strings;
 
     bool status = true;
 
@@ -33,7 +34,7 @@ int main(int argc, char **argv)
         goto exit;
     case _cmdHelp:
     case _cmdCompletion:
-        goto  exit;
+        goto exit;
     default:
         break;
     }
@@ -43,7 +44,8 @@ int main(int argc, char **argv)
         goto exit;
     }
 
-    dynArrayFor(source, cstring, &driver.options.sources) {
+    dynArrayFor(source, cstring, &driver.options.sources)
+    {
         if (driver.options.cmd == cmdBuild && driver.options.build.plugin)
             status &= compilePlugin(source[0], &driver);
         else

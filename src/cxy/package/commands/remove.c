@@ -176,7 +176,7 @@ bool packageRemoveCommand(const Options *options, StrPool *strings, Log *log)
     printStatusSticky(log, "  Regenerating Cxyfile.lock...");
     
     ResolverContext resolverCtx;
-    initResolverContext(&resolverCtx, strings->mem_pool, log);
+    initResolverContext(&resolverCtx, strings->pool, log);
     resolverCtx.allowDevDeps = true;
     
     if (resolveDependencies(&resolverCtx, &meta)) {

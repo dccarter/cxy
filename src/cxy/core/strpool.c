@@ -10,13 +10,13 @@
 #include <stdarg.h>
 #include <string.h>
 
-StrPool newStrPool(MemPool *mem_pool)
+StrPool newStrPool(MemPool *pool)
 {
-    return (StrPool){.mem_pool = mem_pool,
-                     .hash_table = newHashTable(sizeof(char *))};
+    return (StrPool){.pool = pool,
+                     .table = newHashTable(sizeof(char *), pool)};
 }
 
-void freeStrPool(StrPool *str_pool) { freeHashTable(&str_pool->hash_table); }
+void freeStrPool(StrPool *str_pool) { freeHashTable(&str_pool->table); }
 
 typedef struct {
     const char *s;
@@ -75,15 +75,15 @@ const char *makeStringSized(StrPool *pool, const char *str, u64 len)
     uint32_t hash = hashRawBytes(hashInit(), str, len);
     SizedString s = {.s = str, .len = len};
     char **strPtr = findInHashTable(
-        &pool->hash_table, &s, hash, sizeof(char *), compareStrFind);
+        &pool->table, &s, hash, sizeof(char *), compareStrFind);
     if (strPtr)
         return *strPtr;
 
-    char *newStr = allocFromMemPool(pool->mem_pool, len + 1);
+    char *newStr = allocFromMemPool(pool->pool, len + 1);
     memcpy(newStr, str, len);
     newStr[len] = 0;
     if (!insertInHashTable(
-            &pool->hash_table, &newStr, hash, sizeof(char *), compareStrInsert))
+            &pool->table, &newStr, hash, sizeof(char *), compareStrInsert))
         assert(false && "cannot insert string in string pool");
     return newStr;
 }

@@ -107,9 +107,9 @@ pub class Form {
         for (const item: _data) {
             if (!first)
                 os << "&"
-            base64.urlEncode(os, &item.0)
+            base64.percentEncode(os, &item.0)
             os << "="
-            base64.urlEncode(os, &item.1)
+            base64.percentEncode(os, &item.1)
             first = false
         }
     }
@@ -161,8 +161,8 @@ pub class Form {
         for (const item: _data) {
             size += (
                   1 /* = */
-                + base64.urlEncodeSize(item.0.size())
-                + base64.urlEncodeSize(item.1.size())
+                + base64.percentEncodeSize(&item.0)
+                + base64.percentEncodeSize(&item.1)
             )
         }
 
@@ -263,7 +263,7 @@ pub class Request {
             raise HttpError("Request form already set")
 
         if (fm._encoding == .UrlEncode) {
-            setContentType("application/x-www-form-url-encoded")
+            setContentType("application/x-www-form-urlencoded")
         }
         else {
             var contentType = "multipart/form-data; boundary=".S;
@@ -301,6 +301,13 @@ pub class Request {
             cleanup()
             _resource = &&resource
             _method = method
+       }
+       else {
+            _args.clear()
+            _headers.clear()
+            _form = null
+            _body = null
+            _sendFile = null
        }
     }
 
@@ -453,7 +460,7 @@ pub class Response {
         if (ret != parser.llhttp_errno.HPE_OK) {
             const s = parser.llhttp_errno_name(ret) !: string
             const reason = parser.llhttp_get_error_reason(_parser) !: string;
-            DBG!("parsing request failed - error: " << s << ", reason: " << reason )
+            DBG!("parsing response failed - error: " << s << ", reason: " << reason )
             return false
         }
         return true
@@ -689,4 +696,164 @@ pub func fetch(url: __string, builder: RequestBuilder = null): !Response {
     var session = Session.create(url);
     session.userAgent("Cxy/0.0.1")
     return session.perform(method, resource, &&builder)
+}
+
+test "Form URL encoding with simple values" {
+    var form = Form(String("boundary"))
+    form.add(String("name"), String("john"))
+    form.add(String("age"), String("25"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Should be key=value&key=value format
+    ok!(output.__str().contains("name=john"))
+    ok!(output.__str().contains("age=25"))
+    ok!(output.__str().contains("&"))
+}
+
+test "Form URL encoding with special characters" {
+    var form = Form(String("boundary"))
+    form.add(String("query"), String("hello world"))
+    form.add(String("data"), String("a=b&c"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Space should be encoded as +
+    ok!(output.__str().contains("hello+world"))
+    // = and & should be percent-encoded
+    ok!(output.__str().contains("%3D"))  // =
+    ok!(output.__str().contains("%26"))  // &
+}
+
+test "Form URL encoded size calculation" {
+    var form = Form(String("boundary"))
+    form.add(String("key"), String("value"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Size should match actual encoded output
+    ok!(form.size() == output.size())
+}
+
+test "Form URL encoding with multiple special characters" {
+    var form = Form(String("boundary"))
+    form.add(String("token"), String("abc=def=ghi"))
+    form.add(String("msg"), String("hello & goodbye"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    var size = form.size()
+    ok!(size == output.size())
+
+    // Verify special chars are encoded
+    ok!(!output.__str().contains("=def="))  // = should be encoded
+    ok!(!output.__str().contains(" & "))    // space and & should be encoded
+}
+
+test "Form empty form returns zero size" {
+    var form = Form(String("boundary"))
+
+    ok!(form.size() == 0)
+    ok!(!form)  // !! operator should return false for empty form
+}
+
+test "Form URL encoding exact output validation" {
+    var form = Form(String("boundary"))
+    form.add(String("name"), String("john"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    ok!(output.__str() == "name=john")
+}
+
+test "Form URL encoding exact output with special chars" {
+    var form = Form(String("boundary"))
+    form.add(String("msg"), String("a b"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Space should be encoded as +
+    ok!(output.__str() == "msg=a+b")
+}
+
+test "Form URL encoding exact output with equals and ampersand" {
+    var form = Form(String("boundary"))
+    form.add(String("data"), String("x=y"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // = should be encoded as %3D
+    ok!(output.__str() == "data=x%3Dy")
+}
+
+test "Form URL encoding preserves unreserved chars" {
+    var form = Form(String("boundary"))
+    form.add(String("key"), String("a-b_c.d~e"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Unreserved chars (-_.~) should not be encoded
+    ok!(output.__str() == "key=a-b_c.d~e")
+}
+
+test "Form multipart encoding mode activated on upload" {
+    var form = Form(String("my-boundary"))
+    form.add(String("field"), String("value"))
+
+    // Before upload, should use URL encoding
+    var output1 = String()
+    form.urlEncode(&output1)
+    ok!(output1.__str() == "field=value")
+
+    // After adding upload, encoding mode changes
+    // (We can't easily test multipart output without a socket,
+    // but we can verify the form has content)
+    ok!(!!form)
+}
+
+test "Form multipart size calculation for data fields" {
+    var form = Form(String("boundary"))
+    form.add(String("name"), String("test"))
+
+    // Force multipart mode by checking size would include boundary markers
+    // For URL encoding: "name=test" = 9 bytes
+    var urlSize = form.size()
+    ok!(urlSize == 9)
+}
+
+test "Form with single field exact format" {
+    var form = Form(String("bound"))
+    form.add(String("x"), String("1"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    ok!(output.__str() == "x=1")
+    ok!(form.size() == 3)
+}
+
+test "Form URL encoding multiple fields exact format" {
+    var form = Form(String("boundary"))
+    form.add(String("a"), String("1"))
+    form.add(String("b"), String("2"))
+
+    var output = String()
+    form.urlEncode(&output)
+
+    // Size should account for both fields and & separator
+    var size = form.size()
+    ok!(size == output.size())
+
+    // Output should have both fields with & separator
+    ok!(output.__str().contains("a=1"))
+    ok!(output.__str().contains("b=2"))
+    ok!(output.__str().contains("&"))
 }

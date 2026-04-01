@@ -490,7 +490,7 @@ static bool countTypesWrapper(void *ctx, const void *elem)
 TypeTable *newTypeTable(MemPool *pool, StrPool *strPool)
 {
     TypeTable *table = callocOrDie(1, sizeof(TypeTable));
-    table->types = newHashTable(sizeof(Type *));
+    table->types = newHashTable(sizeof(Type *), pool);
     table->strPool = strPool;
     table->memPool = pool;
     table->typeCount = 0;

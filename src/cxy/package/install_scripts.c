@@ -9,6 +9,8 @@
  */
 
 #include "package/install_scripts.h"
+#include "package/cache.h"
+#include "package/env.h"
 #include "package/types.h"
 #include "core/log.h"
 #include "core/format.h"
@@ -21,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -72,10 +75,95 @@ static bool parseOutputLine(const char *line, DynArray *flags, StrPool *strings)
 static bool executeInstallScript(const PackageInstallScript *script,
                                  const char *packageDir,
                                  DynArray *flags,
+                                 const DynArray *builtins,
                                  StrPool *strings,
                                  Log *log,
                                  bool verbose)
 {
+    // Plugin build path — compile a .c file into a shared library via cxy build --plugin
+    if (script->isPlugin) {
+        static const DynArray emptyEnv = {0};
+
+        // Resolve entry path (may contain {{VAR}} references)
+        cstring entry = substituteEnvVars(script->pluginEntry, &emptyEnv, builtins, strings, log);
+        if (!entry) {
+            logError(log, NULL, "failed to substitute variables in plugin entry for '{s}'",
+                    (FormatArg[]){{.s = script->name}});
+            return false;
+        }
+
+        // Find BUILD_DIR from builtins for the output path
+        cstring buildDir = NULL;
+        for (u32 i = 0; i < builtins->size; i++) {
+            const EnvVar *v = &((const EnvVar *)builtins->elems)[i];
+            if (strcmp(v->name, "BUILD_DIR") == 0) {
+                buildDir = v->value;
+                break;
+            }
+        }
+
+        // Check if the plugin is already up to date before building
+        if (buildDir && buildDir[0] != '\0') {
+            char outputFile[2048];
+            snprintf(outputFile, sizeof(outputFile), "%s/plugins/%s", buildDir, script->name);
+
+            char entryFile[2048];
+            snprintf(entryFile, sizeof(entryFile), "%s/%s", packageDir, entry);
+
+            bool upToDate = false;
+            if (isPluginUpToDate(entryFile, &script->pluginInputs, packageDir,
+                                 outputFile, builtins, strings, log, &upToDate)
+                && upToDate) {
+                if (verbose) {
+                    printf("     " cYLW "⊙" cDEF " Plugin '%s' is up to date, skipping build\n",
+                           script->name);
+                    fflush(stdout);
+                }
+                return true;
+            }
+        }
+
+        // Build the full entry path (relative to packageDir)
+        FormatState cmdState = newFormatState(NULL, true);
+        format(&cmdState, "cxy build --plugin {s}/{s} --no-progress",
+               (FormatArg[]){{.s = packageDir}, {.s = entry}});
+
+        // Output name only (-o name); build-dir controls where the file lands
+        // (cxy build --plugin rejects absolute -o paths)
+        format(&cmdState, " -o {s}", (FormatArg[]){{.s = script->name}});
+        if (buildDir && buildDir[0] != '\0') {
+            format(&cmdState, " --build-dir {s}", (FormatArg[]){{.s = buildDir}});
+        }
+
+        // Append any extra args (each may contain {{VAR}} references)
+        for (u32 i = 0; i < script->pluginArgs.size; i++) {
+            cstring rawArg = ((cstring *)script->pluginArgs.elems)[i];
+            cstring arg = substituteEnvVars(rawArg, &emptyEnv, builtins, strings, log);
+            format(&cmdState, " {s}", (FormatArg[]){{.s = arg ? arg : rawArg}});
+        }
+
+        char *cmd = formatStateToString(&cmdState);
+        freeFormatState(&cmdState);
+
+        char header[2048];
+        if (verbose)
+            snprintf(header, sizeof(header), "Building plugin " cCYN "'\033[3m%s\033[0m'", cmd);
+        else
+            snprintf(header, sizeof(header), "Building plugin '%s'", script->name);
+        bool success = runCommandWithProgressFull(header, cmd, log, verbose);
+        free(cmd);
+
+        if (!success && script->required) {
+            logError(log, NULL, "required plugin build '{s}' failed",
+                    (FormatArg[]){{.s = script->name}});
+        } else if (!success) {
+            logWarning(log, NULL, "optional plugin build '{s}' failed",
+                      (FormatArg[]){{.s = script->name}});
+            return true; // optional failure is not fatal
+        }
+        return success;
+    }
+
     char originalDir[1024];
     if (!getcwd(originalDir, sizeof(originalDir))) {
         logError(log, NULL, "failed to get current directory", NULL);
@@ -89,10 +177,24 @@ static bool executeInstallScript(const PackageInstallScript *script,
         return false;
     }
 
+    // Substitute {{VAR}} placeholders in the script path/content
+    static const DynArray emptyEnv = {0};
+    cstring scriptContent = substituteEnvVars(script->script, &emptyEnv, builtins, strings, log);
+    if (!scriptContent) {
+        logError(log, NULL, "failed to substitute variables in install script '{s}'",
+                (FormatArg[]){{.s = script->name}});
+        chdir(originalDir);
+        return false;
+    }
+
+    // Expose builtins as real environment variables so the shell script can
+    // access them as $BUILD_DIR, $PACKAGE_DIR, $PACKAGE_SOURCE_DIR, etc.
+    setScriptEnvironment(&emptyEnv, builtins, log);
+
     // Check if script is a file path or inline script
     bool isFilePath = false;
     struct stat st;
-    if (stat(script->script, &st) == 0 && S_ISREG(st.st_mode)) {
+    if (stat(scriptContent, &st) == 0 && S_ISREG(st.st_mode)) {
         isFilePath = true;
     }
 
@@ -102,7 +204,7 @@ static bool executeInstallScript(const PackageInstallScript *script,
 
     if (isFilePath) {
         snprintf(command, sizeof(command), "chmod +x '%s' && '%s'",
-                script->script, script->script);
+                scriptContent, scriptContent);
     } else {
         // Write inline script to a temp file to avoid newline/quoting issues
         snprintf(tmpScriptPath, sizeof(tmpScriptPath), "/tmp/cxy-install-%d.sh", getpid());
@@ -110,10 +212,11 @@ static bool executeInstallScript(const PackageInstallScript *script,
         if (!tmpFp) {
             logError(log, NULL, "failed to create temp script file for '{s}'",
                     (FormatArg[]){{.s = script->name}});
+            clearScriptEnvironment(&emptyEnv, builtins);
             chdir(originalDir);
             return false;
         }
-        fprintf(tmpFp, "#!/bin/sh\nset -e\n%s\n", script->script);
+        fprintf(tmpFp, "#!/bin/sh\nset -e\n%s\n", scriptContent);
         fclose(tmpFp);
         chmod(tmpScriptPath, 0700);
         snprintf(command, sizeof(command), "/bin/sh '%s'", tmpScriptPath);
@@ -124,6 +227,7 @@ static bool executeInstallScript(const PackageInstallScript *script,
     if (!fp) {
         logError(log, NULL, "failed to execute script for '{s}'",
                 (FormatArg[]){{.s = script->name}});
+        clearScriptEnvironment(&emptyEnv, builtins);
         chdir(originalDir);
         return false;
     }
@@ -144,11 +248,12 @@ static bool executeInstallScript(const PackageInstallScript *script,
     int status = pclose(fp);
     int exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
-    // Restore original directory and clean up temp script
+    // Restore original directory, clean up temp script, and clear env vars
     chdir(originalDir);
     if (tmpScriptPath[0] != '\0') {
         unlink(tmpScriptPath);
     }
+    clearScriptEnvironment(&emptyEnv, builtins);
 
     if (exitCode != 0) {
         if (script->required) {
@@ -350,6 +455,7 @@ static bool writeInstallYaml(const char *buildDir,
  */
 bool executeInstallScripts(const PackageMetadata *meta,
                            const char *packageDir,
+                           const char *packagesDir,
                            const char *buildDir,
                            bool includeDev,
                            StrPool *strings,
@@ -360,6 +466,50 @@ bool executeInstallScripts(const PackageMetadata *meta,
         // No install scripts to run
         return true;
     }
+
+    // Resolve packagesDir to an absolute path so $PACKAGE_DIR is always
+    // absolute regardless of how the caller constructed the path.
+    // realpath(3) requires the path to exist; if it doesn't yet (fresh
+    // install before the directory is created) we fall back to manually
+    // prepending the current working directory.
+    char absolutePackagesDir[PATH_MAX];
+    if (realpath(packagesDir, absolutePackagesDir) == NULL) {
+        if (packagesDir[0] != '/') {
+            char cwd[PATH_MAX];
+            if (getcwd(cwd, sizeof(cwd)) != NULL) {
+                snprintf(absolutePackagesDir, sizeof(absolutePackagesDir),
+                         "%s/%s", cwd, packagesDir);
+            } else {
+                // Last resort: use as-is
+                strncpy(absolutePackagesDir, packagesDir, sizeof(absolutePackagesDir) - 1);
+                absolutePackagesDir[sizeof(absolutePackagesDir) - 1] = '\0';
+            }
+        } else {
+            strncpy(absolutePackagesDir, packagesDir, sizeof(absolutePackagesDir) - 1);
+            absolutePackagesDir[sizeof(absolutePackagesDir) - 1] = '\0';
+        }
+    }
+
+    // Build builtins available to all install scripts:
+    //   BUILD_DIR          - root package's build output directory
+    //   PACKAGE_DIR        - root package's installed-packages directory (always absolute)
+    //   PACKAGE_SOURCE_DIR - directory of the package whose scripts are running
+    DynArray builtins = newDynArray(sizeof(EnvVar));
+    EnvVar buildDirVar = {
+        .name  = makeString(strings, "BUILD_DIR"),
+        .value = makeString(strings, buildDir),
+    };
+    pushOnDynArray(&builtins, &buildDirVar);
+    EnvVar packageDirVar = {
+        .name  = makeString(strings, "PACKAGE_DIR"),
+        .value = makeString(strings, absolutePackagesDir),
+    };
+    pushOnDynArray(&builtins, &packageDirVar);
+    EnvVar sourceDirVar = {
+        .name  = makeString(strings, "PACKAGE_SOURCE_DIR"),
+        .value = makeString(strings, packageDir),
+    };
+    pushOnDynArray(&builtins, &sourceDirVar);
 
     DynArray allFlags = newDynArray(sizeof(cstring));
 
@@ -377,7 +527,7 @@ bool executeInstallScripts(const PackageMetadata *meta,
                     script->required ? "required" : "optional");
             fflush(stdout);
 
-            if (executeInstallScript(script, packageDir, &allFlags, strings, log, verbose)) {
+            if (executeInstallScript(script, packageDir, &allFlags, &builtins, strings, log, verbose)) {
                 successCount++;
                 if (!verbose) {
                     printf("\033[1A\033[2K " cBGRN "✔" cDEF " [%u/%u] %s " cWHT "(%s)\n" cDEF,
@@ -425,7 +575,7 @@ bool executeInstallScripts(const PackageMetadata *meta,
                     script->required ? "required" : "optional");
             fflush(stdout);
 
-            if (executeInstallScript(script, packageDir, &allFlags, strings, log, verbose)) {
+            if (executeInstallScript(script, packageDir, &allFlags, &builtins, strings, log, verbose)) {
                 successCount++;
                 if (!verbose) {
                     printf("\r\033[K " cBGRN "✔" cDEF " [%u/%u] %s " cYLW "(dev, %s)" cDEF "\n",
@@ -463,7 +613,7 @@ bool executeInstallScripts(const PackageMetadata *meta,
     }
 
 cleanup:
-    ;  // Empty statement required after label in C99
+    freeDynArray(&builtins);
 
     if (failCount == 0) {
         // Generate .install.yaml or .install.dev.yaml

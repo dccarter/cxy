@@ -15,7 +15,7 @@ ParserTestFixture::ParserTestFixture()
     : pool_(), strings_(newStrPool(pool_.get()))
 {
     // Initialize log with quiet handler for tests
-    log_ = newLog(quietDiagnosticHandler, this);
+    log_ = newLog(nullptr, quietDiagnosticHandler, this);
 
     // Initialize compiler driver with minimal setup
     memset(&driver_, 0, sizeof(driver_));

@@ -336,7 +336,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
     snprintf(lockfilePath, sizeof(lockfilePath), "%s/Cxyfile.lock", packageDir);
 
     ResolverContext lockCtx;
-    initResolverContext(&lockCtx, strings->mem_pool, log);
+    initResolverContext(&lockCtx, strings->pool, log);
 
     if (!loadLockFile(lockfilePath, &lockCtx)) {
         logError(log, NULL, "failed to load lock file: {s}. Run 'cxy package install' first.",
@@ -361,7 +361,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
         UpdateCandidate candidate;
 
         if (checkPackageForUpdate(packageName, &meta, &lockCtx, latest, includeDev,
-                                  &candidate, strings->mem_pool, log)) {
+                                  &candidate, strings->pool, log)) {
             pushOnDynArray(&candidates, &candidate);
         } else {
             allValid = false;
@@ -431,7 +431,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
     snprintf(targetPackagesDir, sizeof(targetPackagesDir), "%s/.cxy/packages", packageDir);
 
     // Perform the updates
-    bool success = performUpdates(&candidates, targetPackagesDir, strings->mem_pool, log, options->package.verbose);
+    bool success = performUpdates(&candidates, targetPackagesDir, strings->pool, log, options->package.verbose);
 
     if (success && updatesAvailable > 0) {
         // Regenerate lock file with updated versions
@@ -439,7 +439,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
 
         // Create new resolver context for fresh resolution
         ResolverContext newCtx;
-        initResolverContext(&newCtx, strings->mem_pool, log);
+        initResolverContext(&newCtx, strings->pool, log);
         newCtx.allowDevDeps = true; // Always include dev deps for lockfile generation
 
         if (resolveDependencies(&newCtx, &meta)) {
@@ -453,7 +453,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
                 // Get current commit
                 if (resolved->repository && !resolved->commit) {
                     cstring commit = NULL;
-                    if (gitGetCurrentCommit(installedPath, &commit, strings->mem_pool, log)) {
+                    if (gitGetCurrentCommit(installedPath, &commit, strings->pool, log)) {
                         resolved->commit = commit;
                     }
                 }
@@ -461,7 +461,7 @@ bool packageUpdateCommand(const Options *options, StrPool *strings, Log *log)
                 // Calculate checksum
                 if (!resolved->checksum) {
                     cstring checksum = NULL;
-                    if (gitCalculateChecksum(installedPath, &checksum, strings->mem_pool, log)) {
+                    if (gitCalculateChecksum(installedPath, &checksum, strings->pool, log)) {
                         resolved->checksum = checksum;
                     }
                 }

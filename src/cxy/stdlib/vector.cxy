@@ -5,7 +5,7 @@ macro DEFAULT_VECTOR_CAPACITY <u64>16
 pub class Vector[T] {
     `noComparator = true;
     `isVector = true;
-    type elementType = T;
+    type ElementType = T;
 
     - _data: ^T
     - _size: u64
@@ -108,6 +108,18 @@ pub class Vector[T] {
         _data.[index] = &&value
     }
 
+    @inline
+    func back() {
+        assert!(_size > 0)
+        return &_data.[_size - 1]
+    }
+
+    @inline
+    func front() {
+        assert!(_size > 0)
+        return &_data.[0]
+    }
+
     func removeAt(index: i32) {
         assert!(index < _size)
         delete _data.[index]
@@ -208,10 +220,7 @@ pub class Vector[T] {
         }
     }
 
-    #if ( !T.isPointer && !T.isUnresolved && (
-            !(T.isStruct || T.isClass) ||
-                has_member!(#T, "op__str", #const func(_: &OutputStream) -> void)
-    ) ) {
+    #if ( T.isPrintable ) {
         const func `str`(sb: &OutputStream) {
             sb << '['
             for (var i: 0.._size) {

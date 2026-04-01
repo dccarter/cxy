@@ -133,7 +133,10 @@ static bool validateOperatorOverloadArguments(ShakeAstContext *ctx,
 #define f(OP, _0, _1, STR, ...)                                                \
     case op##OP:                                                               \
         return reportIfUnexpectedNumberOfParameters(                           \
-            ctx, &node->loc, STR, count,                                       \
+            ctx,                                                               \
+            &node->loc,                                                        \
+            STR,                                                               \
+            count,                                                             \
             (op == opRange || op == opIs) ? 0 : 1);
         AST_BINARY_EXPR_LIST(f)
 #undef f
@@ -183,6 +186,7 @@ static bool validateOperatorOverloadArguments(ShakeAstContext *ctx,
 
     case opCallOverload:
     case opInitOverload:
+    case opCopyOverload:
         return true;
 
     default:
@@ -540,25 +544,25 @@ static void shakeWhileStmt(AstVisitor *visitor, AstNode *node)
                        .blockStmt = {.stmts = node->whileStmt.body}});
     }
 
-    if (cond && !isLiteralExpr(cond)) {
-        // if (cond) { body} else { break }
-        node->whileStmt.body = makeBlockStmt(
-            ctx->pool,
-            &node->loc,
-            makeIfStmt(ctx->pool,
-                       &cond->loc,
-                       flgNone,
-                       cond,
-                       node->whileStmt.body,
-                       makeAstNode(ctx->pool,
-                                   builtinLoc(),
-                                   &(AstNode){.tag = astBreakStmt}),
-                       NULL),
-            NULL,
-            NULL);
-        node->whileStmt.cond =
-            makeBoolLiteral(ctx->pool, builtinLoc(), true, NULL, NULL);
-    }
+    // if (cond && !isLiteralExpr(cond)) {
+    //     // if (cond) { body} else { break }
+    //     node->whileStmt.body = makeBlockStmt(
+    //         ctx->pool,
+    //         &node->loc,
+    //         makeIfStmt(ctx->pool,
+    //                    &cond->loc,
+    //                    flgNone,
+    //                    cond,
+    //                    node->whileStmt.body,
+    //                    makeAstNode(ctx->pool,
+    //                                builtinLoc(),
+    //                                &(AstNode){.tag = astBreakStmt}),
+    //                    NULL),
+    //         NULL,
+    //         NULL);
+    //     node->whileStmt.cond =
+    //         makeBoolLiteral(ctx->pool, builtinLoc(), true, NULL, NULL);
+    // }
     astVisit(visitor, node->whileStmt.body);
 }
 
@@ -893,7 +897,8 @@ static void shakeGenericDecl(AstVisitor *visitor, AstNode *node)
             }
         }
     }
-    else if (decl->funcDecl.operatorOverload != opInvalid && decl->funcDecl.operatorOverload != opIs) {
+    else if (decl->funcDecl.operatorOverload != opInvalid &&
+             decl->funcDecl.operatorOverload != opIs) {
         logError(ctx->L,
                  &node->loc,
                  "unsupported generic function overload, must be inferrable",

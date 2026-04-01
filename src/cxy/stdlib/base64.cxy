@@ -251,3 +251,135 @@ pub func urlDecode[T](os: &OutputStream, value: &const T) : !void {
         error!("Type {t} is currently unsupported", #T)
     }
 }
+
+func _hexCharToValue(c: char): i8 {
+    if (c >= '0' && c <= '9') {
+        return (c - '0') as i8
+    } else if (c >= 'a' && c <= 'f') {
+        return (c - 'a' + 10) as i8
+    } else if (c >= 'A' && c <= 'F') {
+        return (c - 'A' + 10) as i8
+    }
+    return -1
+}
+
+// URL percent-encoding for query parameters (application/x-www-form-urlencoded)
+pub func percentEncodeBuffer(os: &OutputStream, buf: ^const void, size: u64) {
+    var p = buf !: ^const u8
+    const hexChars = "0123456789ABCDEF"
+
+    for i: 0..size {
+        var c = p.[i]
+        // Encode: space as '+', and non-alphanumeric chars (except -_.~) as %XX
+        if c == ' '`u8 {
+            os << '+'
+        } else if ((c >= 'A'`u8 && c <= 'Z'`u8) ||
+                   (c >= 'a'`u8 && c <= 'z'`u8) ||
+                   (c >= '0'`u8 && c <= '9'`u8) ||
+                   c == '-'`u8 || c == '_'`u8 || c == '.'`u8 || c == '~'`u8) {
+            os << <char>c
+        } else {
+            os << '%'
+            os << hexChars.[c >> 4]
+            os << hexChars.[c & 0x0F]
+        }
+    }
+}
+
+pub func percentEncode[T](os: &OutputStream, value: &const T) {
+    require!(T.isString, "Type {t} must a string, use percentEncodeBuffer instead", #T)
+    #if (T.isStruct) {
+        percentEncodeBuffer(os, value.data(), value.size())
+    }
+    else #if (T.isClass) {
+        if (value != null)
+            percentEncodeBuffer(os, value.data(), value.size())
+    }
+    else {
+        if (value != null)
+            percentEncodeBuffer(os, value !: ^const void, len!(value))
+    }
+}
+
+pub func percentEncodeSizeBuffer(buf: ^const void, size: u64) {
+    var p = buf !: ^const u8
+    var encodedSize = 0`u64
+
+    for i: 0..size {
+        var c = p.[i]
+        // Space → 1 byte (+), unreserved chars → 1 byte, others → 3 bytes (%XX)
+        if c == ' '`u8 {
+            encodedSize++
+        } else if ((c >= 'A'`u8 && c <= 'Z'`u8) ||
+                   (c >= 'a'`u8 && c <= 'z'`u8) ||
+                   (c >= '0'`u8 && c <= '9'`u8) ||
+                   c == '-'`u8 || c == '_'`u8 || c == '.'`u8 || c == '~'`u8) {
+            encodedSize++
+        } else {
+            encodedSize += 3
+        }
+    }
+    return encodedSize
+}
+
+pub func percentEncodeSize[T](value: &const T) {
+    require!(T.isString, "Type {t} must a string, use percentEncodeSizeBuffer instead", #T)
+    #if (T.isStruct) {
+        return percentEncodeSizeBuffer(value.data(), value.size())
+    }
+    else #if (T.isClass) {
+        if (value != null)
+            return percentEncodeSizeBuffer(value.data(), value.size())
+        return 0`u64
+    }
+    else {
+        if (value != null)
+            return percentEncodeSizeBuffer(value !: ^const void, len!(value))
+        return 0`u64
+    }
+}
+
+// URL percent-decoding for query parameters (application/x-www-form-urlencoded)
+pub func percentDecodeBuffer(os: &OutputStream, buf: ^const void, size: u64) {
+    var p = buf !: ^const u8
+    var i = 0`u64
+
+    while i < size {
+        var c = p.[i]
+        if c == '+'`u8 {
+            // '+' is decoded as space in query strings
+            os << ' '
+            i++
+        } else if c == '%'`u8 && i + 2 < size {
+            // Decode %XX hex sequence
+            var high = _hexCharToValue(<char>p.[i+1])
+            var low = _hexCharToValue(<char>p.[i+2])
+            if high >= 0 && low >= 0 {
+                os << <char>((high << 4) | low)
+                i += 3
+            } else {
+                // Invalid hex, keep the % as-is
+                os << <char>c
+                i++
+            }
+        } else {
+            os << <char>c
+            i++
+        }
+    }
+}
+
+pub func percentDecode[T](os: &OutputStream, value: &const T) {
+    require!(T.isString, "Type {t} must a string, use percentDecodeBuffer instead", #T)
+    #if (T.isStruct) {
+        percentDecodeBuffer(os, value.data(), value.size())
+    }
+    else #if (T.isClass) {
+        if (value != null)
+            percentDecodeBuffer(os, value.data(), value.size())
+    }
+    else {
+        if (value != null)
+            percentDecodeBuffer(os, value !: ^const void, len!(value))
+    }
+}

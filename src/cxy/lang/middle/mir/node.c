@@ -1216,7 +1216,7 @@ static void visitFuncDecl(AstVisitor *visitor, AstNode *node)
                                 NULL);
 
     if (!hasFlag(node, Extern)) {
-        ctx->mirFnCtx.uniqueNames = newHashTable(sizeof(Label));
+        ctx->mirFnCtx.uniqueNames = newTempHashTable(sizeof(Label));
         mirNodeListInit(&ctx->basicBlocks);
         MirNode *entry = insertBasicBlock(
             ctx, makeMirBasicBlock(ctx->mir, &node->loc, "entry", NULL));

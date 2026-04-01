@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 bool isBuiltinsInitialized();
-void initializeBuiltins(Log *L);
+void initializeBuiltins(Log *L, MemPool *pool);
 void setBuiltinsModule(const Type *module, const FileLoc *loc);
 AstNode *findBuiltinDecl(cstring name);
 const Type *findBuiltinType(cstring name);

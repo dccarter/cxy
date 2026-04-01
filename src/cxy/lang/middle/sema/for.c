@@ -180,26 +180,20 @@ static void transformForCustomRange(AstVisitor *visitor,
     astModifierAdd(&ctx->blockModifier, loopVar);
 
     // loopVar = iter()
-    AstNode *update =
-        makeExprStmt(ctx->pool,
-                     &range->loc,
-                     flgNone,
-                     makeAssignExpr(ctx->pool,
-                                    &range->loc,
-                                    flgNone,
-                                    makeResolvedPath(ctx->pool,
-                                                     &range->loc,
-                                                     loopVar->varDecl.name,
-                                                     flgNone,
-                                                     loopVar,
-                                                     NULL,
-                                                     loopVar->type),
-                                    opAssign,
-                                    callIterator,
-                                    NULL,
-                                    NULL),
-                     NULL,
-                     NULL);
+    AstNode *update = makeAssignExpr(ctx->pool,
+                                     &range->loc,
+                                     flgNone,
+                                     makeResolvedPath(ctx->pool,
+                                                      &range->loc,
+                                                      loopVar->varDecl.name,
+                                                      flgNone,
+                                                      loopVar,
+                                                      NULL,
+                                                      loopVar->type),
+                                     opAssign,
+                                     callIterator,
+                                     NULL,
+                                     NULL);
     AstNode *condition =
         makeUnaryExpr(ctx->pool,
                       &range->loc,
@@ -241,70 +235,60 @@ static void transformForCustomRange(AstVisitor *visitor,
                           NULL);
         vars->type = NULL;
         vars->next = body->blockStmt.stmts;
+        body->blockStmt.stmts = vars;
     }
     else {
-        AstNode *newVars =
-            makeVarDecl(ctx->pool,
-                        &range->loc,
-                        flgTemporary,
-                        makeAnonymousVariable(ctx->strings, "tmpVar"),
-                        NULL,
-                        makeUnaryExpr(ctx->pool,
-                                      &range->loc,
-                                      flgNone,
-                                      true,
-                                      opDeref,
-                                      makeResolvedPath(ctx->pool,
-                                                       &range->loc,
-                                                       loopVar->varDecl.name,
-                                                       flgNone,
-                                                       loopVar,
-                                                       NULL,
-                                                       loopVar->type),
-                                      NULL,
-                                      NULL),
-                        NULL,
-                        NULL);
-        AstNode *var = vars, *it = newVars;
+        AstNode *var = vars;
+        const Type *target = getOptionalTargetType(iterator->func.retType);
+        AstNode *val = findMemberDeclInType(iterator->func.retType, S_val);
 
         for (i64 i = 0; var; i++) {
             if (isIgnoreVar(var->varDecl.names->ident.value)) {
                 var = var->next;
                 continue;
             }
-            var->varDecl.init = makeMemberExpr(
+            var->tag = astAliasExpr;
+            AstNode *expr = makeMemberExpr(
                 ctx->pool,
                 &range->loc,
                 flgNone,
-                makeResolvedPath(ctx->pool,
-                                 &range->loc,
-                                 newVars->varDecl.name,
-                                 flgNone,
-                                 newVars,
-                                 NULL,
-                                 NULL),
-                makeIntegerLiteral(ctx->pool, &range->loc, i, NULL, NULL),
+                makeMemberExpr(ctx->pool,
+                               &range->loc,
+                               flgNone,
+                               makeResolvedIdentifier(ctx->pool,
+                                                      &range->loc,
+                                                      loopVar->varDecl.name,
+                                                      flgNone,
+                                                      loopVar,
+                                                      NULL,
+                                                      loopVar->type),
+                               makeResolvedIdentifier(ctx->pool,
+                                                      &range->loc,
+                                                      S_val,
+                                                      flgNone,
+                                                      val,
+                                                      NULL,
+                                                      target),
+                               NULL,
+                               target),
+                makeIntegerLiteral(ctx->pool,
+                                   &range->loc,
+                                   i,
+                                   NULL,
+                                   getPrimitiveType(ctx->types, prtU64)),
                 NULL,
-                NULL);
-
-            var->type = NULL;
-            it->next = var;
-            it = var;
+                var->type);
+            var->aliasExpr.expr = expr;
             var = var->next;
         }
-
-        it->next = body->blockStmt.stmts;
-        vars = newVars;
     }
 
     clearAstBody(node);
     node->tag = astWhileStmt;
     node->whileStmt.cond = condition;
-    body->blockStmt.stmts = vars;
     node->whileStmt.body = body;
-    node->whileStmt.update =
-        makeBlockStmt(ctx->pool, builtinLoc(), update, NULL, NULL);
-    update->parentScope = body;
+    node->whileStmt.update = update;
+    update->parentScope = node;
     body->parentScope = node;
     checkType(visitor, node);
 }

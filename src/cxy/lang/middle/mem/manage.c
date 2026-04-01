@@ -159,7 +159,7 @@ static bool mergeVariableStates(DynArray *lhs, const DynArray *rhs)
         if (varLhs->state == varRhs->state)
             state = varLhs->state;
         else if (varLhs->state == vtsAssigned || varRhs->state == vtsAssigned ||
-                 varLhs->state== vtsNullified || varRhs->state == vtsNullified)
+                 varLhs->state == vtsNullified || varRhs->state == vtsNullified)
             state = vtsMaybeAssigned;
         else
             state = vtsUninitialized;
@@ -172,7 +172,7 @@ static bool mergeVariableStates(DynArray *lhs, const DynArray *rhs)
 
 static bool nodeNeedsMemMgmt(const AstNode *node)
 {
-#define flgUnmanagedFlags      \
+#define flgUnmanagedFlags                                                      \
     (flgMove | flgTemporary | flgReference | flgTopLevelDecl | flgUnmanaged)
 
     const Type *type = resolveUnThisUnwrapType(node->type);
@@ -282,16 +282,10 @@ static AstNode *makeDropVariable(MemContext *ctx,
         ctx->pool, &var->loc, flgNone, drop, NULL, makeVoidType(ctx->types));
 }
 
-static AstNode *makeAssignLocalVariable(MemContext *ctx,
-                                        AstNode *assign)
+static AstNode *makeAssignLocalVariable(MemContext *ctx, AstNode *assign)
 {
     AstNode *drop = makeBackendCallExpr(
-        ctx->pool,
-        &assign->loc,
-        flgNone,
-        bfiAssign,
-        assign,
-        assign->type);
+        ctx->pool, &assign->loc, flgNone, bfiAssign, assign, assign->type);
     return makeExprStmt(
         ctx->pool, &assign->loc, flgNone, drop, NULL, makeVoidType(ctx->types));
 }
@@ -328,16 +322,10 @@ static void transformToAssignLocalVariable(MemContext *ctx,
     expr->parentScope = node;
 }
 
-static AstNode *makeDeclareLocalVariable(MemContext *ctx,
-                                        AstNode *node)
+static AstNode *makeDeclareLocalVariable(MemContext *ctx, AstNode *node)
 {
     AstNode *drop = makeBackendCallExpr(
-        ctx->pool,
-        &node->loc,
-        flgNone,
-        bfiDeclare,
-        node,
-        node->type);
+        ctx->pool, &node->loc, flgNone, bfiDeclare, node, node->type);
     return makeExprStmt(
         ctx->pool, &node->loc, flgNone, drop, NULL, makeVoidType(ctx->types));
 }
@@ -402,6 +390,17 @@ static AstNode *makeCopyExpr(MemContext *ctx, AstNode *expr)
         ctx->pool, &expr->loc, flgNone, bfiCopy, expr, expr->type);
 }
 
+static void transformToZeromemExpr(MemContext *ctx,
+                                   AstNode *node,
+                                   AstNode *expr)
+{
+    expr->next = NULL;
+    node->tag = astBackendCall;
+    node->backendCallExpr.func = bfiZeromem;
+    node->backendCallExpr.args = expr;
+    expr->parentScope = node;
+}
+
 static void transformToCopyExpr(MemContext *ctx, AstNode *node, AstNode *expr)
 {
     node->tag = astBackendCall;
@@ -417,8 +416,7 @@ static void sealCurrentJumpPoint(MemContext *ctx, bool isReturn)
         TraceScope *scope = &dynArrayAt(TraceScope *, &ctx->scopes, i);
         if (dynArrayEmpty(scope->locals))
             continue;
-        for (int j = (int)scope->locals->size - 1; j >= 0; j--)
-        {
+        for (int j = (int)scope->locals->size - 1; j >= 0; j--) {
             AstNode *var = dynArrayAt(AstNode **, scope->locals, j);
             VariableTrace *vt = findVariableTrace(ctx, var);
             csAssert0(vt);
@@ -491,7 +489,7 @@ static void reportUseUnassigned(MemContext *ctx,
 
 static bool isVariableUnused(const VariableTrace *vt, cstring name)
 {
-    return !vt->used && name != S_this &&
+    return !vt->used && name != S_this && !isIgnoreVar(name) &&
            findAttribute(vt->variable, S_unused) == NULL;
 }
 
@@ -507,13 +505,14 @@ static void visitVariableDecl(AstVisitor *visitor, AstNode *node)
     }
     VariableState state = vtsUninitialized;
     if (init) {
-        state = nodeIs(init, NullLit)? vtsNullified : vtsAssigned;
+        state = nodeIs(init, NullLit) ? vtsNullified : vtsAssigned;
     }
     insertVariableTrace(ctx, node, state);
     pushOnDynArray(ctx->locals, &node);
     astVisit(visitor, init);
     AstNode *var = resolveIdentifier(init);
-    if (!isTemporaryVariable(var) && isLeftValueExpr(init) && nodeNeedsMemMgmt(init))
+    if (!isTemporaryVariable(var) && isLeftValueExpr(init) &&
+        nodeNeedsMemMgmt(init))
         node->varDecl.init = makeCopyExpr(ctx, init);
 
     if (nodeNeedsMemMgmt(node)) {
@@ -564,7 +563,25 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
 
     if (node->unaryExpr.op == opDelete) {
         if (nodeNeedsMemMgmt(operand)) {
-            transformToDropExpr(ctx, node, operand);
+            astModifierAdd(
+                &ctx->blockModifier,
+                makeExprStmt(
+                    ctx->pool,
+                    &operand->loc,
+                    flgNone,
+                    makeDropExpr(ctx, deepCloneAstNode(ctx->pool, operand)),
+                    NULL,
+                    operand->type));
+            transformToZeromemExpr(
+                ctx,
+                node,
+                makePointerOfExpr(
+                    ctx->pool,
+                    &operand->loc,
+                    flgNone,
+                    operand,
+                    NULL,
+                    makePointerType(ctx->types, operand->type, flgNone)));
         }
         else {
             node->tag = astBackendCall;
@@ -573,7 +590,8 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
         }
     }
     else if (node->unaryExpr.op == opMove) {
-        if ((nodeIs(operand, IndexExpr) || nodeIs(operand, MemberExpr)) && nodeNeedsMemMgmt(operand)) {
+        if ((nodeIs(operand, IndexExpr) || nodeIs(operand, MemberExpr)) &&
+            nodeNeedsMemMgmt(operand)) {
             transformToMoveMemberExpr(ctx, node, operand);
         }
     }
@@ -609,6 +627,7 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
 
     lhs = node->assignExpr.lhs;
     if (isLeftValueExpr(lhs) && nodeNeedsMemMgmt(lhs)) {
+        astVisit(visitor, node->assignExpr.lhs);
         astModifierAdd(&ctx->blockModifier,
                        makeDropExpr(ctx, deepCloneAstNode(ctx->pool, lhs)));
         astVisit(visitor, node->assignExpr.rhs);
@@ -617,8 +636,9 @@ static void visitAssignExpr(AstVisitor *visitor, AstNode *node)
         astVisitFallbackVisitAll(visitor, node);
     }
 
-    AstNode *rhs = node->assignExpr.rhs;
-    if (isLeftValueExpr(rhs) && nodeNeedsMemMgmt(rhs)) {
+    AstNode *rhs = node->assignExpr.rhs, *resolved = resolveIdentifier(rhs);
+    if (isLeftValueExpr(rhs) && nodeNeedsMemMgmt(rhs) &&
+        !isTemporaryVariable(resolved)) {
         node->assignExpr.rhs = makeCopyExpr(ctx, rhs);
     }
 }
@@ -711,18 +731,19 @@ static void visitReturnStmt(AstVisitor *visitor, AstNode *node)
         AstNode *var = resolveIdentifier(expr);
         astVisit(visitor, expr);
 
-        if (isLeftValueExpr(expr) && isLocalVariable(var) && nodeNeedsMemMgmt(var)) {
+        if (isLeftValueExpr(expr) && isLocalVariable(var) &&
+            nodeNeedsMemMgmt(var)) {
             VariableTrace *vt = findVariableTrace(ctx, var);
             csAssert0(vt);
             vt->state = vtsMoved;
             transformToCopyExpr(
                 ctx, expr, shallowCloneAstNode(ctx->pool, expr));
         }
-        else if (isTemporaryVariable(var) &&
-                 isLeftValueExpr(expr) &&
-                 nodeNeedsMemMgmt(var) ) {
+        else if (isTemporaryVariable(var) && isLeftValueExpr(expr) &&
+                 nodeNeedsMemMgmt(var)) {
             expr = makeCopyExpr(ctx, expr);
-        } else if (isLeftValueExpr(expr) && nodeNeedsMemMgmt(expr)) {
+        }
+        else if (isLeftValueExpr(expr) && nodeNeedsMemMgmt(expr)) {
             expr = makeCopyExpr(ctx, expr);
         }
 

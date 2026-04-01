@@ -58,13 +58,17 @@ static cstring findDefaultEntry(const char *packageDir, MemPool *pool, Log *log)
  */
 static cstring constructBuildCommand(const PackageBuildConfig *config,
                                      cstring entryPoint,
+                                     bool isPlugin,
                                      StrPool *strings,
                                      Log *log)
 {
     FormatState state = newFormatState(NULL, true);
 
-    // Start with cxy build and entry point
-    format(&state, "cxy build {s}", (FormatArg[]){{.s = entryPoint}});
+    // Start with cxy build and entry point; plugins use --plugin flag
+    if (isPlugin)
+        format(&state, "cxy build --plugin {s}", (FormatArg[]){{.s = entryPoint}});
+    else
+        format(&state, "cxy build {s}", (FormatArg[]){{.s = entryPoint}});
 
     // Add --no-progress to disable interactive progress indicators when piped
     format(&state, " --no-progress", NULL);
@@ -266,7 +270,13 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
 
         if (needsInstall) {
             printStatusSticky(log, "Running install scripts...");
-            if (!executeInstallScripts(&meta, packageDir, buildDir, false, strings, log, verbose)) {
+            const char *packagesDirOpt = options->package.packagesDir;
+            char defaultPackagesDir[1024];
+            if (!packagesDirOpt || packagesDirOpt[0] == '\0') {
+                snprintf(defaultPackagesDir, sizeof(defaultPackagesDir), "%s/.cxy/packages", packageDir);
+                packagesDirOpt = defaultPackagesDir;
+            }
+            if (!executeInstallScripts(&meta, packageDir, packagesDirOpt, buildDir, false, strings, log, verbose)) {
                 logError(log, NULL, "install scripts failed", NULL);
                 free(packageDir);
                 freePackageMetadata(&meta);
@@ -414,7 +424,7 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         // Determine entry point
         cstring entryPoint = config->entry;
         if (!entryPoint || entryPoint[0] == '\0') {
-            entryPoint = findDefaultEntry(packageDir, strings->mem_pool, log);
+            entryPoint = findDefaultEntry(packageDir, strings->pool, log);
             if (!entryPoint) {
                 logError(log, NULL,
                         "no entry point specified for build '{s}' and none of the default locations exist.",
@@ -453,8 +463,12 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
             }
         }
 
+        // Detect plugin entry point: a .c file is built as a plugin
+        const char *ext = strrchr(entryPoint, '.');
+        bool isPlugin = ext && strcmp(ext, ".c") == 0;
+
         // Construct build command
-        cstring buildCommand = constructBuildCommand(config, entryPoint, strings, log);
+        cstring buildCommand = constructBuildCommand(config, entryPoint, isPlugin, strings, log);
         if (!buildCommand) {
             logError(log, NULL, "failed to construct build command for '{s}'",
                     (FormatArg[]){{.s = build->name}});
@@ -466,6 +480,14 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         FormatState finalCmd = newFormatState(NULL, true);
         format(&finalCmd, "{s}", (FormatArg[]){{.s = buildCommand}});
         addBuildDirOption(&finalCmd, buildDir);
+
+        // Default --plugins-dir to buildDir/plugins for regular .cxy builds
+        // so that plugins built via install: plugin: entries are found automatically.
+        // Skip for plugin builds (.c entry) since they don't load plugins.
+        if (!isPlugin && buildDir && buildDir[0] != '\0' &&
+            (!config->pluginsDir || config->pluginsDir[0] == '\0')) {
+            format(&finalCmd, " --plugins-dir={s}/plugins", (FormatArg[]){{.s = buildDir}});
+        }
 
         // Inject flags from .install.yaml
         for (u32 j = 0; j < installFlags.size; j++) {
@@ -497,8 +519,10 @@ bool packageBuildCommand(const Options *options, StrPool *strings, Log *log)
         freeFormatState(&finalCmd);
 
         // Execute build
-        char header[256];
-        if (meta.hasMultipleBuilds) {
+        char header[2048];
+        if (verbose) {
+            snprintf(header, sizeof(header), "Building " cCYN "'\033[3m%s\033[0m'", buildCommand);
+        } else if (meta.hasMultipleBuilds) {
             snprintf(header, sizeof(header), "Building target '%s'", build->name);
         } else {
             snprintf(header, sizeof(header), "Building package '%s'", meta.name);

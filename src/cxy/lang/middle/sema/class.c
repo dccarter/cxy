@@ -15,7 +15,7 @@
 static inline bool isInheritable(AstNode *member)
 {
     return nodeIs(member, FieldDecl) &&
-           !(hasFlag(member, Static) || hasFlag(member, VTable));
+           !(hasFlag(member, Static) || hasFlag(member, VTable) || hasFlag(member, Inherited));
 }
 
 static void inheritClassMembers(TypingContext *ctx,

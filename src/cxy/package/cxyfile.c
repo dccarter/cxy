@@ -931,6 +931,86 @@ static bool parseInstallScripts(YamlParser *p, DynArray *installScripts)
                 if (!expectScalar(p, &installScript.script))
                     return false;
             }
+            else if (strcmp(key, "plugin") == 0) {
+                // plugin:
+                //   entry: src/demo-plugin.c
+                //   args: [--some-flag]
+                if (!parseYamlEvent(p))
+                    return false;
+                if (p->event.type != YAML_MAPPING_START_EVENT) {
+                    logError(p->log, NULL, "expected mapping for 'plugin' field", NULL);
+                    return false;
+                }
+                installScript.isPlugin = true;
+                installScript.pluginInputs = newDynArray(sizeof(cstring));
+                installScript.pluginArgs = newDynArray(sizeof(cstring));
+                while (true) {
+                    if (!parseYamlEvent(p))
+                        return false;
+                    if (p->event.type == YAML_MAPPING_END_EVENT)
+                        break;
+                    if (p->event.type != YAML_SCALAR_EVENT) {
+                        logError(p->log, NULL, "expected field name in plugin mapping", NULL);
+                        return false;
+                    }
+                    const char *pluginKey = (const char *)p->event.data.scalar.value;
+                    if (strcmp(pluginKey, "entry") == 0) {
+                        if (!expectScalar(p, &installScript.pluginEntry))
+                            return false;
+                    }
+                    else if (strcmp(pluginKey, "inputs") == 0) {
+                        // Parse sequence of glob patterns for cache invalidation
+                        if (!parseYamlEvent(p))
+                            return false;
+                        if (p->event.type != YAML_SEQUENCE_START_EVENT) {
+                            logError(p->log, NULL, "expected sequence for plugin 'inputs'", NULL);
+                            return false;
+                        }
+                        while (true) {
+                            if (!parseYamlEvent(p))
+                                return false;
+                            if (p->event.type == YAML_SEQUENCE_END_EVENT)
+                                break;
+                            if (p->event.type != YAML_SCALAR_EVENT) {
+                                logError(p->log, NULL, "expected string in plugin inputs", NULL);
+                                return false;
+                            }
+                            cstring pattern = makeString(p->strings,
+                                (const char *)p->event.data.scalar.value);
+                            pushOnDynArray(&installScript.pluginInputs, &pattern);
+                        }
+                    }
+                    else if (strcmp(pluginKey, "args") == 0) {
+                        // Parse sequence of string args
+                        if (!parseYamlEvent(p))
+                            return false;
+                        if (p->event.type != YAML_SEQUENCE_START_EVENT) {
+                            logError(p->log, NULL, "expected sequence for plugin 'args'", NULL);
+                            return false;
+                        }
+                        while (true) {
+                            if (!parseYamlEvent(p))
+                                return false;
+                            if (p->event.type == YAML_SEQUENCE_END_EVENT)
+                                break;
+                            if (p->event.type != YAML_SCALAR_EVENT) {
+                                logError(p->log, NULL, "expected string in plugin args", NULL);
+                                return false;
+                            }
+                            cstring arg = makeString(p->strings,
+                                (const char *)p->event.data.scalar.value);
+                            pushOnDynArray(&installScript.pluginArgs, &arg);
+                        }
+                    }
+                    else {
+                        // Unknown plugin field, skip
+                        if (!parseYamlEvent(p))
+                            return false;
+                        if (!skipValue(p))
+                            return false;
+                    }
+                }
+            }
             else if (strcmp(key, "required") == 0) {
                 if (!parseYamlEvent(p))
                     return false;
@@ -957,8 +1037,13 @@ static bool parseInstallScripts(YamlParser *p, DynArray *installScripts)
             logError(p->log, NULL, "install script missing 'name' field", NULL);
             return false;
         }
-        if (!installScript.script || installScript.script[0] == '\0') {
-            logError(p->log, NULL, "install script '{s}' missing 'script' field",
+        if (!installScript.isPlugin && (!installScript.script || installScript.script[0] == '\0')) {
+            logError(p->log, NULL, "install script '{s}' must have either 'script' or 'plugin' field",
+                    (FormatArg[]){{.s = installScript.name}});
+            return false;
+        }
+        if (installScript.isPlugin && (!installScript.pluginEntry || installScript.pluginEntry[0] == '\0')) {
+            logError(p->log, NULL, "install plugin '{s}' missing 'entry' field",
                     (FormatArg[]){{.s = installScript.name}});
             return false;
         }
@@ -1640,7 +1725,9 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                     format(&state, "    inputs:\n", NULL);
                     for (u32 j = 0; j < script->inputs.size; j++) {
                         cstring input = dynArrayAt(cstring *, &script->inputs, j);
-                        format(&state, "      - {s}\n", (FormatArg[]){{.s = input}});
+                        format(&state, "      - ", NULL);
+                        writeYamlStringWithIndent(&state, input, 8);
+                        format(&state, "\n", NULL);
                     }
                 }
 
@@ -1649,7 +1736,9 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                     format(&state, "    outputs:\n", NULL);
                     for (u32 j = 0; j < script->outputs.size; j++) {
                         cstring output = dynArrayAt(cstring *, &script->outputs, j);
-                        format(&state, "      - {s}\n", (FormatArg[]){{.s = output}});
+                        format(&state, "      - ", NULL);
+                        writeYamlStringWithIndent(&state, output, 8);
+                        format(&state, "\n", NULL);
                     }
                 }
 
@@ -1657,6 +1746,98 @@ bool writeCxyfile(const char *path, const PackageMetadata *meta, Log *log)
                 format(&state, "    command: ", NULL);
                 writeYamlStringWithIndent(&state, script->command, 6);
                 format(&state, "\n", NULL);
+            }
+        }
+    }
+
+    // Install section
+    if (meta->install.size > 0) {
+        format(&state, "\ninstall:\n", NULL);
+        for (u32 i = 0; i < meta->install.size; i++) {
+            PackageInstallScript *script = &((PackageInstallScript *)meta->install.elems)[i];
+            format(&state, "  - name: ", NULL);
+            writeYamlStringWithIndent(&state, script->name, 4);
+            format(&state, "\n", NULL);
+
+            if (script->isPlugin) {
+                format(&state, "    plugin:\n", NULL);
+                if (script->pluginEntry && script->pluginEntry[0] != '\0') {
+                    format(&state, "      entry: ", NULL);
+                    writeYamlStringWithIndent(&state, script->pluginEntry, 8);
+                    format(&state, "\n", NULL);
+                }
+                if (script->pluginInputs.size > 0) {
+                    format(&state, "      inputs:\n", NULL);
+                    for (u32 j = 0; j < script->pluginInputs.size; j++) {
+                        cstring input = dynArrayAt(cstring *, &script->pluginInputs, j);
+                        format(&state, "        - ", NULL);
+                        writeYamlStringWithIndent(&state, input, 10);
+                        format(&state, "\n", NULL);
+                    }
+                }
+                if (script->pluginArgs.size > 0) {
+                    format(&state, "      args:\n", NULL);
+                    for (u32 j = 0; j < script->pluginArgs.size; j++) {
+                        cstring arg = dynArrayAt(cstring *, &script->pluginArgs, j);
+                        format(&state, "        - ", NULL);
+                        writeYamlStringWithIndent(&state, arg, 10);
+                        format(&state, "\n", NULL);
+                    }
+                }
+            } else if (script->script && script->script[0] != '\0') {
+                format(&state, "    script: ", NULL);
+                writeYamlStringWithIndent(&state, script->script, 6);
+                format(&state, "\n", NULL);
+            }
+
+            if (script->required) {
+                format(&state, "    required: true\n", NULL);
+            }
+        }
+    }
+
+    // Install-dev section
+    if (meta->installDev.size > 0) {
+        format(&state, "\ninstall-dev:\n", NULL);
+        for (u32 i = 0; i < meta->installDev.size; i++) {
+            PackageInstallScript *script = &((PackageInstallScript *)meta->installDev.elems)[i];
+            format(&state, "  - name: ", NULL);
+            writeYamlStringWithIndent(&state, script->name, 4);
+            format(&state, "\n", NULL);
+
+            if (script->isPlugin) {
+                format(&state, "    plugin:\n", NULL);
+                if (script->pluginEntry && script->pluginEntry[0] != '\0') {
+                    format(&state, "      entry: ", NULL);
+                    writeYamlStringWithIndent(&state, script->pluginEntry, 8);
+                    format(&state, "\n", NULL);
+                }
+                if (script->pluginInputs.size > 0) {
+                    format(&state, "      inputs:\n", NULL);
+                    for (u32 j = 0; j < script->pluginInputs.size; j++) {
+                        cstring input = dynArrayAt(cstring *, &script->pluginInputs, j);
+                        format(&state, "        - ", NULL);
+                        writeYamlStringWithIndent(&state, input, 10);
+                        format(&state, "\n", NULL);
+                    }
+                }
+                if (script->pluginArgs.size > 0) {
+                    format(&state, "      args:\n", NULL);
+                    for (u32 j = 0; j < script->pluginArgs.size; j++) {
+                        cstring arg = dynArrayAt(cstring *, &script->pluginArgs, j);
+                        format(&state, "        - ", NULL);
+                        writeYamlStringWithIndent(&state, arg, 10);
+                        format(&state, "\n", NULL);
+                    }
+                }
+            } else if (script->script && script->script[0] != '\0') {
+                format(&state, "    script: ", NULL);
+                writeYamlStringWithIndent(&state, script->script, 6);
+                format(&state, "\n", NULL);
+            }
+
+            if (script->required) {
+                format(&state, "    required: true\n", NULL);
             }
         }
     }

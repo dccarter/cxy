@@ -28,7 +28,7 @@ static void quietDiagnosticHandler(const Diagnostic* diagnostic, void* ctx) {
 
 // Helper to create a log instance for testing
 static Log createTestLog() {
-    Log log = newLog(quietDiagnosticHandler, nullptr);
+    Log log = newLog(nullptr, quietDiagnosticHandler, nullptr);
     log.maxErrors = 100;
     log.ignoreStyles = true;
     return log;

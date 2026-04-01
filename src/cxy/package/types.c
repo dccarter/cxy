@@ -97,9 +97,23 @@ void freePackageMetadata(PackageMetadata *meta)
 
     // Free install scripts arrays
     if (meta->install.elems != NULL) {
+        for (u32 i = 0; i < meta->install.size; i++) {
+            PackageInstallScript *script = &dynArrayAt(PackageInstallScript*, &meta->install, i);
+            if (script->pluginInputs.elems != NULL)
+                freeDynArray(&script->pluginInputs);
+            if (script->pluginArgs.elems != NULL)
+                freeDynArray(&script->pluginArgs);
+        }
         freeDynArray(&meta->install);
     }
     if (meta->installDev.elems != NULL) {
+        for (u32 i = 0; i < meta->installDev.size; i++) {
+            PackageInstallScript *script = &dynArrayAt(PackageInstallScript*, &meta->installDev, i);
+            if (script->pluginInputs.elems != NULL)
+                freeDynArray(&script->pluginInputs);
+            if (script->pluginArgs.elems != NULL)
+                freeDynArray(&script->pluginArgs);
+        }
         freeDynArray(&meta->installDev);
     }
 

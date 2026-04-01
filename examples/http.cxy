@@ -36,5 +36,9 @@ pub func main(): !void  {
         }
     }).setAttrs({ parseCookies: true })
 
+    server.notFound((_: &const Request, resp: &Response) => {
+        resp.body() << "Ooops, what are you trying to get?"
+    })
+
     server.start()
 }

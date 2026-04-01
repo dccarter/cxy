@@ -6,6 +6,8 @@
 
 #include "driver/driver.h"
 
+typedef struct TypeGraph TypeGraph;
+
 typedef struct CBackend {
     cstring filename;
     FILE *output;
@@ -17,14 +19,18 @@ typedef struct CodegenContext {
     StrPool *strings;
     FormatState types;
     FormatState state;
+    TypeTable *table;
     cstring loopUpdate;
     bool loopUpdateUsed;
     bool hasTestCases;
     bool memTraceEnabled;
     bool inLoop;
+
     struct {
         bool enabled;
         FilePos pos;
     } debug;
 } CodegenContext;
+
+void preCodeGen(TypeGraph *g, const AstNode *node);
 

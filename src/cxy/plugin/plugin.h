@@ -26,6 +26,11 @@ typedef struct CxyEnvironmentVar {
     AstNode *value;
 } CxyEnvironmentVar;
 
+typedef enum CxyPluginInjectionPoint {
+    pipSemantic = 0, // The action will be executed during semantic analysis
+    pipParser,       // The action will be executed during parsing
+} CxyPluginInjectionPoint;
+
 bool compareAstNodes(const void *a, const void *b);
 bool compareCxyPluginActions(const void *a, const void *b);
 
@@ -46,6 +51,13 @@ bool cxyPluginRegisterAction(CxyPluginContext *ctx,
                              size_t nActions);
 
 TypeTable *cxyPluginGetTypeTable(CxyPluginContext *ctx);
+
+void cxyPluginInitialize(CxyPluginContext *ctx, void *state, CxyPluginInjectionPoint ip);
+void *cxyPluginState(CxyPluginContext *ctx);
+AstNode *cxyParseExpression(CxyPluginContext *ctx,
+                            const char* code,
+                            size_t size,
+                            const FileLoc *origin);
 
 bool cxyPluginLoadEnvironment_(CxyPluginContext *ctx,
                                const FileLoc *loc,

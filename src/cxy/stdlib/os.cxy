@@ -51,6 +51,13 @@ else {
 
 pub type Stat = nos.Stat
 
+#if (defined MACOS) {
+macro StatField(X) mk_ident!("st_", X!, "timespec")
+}
+else {
+macro StatField(X) mk_ident!("st_", X!, "tim")
+}
+
 pub exception IOError(msg: String) => msg == null? "": msg.str()
 pub exception OSError(msg: String) => msg == null? "": msg.str()
 
@@ -802,4 +809,3 @@ pub func execute[T](
 }
 
 macro sh(cmd, ...env) module.execute(cmd!, varargs_def!(env!, {}))
-

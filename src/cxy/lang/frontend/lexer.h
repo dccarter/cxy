@@ -30,6 +30,7 @@ typedef struct LexerBuffer {
     const char *fileData;
     size_t fileSize;
     FilePos filePos;
+    size_t baseOffset; // absolute file offset of fileData[0], added to byteOffset in FileLocs
     bool ownData;
 } LexerBuffer;
 
@@ -37,7 +38,7 @@ typedef struct Lexer {
     LexerBuffer *cleanup;
     LexerBuffer *buffer;
     Log *log;
-    HashTable keywords;
+    HashTable *keywords;
     u32 flags;
     u32 cleanupCount;
 } Lexer;
@@ -46,6 +47,12 @@ Lexer newLexer(const char *fileName,
                const char *fileData,
                size_t fileSize,
                Log *);
+
+Lexer newOffsetLexer(const char *fileName,
+                     const char *fileData,
+                     size_t fileSize,
+                     Log *,
+                     FilePos offset);
 
 void freeLexer(Lexer *);
 

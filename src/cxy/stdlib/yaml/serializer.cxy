@@ -329,10 +329,10 @@ pub class YamlSerializer {
 
                 #const M = null
                 #if (T.annotations.[:isVector]) {
-                    #{M = typeof!(T.elementType)}
+                    #{M = typeof!(T.ElementType)}
                 }
                 else {
-                    #{M = T.elementType}
+                    #{M = T.ElementType}
                 }
 
                 toYaml[#{M}](&member, true)

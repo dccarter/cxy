@@ -513,27 +513,39 @@ func fieldFromJSON[T](
 ): !void {
     #for (const member: T.members, member.isField) {
         #const M = member.Tinfo;
-        if (__string(#{member.name}) == key) {
-            #const jsonAttr = member.attributes.["json"]
-            #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
-                require!(M.isClass, "JSON parser supports class string types only")
-                var jstr = parser.expectString()
-                var str = String()
-                base64.decode(&str, &jstr)
-                obj.#{mk_ident!(member.name)} = &&str
-            }
-            else #if jsonAttr && jsonAttr.[:optional] {
-                if parser.currentToken() != JsonToken.Null {
-                    obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
+        #const jsonAttr = member.attributes.["json"]
+
+        #const name = member.name
+        #if jsonAttr && !!jsonAttr.[:name] {
+            #{name = jsonAttr.[:name]}
+        }
+
+        if (#{name} == key) {
+            #if jsonAttr && jsonAttr.[:ignore] {
+                // Ignore this field, skip the value in JSON
+                parser.skipValue()
+                return
+            } else {
+                #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
+                    require!(M.isClass, "JSON parser supports class string types only")
+                    var jstr = parser.expectString()
+                    var str = String()
+                    base64.decode(&str, &jstr)
+                    obj.#{mk_ident!(member.name)} = &&str
+                }
+                else #if jsonAttr && jsonAttr.[:optional] {
+                    if parser.currentToken() != JsonToken.Null {
+                        obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
+                    }
+                    else {
+                        parser.advance()
+                    }
                 }
                 else {
-                    parser.advance()
+                    obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
                 }
+                return
             }
-            else {
-                obj.#{mk_ident!(member.name)} = fromJSON[M](parser)
-            }
-            return
         }
     }
 
@@ -577,6 +589,10 @@ pub func fromJSON[T](parser: &JsonParser): !T {
         }
     }
     else #if (T.isString && T.isClass) {
+        if (parser.currentToken() == JsonToken.Null) {
+            parser.advance()
+            return null as String
+        }
         if (parser.currentToken() == JsonToken.String) {
             var result = parser.moveTokenValue()
             parser.advance()
@@ -802,14 +818,18 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     else #if (T.isStruct) {
         os << "{";
         #const first = true;
-        #for (const member: T.members) {
-            #if (member.isField) {
-                #const M = member.Tinfo;
-                #const jsonAttr = member.attributes.["json"];
+        #for (const member: T.members, member.isField) {
+            #const M = member.Tinfo;
+            #const jsonAttr = member.attributes.["json"];
+            #if !jsonAttr || !jsonAttr.[:ignore] {
                 #if (first == false) {
                     os << ", "
                 }
-                os << '"' << #{member.name} << "\": ";
+                #const name = member.name
+                #if jsonAttr && !!jsonAttr.[:name] {
+                    #{name = jsonAttr.[:name]}
+                }
+                os << '"' << #{name} << "\": ";
                 #if (M.isString && jsonAttr && jsonAttr.["b64"]) {
                     os << '"'
                     base64.encode(os, &it.#{mk_ident!(member.name)})
@@ -841,7 +861,7 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
         for (const member, i: it) {
             if (i != 0) os << ", "
             #if (T.annotations.[:isVector]) {
-                toJSON[typeof!(T.elementType)](os, &member)
+                toJSON[typeof!(T.ElementType)](os, &member)
             }
             else {
                 #const M = T.elementType;
@@ -856,6 +876,27 @@ pub func toJSON[T](os: &OutputStream, it: &const T) : void {
     else {
         // give up here
         error!("type `{t}` is not a JSON-able type", T)
+    }
+}
+
+pub class JsonString {
+    _str: String
+
+    func `init`(s: String) {
+        _str = &&s
+    }
+
+    func `init`(s: __string) {
+        _str = String(s)
+    }
+
+    func `init`(s: string) {
+        _str = String(s)
+    }
+
+    const func toJSON(os: &OutputStream) {
+        // Encode the JSON string as it is
+        os << _str
     }
 }
 

@@ -450,7 +450,13 @@ bool packageTestCommand(const Options *options, StrPool *strings, Log *log)
 
         if (needsInstall) {
             printStatusSticky(log, "Running install scripts (with dev dependencies)...");
-            if (!executeInstallScripts(&meta, packageDir, buildDir, true, strings, log, verbose)) {
+            const char *packagesDirOpt = options->package.packagesDir;
+            char defaultPackagesDir[1024];
+            if (!packagesDirOpt || packagesDirOpt[0] == '\0') {
+                snprintf(defaultPackagesDir, sizeof(defaultPackagesDir), "%s/.cxy/packages", packageDir);
+                packagesDirOpt = defaultPackagesDir;
+            }
+            if (!executeInstallScripts(&meta, packageDir, packagesDirOpt, buildDir, true, strings, log, verbose)) {
                 logError(log, NULL, "install scripts failed", NULL);
                 free(packageDir);
                 freePackageMetadata(&meta);

@@ -302,7 +302,7 @@ static void checkYieldStmt(AstVisitor *visitor, AstNode *node)
 
     const Type *target = getResultTargetType(lhs->type);
     if (block->type == NULL) {
-        if (!isTypeAssignableFrom(lhs->type, type)) {
+        if (!isTypeAssignableFrom(lhs->type, target)) {
             logError(ctx->L,
                      &node->loc,
                      "catch yield value '{t}' not assignable to expression "
@@ -658,9 +658,10 @@ static void checkProgram(AstVisitor *visitor, AstNode *node)
             }
         }
 
-        if (isBuiltinModule || node->program.module) {
-            buildModuleType(ctx->types, node, isBuiltinModule);
-        }
+        // if (isBuiltinModule || node->program.module) {
+        //     buildModuleType(ctx->types, node, isBuiltinModule);
+        // }
+        buildModuleType(ctx->types, node, isBuiltinModule);
     }
     else {
         buildPackageType(ctx->types, node);

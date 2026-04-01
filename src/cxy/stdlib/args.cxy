@@ -5,7 +5,8 @@ import { HashMap } from "./hash.cxy"
 import { getenv }  from "./os.cxy"
 // Basic exceptions
 exception ParseError(msg: String) => msg != null? msg.str() : ""
-exception ValidationError(msg: String) => msg != null? msg.str() : ""
+
+pub exception ValidationError(msg: String) => msg != null? msg.str() : ""
 
 pub type FlagValue = __string | bool | i64
 
@@ -225,8 +226,19 @@ pub class Command {
         flags.[flag.name] = &&flag
     }
 
+    @inline
+    func addFlag(name: __string, shorthand: char, def: __string, help: __string): !void {
+        addFlag(Flag(name, shorthand, def, help))
+    }
+    
+    @inline
+    func addFlag(name: __string, shorthand: char, def: __string, help: __string, envVar: __string): !void {
+        addFlag(Flag(name, shorthand, def, help, envVar))
+    }
+
     // Find flag by shorthand character
-    - func findFlagByShorthand(shorthand: char): Optional[&Flag] {
+    @private
+    func findFlagByShorthand(shorthand: char): Optional[&Flag] {
         // First check local flags
         var flagName = flagsByShorthand.[shorthand]
         if flagName {
@@ -280,7 +292,8 @@ pub class Command {
     }
 
     // Find subcommand by name
-    - func findCommand(name: __string): This {
+    @private
+    func findCommand(name: __string): This {
         var cmd = commands.[name]
         if cmd {
             var tmp = *cmd
@@ -290,12 +303,14 @@ pub class Command {
     }
 
     // Check if string looks like a boolean value
-    - func isBooleanValue(s: __string): bool {
+    @private
+    func isBooleanValue(s: __string): bool {
         return s == "true" || s == "false" || s == "1" || s == "0"
     }
 
     // Parse integer from string
-    - func parseInt(s: __string): i64? {
+    @private
+    func parseInt(s: __string): i64? {
         if s.empty() { return null }
 
         var result = 0`i64
@@ -383,7 +398,8 @@ pub class Command {
     }
 
     // Parse long flag arguments
-    - func parseLongFlagArg(argv: [string], index: i64): !i64 {
+    @private
+    func parseLongFlagArg(argv: [string], index: i64): !i64 {
         var arg = __string(argv.[index]);
 
         // Parse --flag=value format
@@ -441,7 +457,8 @@ pub class Command {
     }
 
     // Parse short flag arguments
-    - func parseShortFlagArg(argv: [string], index: i64): !i64 {
+    @private
+    func parseShortFlagArg(argv: [string], index: i64): !i64 {
         var arg = __string(argv.[index])
         var flags_str = arg.substr(1) // Skip the -
 
@@ -484,7 +501,8 @@ pub class Command {
     }
 
     // Parse individual short flag
-    - func parseShortFlag(argv: [string], index: i64, flag: &Flag): !i64 {
+    @private
+    func parseShortFlag(argv: [string], index: i64, flag: &Flag): !i64 {
         var flagValue = __string()
         var hasValue = false
 
@@ -522,7 +540,8 @@ pub class Command {
     }
 
     // Parse a single long flag
-    - func parseLongFlag(flagName: __string, flagValue: __string, hasValue: bool): !void {
+    @private
+    func parseLongFlag(flagName: __string, flagValue: __string, hasValue: bool): !void {
         // Check local flags first, then persistent flags
         var flag = flags.[flagName]
         if !flag {
@@ -651,7 +670,8 @@ pub class Command {
     }
 
     // Validate flag groups for mutual exclusion and required together
-    - func validateFlagGroups(): !void {
+    @private
+    func validateFlagGroups(): !void {
         for group, _ : flagGroups {
             var setFlags = Vector[__string]()
 
@@ -689,7 +709,8 @@ pub class Command {
     }
 
     // Apply environment variable values for flags not explicitly set
-    - func applyEnvVars(): void {
+    @private
+    func applyEnvVars(): void {
         // Check local flags
         for (const _, flag: flags) {
             if !flag.envVar.empty() && !flagValues.has(flag.name) {
@@ -712,7 +733,8 @@ pub class Command {
     }
 
     // Parse environment variable value according to flag type
-    - func parseEnvValue(flag: Flag, envValue: __string): !void {
+    @private
+    func parseEnvValue(flag: Flag, envValue: __string): !void {
         match (flag.defaultValue) {
             bool as _ => {
                 if envValue == "true" || envValue == "1" || envValue == "yes" {

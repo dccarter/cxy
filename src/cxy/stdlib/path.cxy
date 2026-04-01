@@ -188,7 +188,7 @@ pub func current() => Path( file! )
 
 @inline
 pub func withNullTermination[T](s: &const __string, fn: func(p: ^const char) -> T ) {
-    if (s.isnt()) {
+    if (!s.isnt()) {
         var p: [char, 1024] = [];
         s.copyto(p, sizeof!(p))
         return fn(p !: ^const char)
@@ -289,7 +289,11 @@ pub func basename(path: PathLike): PathLike {
 pub func mkdir(path: PathLike, mode: u16 = 0o777): !void {
     var spath = cast[__string](&path);
     const status = withNullTermination[i32](
-        &spath, (p: ^const char) => sysstat.mkdir(p, mode))
+        &spath, (p: ^const char) => {
+            println(f"mkdir: p='{p !: string}'")
+            return sysstat.mkdir(p, mode)
+        }
+    )
     if (status != 0)
         raise IOError(f"creating directory {spath} failed: {strerr()}")
 }
@@ -299,6 +303,7 @@ pub func mkdirs(path: PathLike, mode: u16 = 0o777): !void {
         var base = dirname(path);
         var sbase = cast[__string](&base);
         var spath = cast[__string](&path);
+
         if (!sbase.empty() && spath != sbase)
             mkdirs(base, mode)
         mkdir(path, mode)

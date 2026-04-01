@@ -59,15 +59,15 @@ pub type State = ae.State
             .cfi_offset %rsp, 48
             .cfi_offset %rip, 56
             jmp    *%rcx
-            """ ::
+            """ : :
             "r"(ctx!) :
             "rdx"
         )
     }
 
     macro __cxy_coro_setsp(x) {
-        @volatile asm(""::"r"(alloca!(#u64)))
-        @volatile asm("leaq (%rax), %rsp" :: "rax"(x!))
+        @volatile asm("": :"r"(alloca!(#u64)))
+        @volatile asm("leaq (%rax), %rsp" : : "rax"(x!))
     }
 
 }
@@ -81,8 +81,8 @@ else {
         macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 1)
     }
     macro __cxy_coro_setsp(x) {
-      @volatile asm(""::"r"(alloca!(#u64)))
-      @volatile asm("mov sp, x0" :: "r"(x!) : "x0")
+      @volatile asm("": :"r"(alloca!(#u64)))
+      @volatile asm("mov sp, x0" : : "r"(x!) : "x0")
     }
 }
 

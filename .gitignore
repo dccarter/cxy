@@ -84,6 +84,13 @@ generated.dSYM
 .zed
 ./hello.cxy
 
+# Cxy build output
+./cxy
+/profile.json
+/profiling.json
+/app
+/app.c
+
 # AI files
 ./PROMPT.md
 

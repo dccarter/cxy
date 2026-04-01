@@ -1,22 +1,19 @@
-import { parse } from "stdlib/json.cxy"
 
-@json
-struct Address {
-    line1: String = null
+func peek() : char => '\0'
+
+struct Has {
+    val: bool
 }
 
-@json
-struct User[...T] {
-    name: String = null
-    address = Address{}
-    func `init`() {
-        info!("type of T is {t}", #T)
+func get(c: char): Has {
+    if (c == '\n') {
+        // do something
     }
+    return Has{val: false}
 }
 
-func hello[T, U, ...Z](y: U, ...x: auto) {
-    println(x)
-}
 func main(): !void {
-    hello[i32, i32](10, 20)
+
+    while get(peek()).val {
+    }
 }

@@ -28,7 +28,7 @@ static void mangleAstNode(FormatState *state, const AstNode *node, u64 idx)
         else
             format(state,
                    "Lu_{u128}",
-                   (FormatArg[]){{.u64 = node->intLiteral.uValue}});
+                   (FormatArg[]){{.u128 = node->intLiteral.uValue}});
         break;
     case astFloatLit:
         format(state, "Lf_{u64}", (FormatArg[]){{.c = idx}});

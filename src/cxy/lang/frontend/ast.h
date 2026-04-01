@@ -232,10 +232,11 @@ struct MirNode;
         void *codegen;                                                         \
         struct MirNode *ir;                                                    \
     };                                                                         \
-    union  {                                                                   \
+    union {                                                                    \
         struct MirNode *mir;                                                   \
         struct {                                                               \
             bool used;                                                         \
+            bool infligt;                                                      \
         } attr(packed);                                                        \
     };
 
@@ -1234,6 +1235,15 @@ AstNode *makeIfStmt(MemPool *pool,
                     AstNode *then,
                     AstNode *otherwise,
                     AstNode *next);
+
+AstNode *makeForStmt(MemPool *pool,
+                     const FileLoc *loc,
+                     u64 flags,
+                     AstNode *var,
+                     AstNode *range,
+                     AstNode *cond,
+                     AstNode *body,
+                     AstNode *next);
 
 AstNode *makeFunctionDecl(MemPool *pool,
                           const FileLoc *loc,

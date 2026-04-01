@@ -57,40 +57,45 @@ typedef enum {
     prtCOUNT
 } PrtId;
 
+#define CXY_TYPES(f)            \
+    f(Error)                    \
+    f(Container)                \
+    f(Literal)                  \
+    f(Auto)                     \
+    f(Void)                     \
+    f(Null)                     \
+    f(Info)                     \
+    f(This)                     \
+    f(Primitive)                \
+    f(String)                   \
+    f(Pointer)                  \
+    f(Reference)                \
+    f(Optional)                 \
+    f(Array)                    \
+    f(Map)                      \
+    f(Alias)                    \
+    f(Union)                    \
+    f(UntaggedUnion)            \
+    f(Opaque)                   \
+    f(Tuple)                    \
+    f(Func)                     \
+    f(Enum)                     \
+    f(Module)                   \
+    f(Struct)                   \
+    f(Class)                    \
+    f(Interface)                \
+    f(Generic)                  \
+    f(Applied)                  \
+    f(Wrapped)                  \
+    f(Exception)                \
+    f(Result)
+
 // clang-format on
 
 typedef enum {
-    typError,
-    typContainer,
-    typLiteral,
-    typAuto,
-    typVoid,
-    typNull,
-    typInfo,
-    typThis,
-    typPrimitive,
-    typString,
-    typPointer,
-    typReference,
-    typOptional,
-    typArray,
-    typMap,
-    typAlias,
-    typUnion,
-    typUntaggedUnion,
-    typOpaque,
-    typTuple,
-    typFunc,
-    typEnum,
-    typModule,
-    typStruct,
-    typClass,
-    typInterface,
-    typGeneric,
-    typApplied,
-    typWrapped,
-    typException,
-    typResult,
+#define f(name, ...) typ##name,
+    CXY_TYPES(f)
+#undef f
 } TTag;
 
 typedef struct Type Type;
@@ -151,9 +156,10 @@ struct MirType;
     union {                                                                    \
         void *codegen;                                                         \
         struct {                                                               \
-            bool generating;                                                   \
+            bool typedefd;                                                     \
             bool generated;                                                    \
             bool incomplete;                                                   \
+            bool generating;                                                   \
         };                                                                     \
     };                                                                         \
     const Type *retyped;
@@ -404,7 +410,7 @@ bool isDestructible(const Type *type);
 
 bool hasPrimitiveType(const Type *type, PrtId id);
 
-    static inline bool isClassOrStructType(const Type *type)
+static inline bool isClassOrStructType(const Type *type)
 {
     return isClassType(type) || isStructType(type);
 }

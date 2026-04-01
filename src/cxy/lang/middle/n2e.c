@@ -14,7 +14,7 @@ static bool compareNodeToExternDecl(const void *lhs, const void *rhs)
 
 void n2eInit(N2eContext *ctx, MemPool *pool)
 {
-    ctx->n2e = newHashTable(sizeof(NodeToExternDecl));
+    ctx->n2e = newTempHashTable(sizeof(NodeToExternDecl));
     ctx->pool = pool;
 }
 

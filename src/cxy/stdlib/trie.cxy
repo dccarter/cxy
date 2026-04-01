@@ -58,7 +58,7 @@ pub class Trie[Data] {
 
     @inline
     func add(key: __string, data: Data) {
-        add(key.str(), key.size(), &&data)
+        return add(key.str(), key.size(), &&data)
     }
 
     func find(key: string) : Optional[&Data] {
@@ -72,13 +72,14 @@ pub class Trie[Data] {
         return null
     }
 
-    - func add(prefix: string, len: u64, data: Data) : void {
+    - func add(prefix: string, len: u64, data: Data) : &Data {
         var node = ptrof root;
         for (var i: 0..len) {
             node = node.add(prefix.[i])
         }
         assert!(!node.data)
         node.data = &&data
+        return &node.data
     }
 
     - func find(prefix: string, len: u64) : (i64, &Data)? {

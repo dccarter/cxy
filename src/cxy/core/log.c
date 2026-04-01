@@ -55,10 +55,10 @@ static void registerWarnings(HashTable *warnings)
 static WarningId parseNextWarningId(Log *L, char *start, char *end)
 {
     static bool initialized = false;
-    static HashTable warningIds;
+    static HashTable warningIds = {};
     if (!initialized) {
         initialized = true;
-        warningIds = newHashTable(sizeof(Warning));
+        warningIds = newTempHashTable(sizeof(Warning));
         registerWarnings(&warningIds);
     }
     char *p = start;
@@ -99,11 +99,11 @@ static WarningId parseNextWarningId(Log *L, char *start, char *end)
     return warning->value;
 }
 
-Log newLog(DiagnosticHandler handler, void *ctx)
+Log newLog(MemPool *pool, DiagnosticHandler handler, void *ctx)
 {
     handler = handler ?: printDiagnosticToConsole;
 
-    Log L = (Log){.fileCache = newHashTable(sizeof(FileEntry)),
+    Log L = (Log){.fileCache = newHashTable(sizeof(FileEntry), pool),
                   .showDiagnostics = true,
                   .handler = handler,
                   .handlerCtx = ctx,
@@ -118,11 +118,10 @@ Log newLog(DiagnosticHandler handler, void *ctx)
 
 void freeLog(Log *log)
 {
-    FileEntry *entries = log->fileCache.elems;
-    for (size_t i = 0; i < log->fileCache.capacity; ++i) {
-        if (!isBucketOccupied(&log->fileCache, i))
-            continue;
-        fclose(entries[i].file);
+    HashtableIt it = newHashTableIt(&log->fileCache, sizeof(FileEntry));
+    while (hashTableItHasNext(&it)) {
+        FileEntry *entry = hashTableItNext(&it);
+        fclose(entry->file);
     }
     freeHashTable(&log->fileCache);
 }

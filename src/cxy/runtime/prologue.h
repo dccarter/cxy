@@ -4,8 +4,8 @@
 
 // Base definitions
 #define nullptr ((void *)0)
-#define true  1
-#define false  0
+#define true 1
+#define false 0
 typedef int bool;
 typedef unsigned int wchar_t;
 typedef signed char int8_t;
@@ -18,12 +18,14 @@ typedef signed long long int64_t;
 typedef unsigned long long uint64_t;
 typedef __int128_t int128_t;
 typedef __uint128_t uint128_t;
+typedef const char *cstring;
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvisibility"
 #pragma clang diagnostic ignored "-Wmain-return-type"
 #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
-#pragma clang diagnostic ignored  "-Wincompatible-library-redeclaration"
+#pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
 #elif defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
@@ -34,18 +36,18 @@ typedef __uint128_t uint128_t;
 
 #if __has_attribute(__builtin_unreachable)
 #define unreachable(...)
-    do {
-        assert(!"Unreachable code reached");
-        __builtin_unreachable();
-    } while (0)
+do {
+    assert(!"Unreachable code reached");
+    __builtin_unreachable();
+} while (0)
 #else
 #define unreachable(...) abort();
 #endif
 
-#define likely(x)      __builtin_expect(!!(x), 1)
-#define unlikely(x)    __builtin_expect(!!(x), 0)
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 
-typedef struct builtins__ManagedVariable {
+    typedef struct builtins__ManagedVariable {
     void *ptr;
     void (*cleaner)(void *);
     const char *name;
@@ -70,61 +72,77 @@ static void builtins__ClsVar_cleanup(void *ptr)
     }
 }
 
-#define builtins__cleanup_attr(CLEANER) \
+#define builtins__cleanup_attr(CLEANER)                                        \
     __attribute__((cleanup(builtins__##CLEANER##_cleanup)))
 
-#define builtins__ManagedVariable_init(T, NAME, CLEANER, VALID, WRAP)           \
-    T NAME;                                                                     \
-    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {       \
-        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME         \
-    };                                                                          \
+#define builtins__ManagedVariable_init(T, NAME, CLEANER, VALID, WRAP)          \
+    T NAME;                                                                    \
+    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {      \
+        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME};      \
     NAME
 
-#define builtins__ManagedParam_init(T, NAME, CLEANER, VALID, WRAP)              \
-    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {       \
-        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME         \
+#define builtins__ManagedParam_init(T, NAME, CLEANER, VALID, WRAP)             \
+    builtins__cleanup_attr(WRAP) builtins__ManagedVariable __mm##NAME = {      \
+        .ptr = &NAME, .cleaner = CLEANER, .valid = VALID, .name = #NAME}
+
+#define builtins__ManagedVariable_assign(NAME)                                 \
+    ({                                                                         \
+        if (__mm##NAME.valid)                                                  \
+            __mm##NAME.cleaner(__mm##NAME.ptr);                                \
+        __mm##NAME.valid = true;                                               \
+    }),                                                                        \
+        NAME
+
+#define builtins__ManagedVariable_null(NAME)                                   \
+    if (__mm##NAME.valid != NULL) {                                            \
+        __mm##NAME.cleaner(__mm##NAME.ptr);                                    \
+        __mm##NAME.valid = false                                               \
     }
 
-#define builtins__ManagedVariable_assign(NAME)                                  \
-    if (__mm##NAME.valid)                                                       \
-        __mm##NAME.cleaner( __mm##NAME.ptr );                                   \
-    __mm##NAME.valid = true;                                                    \
-    NAME
+#define builtins__ManagedClsVariable_assign(NAME)                              \
+    ({                                                                         \
+        if (__mm##NAME.valid)                                                  \
+            __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                      \
+        __mm##NAME.valid = true;                                               \
+    }),                                                                        \
+        NAME
 
-#define builtins__ManagedVariable_null(NAME)                                    \
-    if (__mm##NAME.valid != NULL) {                                             \
-        __mm##NAME.cleaner(__mm##NAME.ptr);                                     \
-        __mm##NAME.valid = false                                                \
+#define builtins__ManagedClsVariable_null(NAME)                                \
+    if (__mm##NAME.valid != NULL) {                                            \
+        __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                          \
+        __mm##NAME.valid = false                                               \
     }
 
-#define builtins__ManagedClsVariable_assign(NAME)                               \
-    if (__mm##NAME.valid)                                                       \
-        __mm##NAME.cleaner( *(void **)__mm##NAME.ptr );                         \
-    __mm##NAME.valid = true;                                                    \
-    NAME
+#define builtins__ManagedVariable_move(NAME)                                   \
+    ({                                                                         \
+        __mm##NAME.valid = false;                                              \
+        NAME;                                                                  \
+    })
 
-#define builtins__ManagedClsVariable_null(NAME)                                 \
-    if (__mm##NAME.valid != NULL) {                                             \
-        __mm##NAME.cleaner(*(void **)__mm##NAME.ptr);                           \
-        __mm##NAME.valid = false                                                \
-    }
-
-#define builtins__ManagedVariable_move(NAME)                                    \
-    ({ __mm##NAME.valid = false; NAME; })
-
-#define builtins__MemberExpr_move(EXPR)                                         \
-    ({ typeof(EXPR) tmp = EXPR; EXPR = (typeof(EXPR)){}; tmp; })
+#define builtins__MemberExpr_move(EXPR)                                        \
+    ({                                                                         \
+        typeof(EXPR) tmp = EXPR;                                               \
+        EXPR = (typeof(EXPR)){};                                               \
+        tmp;                                                                   \
+    })
 
 static void builtins__ClosureTuple_cleanup(void *ptr);
 
 // Memory management flags
-#define __CXY_LOOP_CLEANUP(FLAGS, LABEL) \
-   if ((FLAGS) == 1) goto LABEL; \
-   if ((FLAGS) == 2) { (FLAGS) = 0; break; }
-#define __CXY_BLOCK_CLEANUP(FLAGS, LABEL) \
-   if ((FLAGS) == 1) goto LABEL;
-#define __CXY_DROP_WITH_FLAGS(FLAGS, ...) if (FLAGS) __VA_ARGS__
+#define __CXY_LOOP_CLEANUP(FLAGS, LABEL)                                       \
+    if ((FLAGS) == 1)                                                          \
+        goto LABEL;                                                            \
+    if ((FLAGS) == 2) {                                                        \
+        (FLAGS) = 0;                                                           \
+        break;                                                                 \
+    }
+#define __CXY_BLOCK_CLEANUP(FLAGS, LABEL)                                      \
+    if ((FLAGS) == 1)                                                          \
+        goto LABEL;
+#define __CXY_DROP_WITH_FLAGS(FLAGS, ...)                                      \
+    if (FLAGS)                                                                 \
+    __VA_ARGS__
 
 // Print int128/uint128 macros
-#define INT128(h, l)     ((__int128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)) )
-#define UINT128(h, l)    ((__uint128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)) )
+#define INT128(h, l) ((__int128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))
+#define UINT128(h, l) ((__uint128_t)(((__uint128_t)(h) << 64) | (uint64_t)(l)))

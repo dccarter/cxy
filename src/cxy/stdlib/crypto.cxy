@@ -7,6 +7,7 @@ import "openssl/sha.h" as OpenSSLSHA
 import "openssl/evp.h" as OpenSSLEVP
 import "openssl/core.h" as OpenSSLCore
 import "openssl/params.h" as OpenSSLParams
+import "openssl/rand.h" as OpenSSLRand
 
 @__cc:clib "crypto"
 
@@ -171,4 +172,12 @@ pub func HMAC_512(digest: &SHA512Digest, key: __string, data: ^const void, len: 
     if OpenSSLEVP.EVP_MAC_final(ctx, digest.hash, ptrof digestLen , SHA512_DIGEST_LENGTH!) != 1 {
         raise CryptoError(OpenSSLErr.ERR_get_error())
     }
+}
+
+pub func RAND_bytes(len: u64): !Bytes {
+    var s = Bytes(len)
+    if OpenSSLRand.RAND_bytes(s.data() as ^u8, <i32>len) != 1 {
+        raise CryptoError(OpenSSLErr.ERR_get_error())
+    }
+    return s
 }

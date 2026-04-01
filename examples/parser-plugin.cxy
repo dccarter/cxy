@@ -1,0 +1,4 @@
+import plugin "parser-plugin" as parser
+
+func main() {
+}

@@ -94,6 +94,11 @@ typedef struct PackageInstallScript {
     cstring name;           // Script name/description (e.g., "openssl", "protobuf")
     cstring script;         // Shell command to execute (inline or file path)
     bool required;          // True if failure should abort install
+    // Plugin build fields (mutually exclusive with script)
+    bool isPlugin;          // True if this entry builds a plugin .so instead of running a script
+    cstring pluginEntry;    // Source .c file to compile (relative to packageDir)
+    DynArray pluginInputs;  // Array of cstring - extra glob patterns that invalidate the cached build
+    DynArray pluginArgs;    // Array of cstring - extra args passed to `cxy build --plugin`
 } PackageInstallScript;
 
 /**

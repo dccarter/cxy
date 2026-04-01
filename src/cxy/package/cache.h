@@ -92,6 +92,35 @@ bool expandInputGlobs(const DynArray *inputs,
  */
 bool getFileModTime(const char *path, u64 *mtime, Log *log);
 
+/**
+ * Check whether a built plugin is up to date relative to its source inputs
+ *
+ * The entry file is always an implicit input. The optional `inputs` array
+ * provides additional glob patterns (e.g. headers). The output is the compiled
+ * plugin artifact at `outputFile`.
+ *
+ * A plugin is considered up to date when `outputFile` exists and its mtime is
+ * newer than the mtime of every resolved input file.
+ *
+ * @param entryFile   Absolute path to the plugin's .c source file
+ * @param inputs      Extra glob patterns for cache invalidation (may be empty)
+ * @param packageDir  Base directory for resolving relative glob patterns
+ * @param outputFile  Absolute path to the compiled plugin artifact
+ * @param builtins    Built-in env vars for {{VAR}} substitution in patterns
+ * @param strings     String pool for temporary allocations
+ * @param log         Logger for warnings and errors
+ * @param upToDate    Output — set to true if the plugin does not need rebuilding
+ * @return true if the check itself succeeded, false on internal error
+ */
+bool isPluginUpToDate(const char *entryFile,
+                      const DynArray *inputs,
+                      const char *packageDir,
+                      const char *outputFile,
+                      const DynArray *builtins,
+                      struct StrPool *strings,
+                      Log *log,
+                      bool *upToDate);
+
 #ifdef __cplusplus
 }
 #endif

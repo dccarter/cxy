@@ -6,10 +6,23 @@
 #include "driver/plugin.h"
 
 #include "core/alloc.h"
+#include "lang/frontend/lexer.h"
+#include "lang/frontend/parser.h"
 
 static Plugin *pluginOf(CxyPluginContext *ctx)
 {
     return (Plugin *)((char *)ctx - offsetof(Plugin, ctx));
+}
+
+static void requirePluginInitialized(Plugin *plugin)
+{
+    csAssert0(plugin != NULL);
+    if (!plugin->initialized) {
+        logError(plugin->ctx.L,
+            builtinLoc(), "plugin {s} not initialized",
+            (FormatArg[]){{.s = plugin->name}});
+        csAssert0(false);
+    }
 }
 
 static AstNode *findEnvironmentVar(AstNode *env, const char *name)
@@ -32,7 +45,7 @@ bool cxyPluginRegisterAction(CxyPluginContext *ctx,
                              size_t nActions)
 {
     Plugin *plugin = pluginOf(ctx);
-    csAssert0(plugin != NULL);
+    requirePluginInitialized(plugin);
     for (int i = 0; i < nActions; ++i) {
         CxyPluginAction *action = &actions[i];
         action->name = makeString(ctx->strings, action->name);
@@ -55,6 +68,29 @@ bool cxyPluginRegisterAction(CxyPluginContext *ctx,
 TypeTable *cxyPluginGetTypeTable(CxyPluginContext *ctx)
 {
     return ctx != NULL ? pluginOf(ctx)->types : NULL;
+}
+
+void cxyPluginInitialize(CxyPluginContext *ctx, void *state, CxyPluginInjectionPoint ip)
+{
+    Plugin *plugin = pluginOf(ctx);
+    csAssert0(plugin != NULL);
+    if (plugin->initialized) {
+        logError(plugin->ctx.L,
+                builtinLoc(),
+                "plugin {s} already has initialized",
+                (FormatArg[]){{.s = plugin->name}});
+        csAssert0(false);
+    }
+    plugin->initialized = true;
+    plugin->state = state;
+    plugin->ip = ip;
+}
+
+void *cxyPluginState(CxyPluginContext *ctx)
+{
+    Plugin *plugin = pluginOf(ctx);
+    requirePluginInitialized(plugin);
+    return plugin->state;
 }
 
 bool cxyPluginLoadEnvironment_(CxyPluginContext *ctx,
@@ -95,4 +131,21 @@ bool cxyPluginLoadEnvironment_(CxyPluginContext *ctx,
         }
     }
     return true;
+}
+
+AstNode *cxyParseExpression(CxyPluginContext *ctx,
+                            const char* code,
+                            size_t size,
+                            const FileLoc *origin)
+{
+    Plugin *plugin = pluginOf(ctx);
+    requirePluginInitialized(plugin);
+    Lexer lexer = newOffsetLexer(origin->fileName,
+                             code,
+                             size,
+                             ctx->L,
+                             origin->begin);
+    Parser parser = makeParser(&lexer, plugin->driver, false);
+    AstNode *node = parseExpression(&parser);
+    return node;
 }

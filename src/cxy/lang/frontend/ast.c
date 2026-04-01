@@ -1002,6 +1002,28 @@ AstNode *makeIfStmt(MemPool *pool,
                                              .otherwise = otherwise}});
 }
 
+AstNode *makeForStmt(MemPool *pool,
+                    const FileLoc *loc,
+                    u64 flags,
+                    AstNode *var,
+                    AstNode *range,
+                    AstNode *cond,
+                    AstNode *body,
+                    AstNode *next)
+{
+    return makeAstNode(pool,
+                       loc,
+                       &(AstNode){.tag = astForStmt,
+                                  .type = body? body->type : NULL,
+                                  .next = next,
+                                  .flags = flags,
+                                  .forStmt = {
+                                      .var = var,
+                                      .range = range,
+                                      .cond = cond,
+                                      .body = body}});
+}
+
 AstNode *makeFunctionDecl(MemPool *pool,
                           const FileLoc *loc,
                           cstring name,
@@ -2110,7 +2132,7 @@ bool mapAstNode(HashTable *mapping, const AstNode *from, AstNode *to)
 void initCloneAstNodeMapping(CloneAstConfig *config)
 {
     if (config->createMapping) {
-        config->mapping = newHashTable(sizeof(AstNodeMapping));
+        config->mapping = newTempHashTable(sizeof(AstNodeMapping));
     }
 }
 

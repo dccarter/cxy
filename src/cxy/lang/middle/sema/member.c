@@ -131,15 +131,19 @@ void checkMemberExpr(AstVisitor *visitor, AstNode *node)
     }
     else if (nodeIs(member, Path)) {
         AstNode *name = member->path.elements;
-        node->type = checkMember(visitor, target_, name);
-        if (node->type == NULL) {
-            logError(
-                ctx->L,
-                &member->loc,
-                "type '{t}' does not have member named '{s}'",
-                (FormatArg[]){{.t = target_}, {.s = name->pathElement.name}});
-            node->type = ERROR_TYPE(ctx);
+        for (; name; name = name->next) {
+            target_ = checkMember(visitor, target_, name);
+            if (target_ == NULL) {
+                logError(
+                    ctx->L,
+                    &member->loc,
+                    "type '{t}' does not have member named '{s}'",
+                    (FormatArg[]){{.t = target_}, {.s = name->pathElement.name}});
+                node->type = ERROR_TYPE(ctx);
+                return;
+            }
         }
+        node->type = target_;
     }
     else if (nodeIs(member, IntegerLit)) {
         if (!typeIs(target_, Tuple)) {

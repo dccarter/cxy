@@ -229,8 +229,10 @@ void checkPointerOfExpr(AstVisitor *visitor, AstNode *node)
     }
 
     node->flags |= node->unaryExpr.operand->flags;
-    if (isReferenceType(operand) && !findAttribute(node, S_forced))
+    if (isReferenceType(operand) && !findAttribute(node, S_forced)) {
+        replaceAstNode(node, node->unaryExpr.operand);
         operand = stripReference(operand);
+    }
     node->type = makePointerType(ctx->types, operand, node->flags);
 }
 

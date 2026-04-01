@@ -819,6 +819,10 @@ enum Status aeCreateFileEvent(aeEventLoop *eventLoop,
         fe->timer.fd = fd;
         aeAddTimeEvent(eventLoop, (aeTimeEvent *)fe, timeout);
     }
+    else {
+        // Zero the time
+        fe->timer = (__typeof(fe->timer)){};
+    }
 
     fe->mask |= mask;
     if (mask & AE_READABLE)

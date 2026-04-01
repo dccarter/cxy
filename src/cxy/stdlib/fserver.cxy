@@ -14,13 +14,6 @@ import "fcntl.h" as fcntl
 import "sys/mman.h" as vmem
 import "limits.h" as limits // for PATH_MAX! macro
 
-#if (defined MACOS) {
-macro StatField(X) mk_ident!("st_", X!, "timespec")
-}
-else {
-macro StatField(X) mk_ident!("st_", X!, "tim")
-}
-
 #if (!defined CXY_FILE_SERVER_ROUTE) {
     macro CXY_FILE_SERVER_ROUTE "/www"
 }
@@ -274,18 +267,32 @@ pub class FileServer {
         }
 
         var cf = *sf
+        resp.header("X-Content-Type-Options", "nosniff")
         if (mm.config.allowCaching) {
             // if file supports cache headers employ cache headers
             const cc = req.header("If-Modified-Since")
-            if (cc) {
-                const ifMod = Time((*cc).str());
+            if cc {
+                const ifMod = Time(cc&.str());
                 if (ifMod.timestamp() >= cf.lastMod) {
                     // file was not modified
                     return Status.NotModified
                 }
             }
 
+            // ETag validation: If-None-Match takes priority over If-Modified-Since
+            const inm = req.header("If-None-Match")
+            if inm {
+                var etag = String();
+                etag << '"' << cf.lastMod << '-' << cf.len << '"'
+                if inm&.__str() == etag.__str() {
+                    return Status.NotModified
+                }
+            }
+
             cacheControl(req, resp, &cf, mm);
+        }
+        else {
+            resp.header("Cache-Control", "no-store")
         }
 
         if (mm.config.allowRange) {
@@ -408,10 +415,14 @@ pub class FileServer {
         resp: &Response, cf: &CachedFile,
         mm: &const MimeType
     ) : void {
-        // get http data format
+        // get http date format
         var dt = String();
         dt << Time(cf.lastMod)
         resp.header("Last-Modified", &&dt)
+        // add ETag header: opaque token from lastMod + file size
+        var etag = String();
+        etag << '"' << cf.lastMod << '-' << cf.len << '"'
+        resp.header("ETag", &&etag)
         // add cache control header
         if (mm.config.cacheExpires > 0) {
             var b = String();

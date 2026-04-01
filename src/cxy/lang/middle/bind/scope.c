@@ -22,7 +22,7 @@ static Scope *newScope(Scope *prev)
     Scope *next = mallocOrDie(sizeof(Scope));
     next->prev = prev;
     next->next = NULL;
-    next->symbols = newHashTable(sizeof(Symbol));
+    next->symbols = newTempHashTable(sizeof(Symbol));
     if (prev) {
         next->level = prev->level + 1;
         prev->next = next;

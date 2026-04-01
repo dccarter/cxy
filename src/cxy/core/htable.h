@@ -17,8 +17,9 @@ extern "C" {
  * and the comparison function is only used if they compare equal.
  * The collision resolution strategy is linear probing.
  */
-
+typedef struct MemPool MemPool;
 typedef struct HashTable {
+    MemPool *pool;
     size_t capacity;
     size_t size;
     HashCode *hashes;
@@ -31,8 +32,11 @@ typedef struct HashtableIt {
     u64 elemSize;
 } HashtableIt;
 
-HashTable newHashTable(size_t elemSize);
-HashTable newHashTableWithCapacity(size_t elemSize, size_t capacity);
+HashTable newHashTable(size_t elemSize, MemPool *pool);
+#define newTempHashTable(elemSize) newHashTable(elemSize, NULL)
+HashTable newHashTableWithCapacity(size_t elemSize, size_t capacity, MemPool *pool);
+#define newTempHashTableWithCapacity(elemSize, capacity) newHashTableWithCapacity(elemSize, capacity, NULL)
+
 void freeHashTable(HashTable *);
 
 bool isBucketOccupied(const HashTable *, size_t);

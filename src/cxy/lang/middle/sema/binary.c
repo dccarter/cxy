@@ -146,13 +146,14 @@ static void checkBinaryOperatorOverload(AstVisitor *visitor, AstNode *node)
 
         if (nodeIs(param->funcParam.type, ReferenceType) &&
             !isReferenceType(right) && isReferable(right)) {
-            node->binaryExpr.rhs = makeReferenceOfExpr(ctx->pool,
-                                                       &node->binaryExpr.rhs->loc,
-                                                       flgNone,
-                                                       node->binaryExpr.rhs,
-                                                       NULL,
-                                                       NULL);
-            }
+            node->binaryExpr.rhs =
+                makeReferenceOfExpr(ctx->pool,
+                                    &node->binaryExpr.rhs->loc,
+                                    flgNone,
+                                    node->binaryExpr.rhs,
+                                    NULL,
+                                    NULL);
+        }
     }
 
     transformToMemberCallExpr(
@@ -168,9 +169,21 @@ void checkBinaryExpr(AstVisitor *visitor, AstNode *node)
     ctx->explicitCatch = node->binaryExpr.op == opCatch;
     bool currentReturnState = ctx->returnState;
     const Type *left = checkType(visitor, lhs), *left_ = stripAll(left);
+    if (typeIs(left, Error)) {
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
 
     Operator op = node->binaryExpr.op;
     BinaryOperatorKind opKind = getBinaryOperatorKind(op);
+    if (opKind == optCatch && !isResultType(left)) {
+        logError(ctx->L,
+                 &node->binaryExpr.lhs->loc,
+                 "expression does not raise an exception",
+                 NULL);
+        node->type = ERROR_TYPE(ctx);
+        return;
+    }
     bool isNullEquality = opKind == optEquality && nodeIs(rhs, NullLit);
 
     if ((opKind == optComparison || opKind == optEquality) &&

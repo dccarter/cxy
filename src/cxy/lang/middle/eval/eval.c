@@ -142,12 +142,16 @@ void evalIfStmt(AstVisitor *visitor, AstNode *node)
         if (nodeIs(replacement, BlockStmt))
             replacement = replacement->blockStmt.stmts
                               ?: makeAstNop(ctx->pool, &replacement->loc);
-        replacement->parentScope = node->parentScope;
+        AstNode *last = replacement;
+        for (AstNode *rep = replacement; rep; rep = rep->next) {
+            rep->parentScope = node->parentScope;
+            last = rep;
+        }
         clearAstBody(node);
         node->tag = astNoop;
         node->flags &= ~flgComptime;
         node->next = replacement;
-        getLastAstNode(replacement)->next = next;
+        last->next = next;
     }
     else if (node->ifStmt.otherwise) {
         // select otherwise, reclaim if branch

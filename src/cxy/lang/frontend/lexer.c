@@ -36,17 +36,32 @@ static void registerKeywords(HashTable *keywords)
 #undef f
 }
 
-static LexerBuffer *newLexerBuffer(const char *fileName,
+static LexerBuffer *newLexerBuffer_(const char *fileName,
                                    const char *fileData,
-                                   size_t fileSize)
+                                   size_t fileSize,
+                                   FilePos offset)
 {
     LexerBuffer *buffer = mallocOrDie(sizeof(LexerBuffer));
     buffer->fileName = fileName;
     buffer->fileData = fileData;
     buffer->fileSize = fileSize;
-    buffer->filePos = (FilePos){.row = 1, .col = 1};
+    buffer->filePos = offset;
+    buffer->baseOffset = offset.byteOffset;
+    buffer->filePos.byteOffset = 0;
     buffer->ownData = false;
     buffer->prev = NULL;
+    return buffer;
+}
+
+static LexerBuffer *newLexerBuffer(const char *fileName,
+                                   const char *fileData,
+                                   size_t fileSize)
+{
+    LexerBuffer *buffer = newLexerBuffer_(fileName,
+                                          fileData,
+                                          fileSize,
+                                          (FilePos){.row = 1, .col = 1});
+    buffer->baseOffset = 0;
     return buffer;
 }
 
@@ -81,18 +96,36 @@ Lexer newLexer(const char *fileName,
                size_t fileSize,
                Log *log)
 {
-    enum {
+    return newOffsetLexer(fileName,
+                          fileData,
+                          fileSize,
+                          log,
+                          (FilePos){.row = 1, .col = 1});
+}
+
+Lexer newOffsetLexer(const char *fileName,
+                     const char *fileData,
+                     size_t fileSize,
+                     Log *log,
+                     FilePos offset)
+{
+    static HashTable LEXER_KEYWORDS = {};
+    if (LEXER_KEYWORDS.elems == NULL) {
+        enum {
 #define f(name, str, ...) KEYWORD_##name,
-        KEYWORD_LIST(f)
-#undef f
-            KEYWORD_COUNT
-    };
+            KEYWORD_LIST(f)
+    #undef f
+                KEYWORD_COUNT
+        };
+        LEXER_KEYWORDS =
+            newTempHashTableWithCapacity(KEYWORD_COUNT, sizeof(Keyword)),
+        registerKeywords(&LEXER_KEYWORDS);
+    }
+
     Lexer lexer = {.log = log,
-                   .buffer = newLexerBuffer(fileName, fileData, fileSize),
-                   .keywords =
-                       newHashTableWithCapacity(KEYWORD_COUNT, sizeof(Keyword)),
+                   .buffer = newLexerBuffer_(fileName, fileData, fileSize, offset),
+                   .keywords = &LEXER_KEYWORDS,
                    .flags = lxNone};
-    registerKeywords(&lexer.keywords);
     return lexer;
 }
 
@@ -196,11 +229,15 @@ static bool skipMultiLineComment(Lexer *lexer)
 
 static inline Token makeToken(Lexer *lexer, const FilePos *begin, TokenTag tag)
 {
+    size_t base = lexer->buffer->baseOffset;
+    FilePos b = *begin, e = lexer->buffer->filePos;
+    b.byteOffset += base;
+    e.byteOffset += base;
     return (Token){
         .tag = tag,
         .fileLoc = {.fileName = lexer->buffer->fileName,
-                    .begin = *begin,
-                    .end = lexer->buffer->filePos},
+                    .begin = b,
+                    .end = e},
         .buffer = lexer->buffer,
     };
 }
@@ -210,10 +247,14 @@ static inline Token makeToken_(Lexer *lexer,
                                const FilePos *begin,
                                TokenTag tag)
 {
+    size_t base = buffer->baseOffset;
+    FilePos b = *begin, e = buffer->filePos;
+    b.byteOffset += base;
+    e.byteOffset += base;
     return (Token){.tag = tag,
                    .fileLoc = {.fileName = lexer->buffer->fileName,
-                               .begin = *begin,
-                               .end = buffer->filePos},
+                               .begin = b,
+                               .end = e},
                    .buffer = buffer};
 }
 
@@ -223,10 +264,14 @@ static inline Token makeToken__(Lexer *lexer,
                                const FilePos *end,
                                TokenTag tag)
 {
+    size_t base = buffer->baseOffset;
+    FilePos b = *begin, e = *end;
+    b.byteOffset += base;
+    e.byteOffset += base;
     return (Token){.tag = tag,
                    .fileLoc = {.fileName = lexer->buffer->fileName,
-                               .begin = *begin,
-                               .end = *end},
+                               .begin = b,
+                               .end = e},
                    .buffer = buffer};
 }
 
@@ -264,9 +309,13 @@ static Token multilineString(Lexer *lexer)
             if (getCurChar(lexer) == '"' && peekNextChar(lexer) == '"') {
                 skipChar(lexer);
                 skipChar(lexer);
+                size_t base = buffer->baseOffset;
+                FilePos b = begin, e = end;
+                b.byteOffset += base;
+                e.byteOffset += base;
                 return (Token){.fileLoc = {.fileName = lexer->buffer->fileName,
-                                           .begin = begin,
-                                           .end = end},
+                                           .begin = b,
+                                           .end = e},
                                .tag = tokStringLiteral,
                                .buffer = buffer};
             }
@@ -345,8 +394,11 @@ Token advanceLexer(Lexer *lexer)
         }
         if (acceptChar(lexer, ','))
             return makeToken(lexer, &begin, tokComma);
-        if (acceptChar(lexer, ':'))
+        if (acceptChar(lexer, ':')) {
+            if (acceptChar(lexer, ':'))
+                return makeToken(lexer, &begin, tokDColon);
             return makeToken(lexer, &begin, tokColon);
+        }
         if (acceptChar(lexer, ';'))
             return makeToken(lexer, &begin, tokSemicolon);
         if (acceptChar(lexer, '#')) {
@@ -574,7 +626,7 @@ Token advanceLexer(Lexer *lexer)
             const char *name = buffer->fileData + begin.byteOffset;
             size_t len = buffer->filePos.byteOffset - begin.byteOffset;
             Keyword *keyword =
-                findInHashTable(&lexer->keywords,
+                findInHashTable(lexer->keywords,
                                 &(Keyword){.name = name, .len = len},
                                 hashRawBytes(hashInit(), name, len),
                                 sizeof(Keyword),
@@ -679,7 +731,7 @@ void freeLexer(Lexer *lexer)
     deleteLexerBufferChain(lexer->cleanup);
     lexer->buffer = NULL;
     lexer->cleanup = NULL;
-    freeHashTable(&lexer->keywords);
+    lexer->keywords = NULL;
 }
 
 void lexerPush(Lexer *L, const char *fileName)

@@ -26,6 +26,10 @@ typedef struct SimplifyContext {
     AstNodeList *startup;
     AstNode *returnVar;
     bool traceMemory;
+    struct {
+        AstNodeList exprs;
+        bool visiting;
+    } whileCond;
     union {
         struct {
             AstNode *currentFunction;
@@ -154,32 +158,24 @@ static void simplifyForRangeStmt(AstVisitor *visitor, AstNode *node)
         body,
         NULL,
         // x += range.step
-        makeExprStmt(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            // x += range.step
-            makeAssignExpr(
-                ctx->pool,
-                &range->loc,
-                flgNone,
-                // x
-                makeResolvedIdentifier(ctx->pool,
-                                       &range->loc,
-                                       var->varDecl.name,
-                                       0,
-                                       var,
-                                       NULL,
-                                       var->type),
-                opAdd,
-                // range.step
-                range->rangeExpr.step
-                    ?: makeIntegerLiteral(
-                           ctx->pool, &range->loc, 1, NULL, range->type),
-                NULL,
-                range->type),
-            NULL,
-            range->type));
+        makeAssignExpr(ctx->pool,
+                       &range->loc,
+                       flgNone,
+                       // x
+                       makeResolvedIdentifier(ctx->pool,
+                                              &range->loc,
+                                              var->varDecl.name,
+                                              0,
+                                              var,
+                                              NULL,
+                                              var->type),
+                       opAdd,
+                       // range.step
+                       range->rangeExpr.step
+                           ?: makeIntegerLiteral(
+                                  ctx->pool, &range->loc, 1, NULL, range->type),
+                       NULL,
+                       range->type));
     body->parentScope = var->next;
     node->tag = astBlockStmt;
     node->flags = flgScoping;
@@ -220,17 +216,15 @@ static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
                                0,
                                NULL,
                                getPrimitiveType(ctx->types, prtU64));
+        var->next = NULL;
     }
-    else {
-        var->next = index;
-    }
+    index->next = NULL;
+    astModifierAdd(&ctx->block, index);
 
-    var->varDecl.init =
-        makeNullLiteral(ctx->pool, &var->loc, NULL, var->type);
-
+    astVisit(visitor, range);
     range = makeVarDecl(ctx->pool,
                         &range->loc,
-                        range->flags,
+                        range->flags & ~flgTopLevelDecl,
                         makeAnonymousVariable(ctx->strings, "_for"),
                         NULL,
                         range,
@@ -238,7 +232,7 @@ static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
                         typeIs(rangeType, String)
                             ? range->type
                             : makePointerType(ctx->types, elem, flgNone));
-    index->next = range;
+    astModifierAdd(&ctx->block, range);
 
     AstNode *condition = makeBinaryExpr(
         ctx->pool,
@@ -260,91 +254,49 @@ static void simplifyForArrayStmt(AstVisitor *visitor, AstNode *node)
         NULL,
         getPrimitiveType(ctx->types, prtBool));
 
-    AstNode *assign = makeExprStmt(
+    var->tag = astAliasExpr;
+    var->aliasExpr.expr =
+        makeIndexExpr(ctx->pool,
+                      &range->loc,
+                      elem->flags,
+                      makeResolvedIdentifier(ctx->pool,
+                                             &range->loc,
+                                             range->varDecl.name,
+                                             0,
+                                             range,
+                                             NULL,
+                                             range->type),
+                      makeResolvedIdentifier(ctx->pool,
+                                             &range->loc,
+                                             index->varDecl.name,
+                                             flgNone,
+                                             index,
+                                             NULL,
+                                             index->type),
+                      NULL,
+                      var->type);
+
+    AstNode *advance = makeAssignExpr(
         ctx->pool,
         &range->loc,
         flgNone,
-        makeAssignExpr(ctx->pool,
-                       &range->loc,
-                       flgNone,
-                       makeResolvedIdentifier(ctx->pool,
-                                              &range->loc,
-                                              var->varDecl.name,
-                                              0,
-                                              var,
-                                              NULL,
-                                              var->type),
-                       opAssign,
-                       makeIndexExpr(ctx->pool,
-                                     &range->loc,
-                                     elem->flags,
-                                     makeResolvedIdentifier(ctx->pool,
-                                                            &range->loc,
-                                                            range->varDecl.name,
-                                                            0,
-                                                            range,
-                                                            NULL,
-                                                            range->type),
-                                     makeResolvedIdentifier(ctx->pool,
-                                                            &range->loc,
-                                                            index->varDecl.name,
-                                                            flgNone,
-                                                            index,
-                                                            NULL,
-                                                            index->type),
-                                     NULL,
-                                     var->type),
-                       NULL,
-                       range->type),
-        NULL,
-        var->type);
-
-    AstNode *advance = makeExprStmt(
-        ctx->pool,
-        &node->loc,
-        flgNone,
-        makeAssignExpr(
-            ctx->pool,
-            &range->loc,
-            flgNone,
-            makeResolvedIdentifier(ctx->pool,
-                                   &range->loc,
-                                   index->varDecl.name,
-                                   0,
-                                   index,
-                                   NULL,
-                                   index->type),
-            opAdd,
-            makeIntegerLiteral(ctx->pool, &range->loc, 1, NULL, index->type),
-            NULL,
-            index->type),
+        makeResolvedIdentifier(ctx->pool,
+                               &range->loc,
+                               index->varDecl.name,
+                               0,
+                               index,
+                               NULL,
+                               index->type),
+        opAdd,
+        makeIntegerLiteral(ctx->pool, &range->loc, 1, NULL, index->type),
         NULL,
         index->type);
-    assign->next = advance;
 
-    if (nodeIs(body, BlockStmt)) {
-        if (body->blockStmt.stmts) {
-            assign->next = body->blockStmt.stmts;
-            body->blockStmt.stmts = assign;
-        }
-        else
-            body->blockStmt.stmts = assign;
-    }
-    else {
-        assign->next = body;
-        body = makeBlockStmt(ctx->pool, &assign->loc, assign, NULL, node->type);
-    }
-
-    range->next = makeWhileStmt(ctx->pool,
-                                &node->loc,
-                                node->flags,
-                                condition,
-                                body,
-                                NULL,
-                                deepCloneAstNode(ctx->pool, advance));
-    node->tag = astBlockStmt;
-    node->blockStmt.stmts = var;
-    node->blockStmt.last = range->next;
+    node->tag = astWhileStmt;
+    clearAstBody(node);
+    node->whileStmt.body = body;
+    node->whileStmt.cond = condition;
+    node->whileStmt.update = advance;
     astVisit(visitor, node);
 }
 
@@ -727,6 +679,24 @@ static void visitIndexExpr(AstVisitor *visitor, AstNode *node)
                                    deepCloneAstNode(ctx->pool, index),
                                    NULL,
                                    index->type);
+        if (ctx->whileCond.visiting) {
+            insertAstNode(
+                &ctx->whileCond.exprs,
+                makeAssignExpr(ctx->pool,
+                               &index->loc,
+                               flgNone,
+                               makeResolvedIdentifier(ctx->pool,
+                                                      &index->loc,
+                                                      var->varDecl.name,
+                                                      0,
+                                                      var,
+                                                      NULL,
+                                                      var->type),
+                               opAssign,
+                               deepCloneAstNode(ctx->pool, index),
+                               NULL,
+                               index->type));
+        }
         index->tag = astIdentifier;
         index->ident.value = var->_namedNode.name;
         index->ident.resolvesTo = var;
@@ -764,6 +734,24 @@ static void visitCallExpr(AstVisitor *visitor, AstNode *node)
                             deepCloneAstNode(ctx->pool, arg),
                             NULL,
                             arg->type);
+            if (ctx->whileCond.visiting) {
+                insertAstNode(
+                    &ctx->whileCond.exprs,
+                    makeAssignExpr(ctx->pool,
+                                   &arg->loc,
+                                   flgNone,
+                                   makeResolvedIdentifier(ctx->pool,
+                                                          &arg->loc,
+                                                          var->varDecl.name,
+                                                          0,
+                                                          var,
+                                                          NULL,
+                                                          var->type),
+                                   opAssign,
+                                   deepCloneAstNode(ctx->pool, arg),
+                                   NULL,
+                                   arg->type));
+            }
             arg->tag = astIdentifier;
             arg->ident.value = var->_namedNode.name;
             arg->ident.resolvesTo = var;
@@ -844,7 +832,8 @@ static void visitIdentifier(AstVisitor *visitor, AstNode *node)
     }
     else if (nodeIs(target, AliasExpr)) {
         // We need to substitute the alias expression
-        replaceAstNode(node, deepCloneAstNode(ctx->pool, target->aliasExpr.expr));
+        replaceAstNode(node,
+                       deepCloneAstNode(ctx->pool, target->aliasExpr.expr));
     }
 }
 
@@ -894,63 +883,67 @@ static void visitBinaryExpr(AstVisitor *visitor, AstNode *node)
             lhs->memberExpr.target = target;
         }
     }
-    else if (node->binaryExpr.op == opLOr || node->binaryExpr.op == opLAnd) {
-        AstNode *tmp = makeVarDecl(
-            ctx->pool,
-            &lhs->loc,
-            flgMove,
-            makeAnonymousVariable(ctx->strings, "_or"),
-            makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
-            lhs,
-            NULL,
-            node->type);
-        astVisit(visitor, tmp);
-        astModifierAdd(&ctx->block, tmp);
-        AstNode *body = makeExprStmt(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            makeAssignExpr(
-                ctx->pool,
-                &node->loc,
-                flgNone,
-                makeResolvedIdentifier(
-                    ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type),
-                opAssign,
-                rhs,
-                NULL,
-                node->type),
-            NULL,
-            node->type);
-        AstNode *cond = makeResolvedIdentifier(
-            ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type);
-        if (node->binaryExpr.op == opLOr)
-            cond = makeUnaryExpr(ctx->pool,
-                                 &tmp->loc,
-                                 flgNone,
-                                 true,
-                                 opNot,
-                                 cond,
-                                 NULL,
-                                 cond->type);
-        AstNode *if_ = makeIfStmt(
-            ctx->pool,
-            &node->loc,
-            flgNone,
-            cond,
-            makeBlockStmt(
-                ctx->pool, &body->loc, body, NULL, makeVoidType(ctx->types)),
-            NULL,
-            NULL);
-        astVisit(visitor, if_);
-        astModifierAdd(&ctx->block, if_);
-
-        node->tag = astIdentifier;
-        clearAstBody(node);
-        node->ident.value = tmp->_name;
-        node->ident.resolvesTo = tmp;
-    }
     else {
+        // else if (node->binaryExpr.op == opLOr || node->binaryExpr.op ==
+        // opLAnd) {
+        //     AstNode *tmp = makeVarDecl(
+        //         ctx->pool,
+        //         &lhs->loc,
+        //         flgMove,
+        //         makeAnonymousVariable(ctx->strings, "_or"),
+        //         makeTypeReferenceNode(ctx->pool, node->type, &node->loc),
+        //         lhs,
+        //         NULL,
+        //         node->type);
+        //     astVisit(visitor, tmp);
+        //     astModifierAdd(&ctx->block, tmp);
+        //     AstNode *body = makeExprStmt(
+        //         ctx->pool,
+        //         &node->loc,
+        //         flgNone,
+        //         makeAssignExpr(
+        //             ctx->pool,
+        //             &node->loc,
+        //             flgNone,
+        //             makeResolvedIdentifier(
+        //                 ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL,
+        //                 tmp->type),
+        //             opAssign,
+        //             rhs,
+        //             NULL,
+        //             node->type),
+        //         NULL,
+        //         node->type);
+        //     AstNode *cond = makeResolvedIdentifier(
+        //         ctx->pool, &tmp->loc, tmp->_name, 0, tmp, NULL, tmp->type);
+        //     if (node->binaryExpr.op == opLOr)
+        //         cond = makeUnaryExpr(ctx->pool,
+        //                              &tmp->loc,
+        //                              flgNone,
+        //                              true,
+        //                              opNot,
+        //                              cond,
+        //                              NULL,
+        //                              cond->type);
+        //     AstNode *if_ = makeIfStmt(
+        //         ctx->pool,
+        //         &node->loc,
+        //         flgNone,
+        //         cond,
+        //         makeBlockStmt(
+        //             ctx->pool, &body->loc, body, NULL,
+        //             makeVoidType(ctx->types)),
+        //         NULL,
+        //         NULL);
+        //     astVisit(visitor, if_);
+        //     astModifierAdd(&ctx->block, if_);
+        //
+        //     node->tag = astIdentifier;
+        //     clearAstBody(node);
+        //     node->ident.value = tmp->_name;
+        //     node->ident.resolvesTo = tmp;
+        // }
+        // else {
         astVisitFallbackVisitAll(visitor, node);
     }
 }
@@ -1134,7 +1127,9 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
 
     AstNode *target = node->memberExpr.target;
     if (nodeNeedsTemporaryVar(target) && !nodeIs(target, TypeRef)) {
-        Flags flags = isDiscardedExpressionReturn(node->parentScope)? flgNone : flgTemporary;
+        Flags flags = isDiscardedExpressionReturn(node->parentScope)
+                          ? flgNone
+                          : flgTemporary;
         AstNode *var = makeVarDecl(ctx->pool,
                                    &target->loc,
                                    flags,
@@ -1143,6 +1138,25 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
                                    target,
                                    NULL,
                                    target->type);
+        if (ctx->whileCond.visiting) {
+            // Add this not current while cond exprs
+            insertAstNode(
+                &ctx->whileCond.exprs,
+                makeAssignExpr(ctx->pool,
+                               &target->loc,
+                               flgNone,
+                               makeResolvedIdentifier(ctx->pool,
+                                                      &target->loc,
+                                                      var->_namedNode.name,
+                                                      0,
+                                                      var,
+                                                      NULL,
+                                                      var->type),
+                               opAssign,
+                               deepCloneAstNode(ctx->pool, target),
+                               NULL,
+                               var->type));
+        }
         node->memberExpr.target = makeResolvedIdentifier(ctx->pool,
                                                          &target->loc,
                                                          var->_namedNode.name,
@@ -1324,12 +1338,25 @@ static void visitWhileStmt(AstVisitor *visitor, AstNode *node)
 {
     SimplifyContext *ctx = getAstVisitorContext(visitor);
 
-    AstNode *cond = node->whileStmt.cond;
+    AstNode *cond = node->whileStmt.cond, *update = node->whileStmt.update;
     if (!isBooleanType(cond->type)) {
         simplifyCondition(ctx, cond);
     }
-    astVisitFallbackVisitAll(visitor, node);
-    astVisit(visitor, node->whileStmt.update);
+    __typeof(ctx->whileCond) wc = ctx->whileCond;
+    ctx->whileCond = (__typeof(ctx->whileCond)){};
+    ctx->whileCond.visiting = true;
+    astVisit(visitor, cond);
+    if (ctx->whileCond.exprs.first) {
+        if (update != NULL) {
+            insertAstNode(&ctx->whileCond.exprs, update);
+        }
+        node->whileStmt.update = makeGroupExpr(
+            ctx->pool, &cond->loc, flgNone, ctx->whileCond.exprs.first, NULL);
+    }
+    ctx->whileCond = wc;
+
+    astVisit(visitor, node->whileStmt.body);
+    astVisit(visitor, update);
 }
 
 void visitSwitchStmt(AstVisitor *visitor, AstNode *node)
@@ -1362,22 +1389,20 @@ void visitMatchStmt(AstVisitor *visitor, AstNode *node)
     node->tag = astSwitchStmt;
 
     for (AstNode *esac = node->matchStmt.cases; esac; esac = esac->next) {
-        AstNode *match = esac->caseStmt.match,
-                *alias = esac->caseStmt.alias,
+        AstNode *match = esac->caseStmt.match, *alias = esac->caseStmt.alias,
                 *body = esac->caseStmt.body;
         if (match) {
             esac->caseStmt.match = makeIntegerLiteral(
                 ctx->pool, &match->loc, esac->caseStmt.idx, NULL, expr->type);
             if (alias) {
-                alias->aliasExpr.expr =
-                    makeCastExpr(ctx->pool,
-                                 &alias->loc,
-                                 flgUnionCast,
-                                 deepCloneAstNode(ctx->pool, cond),
-                                 makeTypeReferenceNode(
-                                     ctx->pool, alias->type, &alias->loc),
-                                 NULL,
-                                 alias->type);
+                alias->aliasExpr.expr = makeCastExpr(
+                    ctx->pool,
+                    &alias->loc,
+                    flgUnionCast,
+                    deepCloneAstNode(ctx->pool, cond),
+                    makeTypeReferenceNode(ctx->pool, alias->type, &alias->loc),
+                    NULL,
+                    alias->type);
                 alias->aliasExpr.expr->castExpr.idx = esac->caseStmt.idx;
                 if (!nodeIs(body, BlockStmt)) {
                     esac->caseStmt.body =
@@ -1448,28 +1473,71 @@ static void visitVarDecl(AstVisitor *visitor, AstNode *node)
         else {
             node->varDecl.init = NULL;
         }
-        // just a list of assignment expressions
-        insertAstNode(&ctx->init,
-                      makeExprStmt(ctx->pool,
-                                   &node->loc,
-                                   flgNone,
-                                   makeAssignExpr(ctx->pool,
-                                                  &node->loc,
-                                                  node->flags,
-                                                  makeResolvedIdentifier(
-                                                      ctx->pool,
+        if (isArrayType(init->type)) {
+            // const _ga = {}
+            // bfi(Copy ga, _ga)
+            AstNode *ga =
+                makeVarDecl(ctx->pool,
+                            &init->loc,
+                            flgTemporary | flgConst,
+                            makeAnonymousVariable(ctx->strings, "_ga"),
+                            NULL,
+                            init,
+                            NULL,
+                            init->type);
+            insertAstNode(&ctx->init, ga);
+            AstNode *args =
+                makeResolvedIdentifier(ctx->pool,
+                                       &init->loc,
+                                       node->varDecl.name,
+                                       0,
+                                       node,
+                                       makeResolvedIdentifier(ctx->pool,
+                                                              &init->loc,
+                                                              ga->varDecl.name,
+                                                              0,
+                                                              ga,
+                                                              NULL,
+                                                              ga->type),
+                                       node->type);
+            insertAstNode(
+                &ctx->init,
+                makeExprStmt(ctx->pool,
+                             &init->loc,
+                             flgNone,
+                             makeBackendCallExpr(ctx->pool,
+                                                 &init->loc,
+                                                 flgNone,
+                                                 bfiCopy,
+                                                 args,
+                                                 makeVoidType(ctx->types)),
+                             NULL,
+                             makeVoidType(ctx->types)));
+        }
+        else {
+            // just a list of assignment expressions
+            insertAstNode(&ctx->init,
+                          makeExprStmt(ctx->pool,
+                                       &node->loc,
+                                       flgNone,
+                                       makeAssignExpr(ctx->pool,
                                                       &node->loc,
-                                                      node->varDecl.name,
-                                                      0,
-                                                      node,
+                                                      node->flags,
+                                                      makeResolvedIdentifier(
+                                                          ctx->pool,
+                                                          &node->loc,
+                                                          node->varDecl.name,
+                                                          0,
+                                                          node,
+                                                          NULL,
+                                                          node->type),
+                                                      opAssign,
+                                                      init,
                                                       NULL,
-                                                      node->type),
-                                                  opAssign,
-                                                  init,
-                                                  NULL,
-                                                  init->type),
-                                   NULL,
-                                   makeVoidType(ctx->types)));
+                                                      init->type),
+                                       NULL,
+                                       makeVoidType(ctx->types)));
+        }
     }
     else {
         astVisit(visitor, init);

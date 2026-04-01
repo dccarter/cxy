@@ -1,6 +1,7 @@
 #include "core/htable.h"
 #include "core/alloc.h"
 #include "core/primes.h"
+#include "core/mempool.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -25,25 +26,46 @@ static inline bool needsRehash(const HashTable *hashTable)
     return hashTable->size * 100 >= hashTable->capacity * MAX_LOAD_FACTOR;
 }
 
-HashTable newHashTable(size_t elemSize)
+static inline void *allocElems(HashTable *hashTable, size_t capacity, size_t elemSize)
 {
-    return newHashTableWithCapacity(elemSize, DEFAULT_HASH_TABLE_CAPACITY);
+    size_t size = capacity * elemSize;
+    if (hashTable->pool)
+        return allocFromMemPool(hashTable->pool, size);
+    return mallocOrDie(size);
 }
 
-HashTable newHashTableWithCapacity(size_t elemSize, size_t capacity)
+static inline void* allocHashes(HashTable *hashTable, size_t capacity)
+{
+    if (hashTable->pool)
+        return callocFromMemPool(hashTable->pool, capacity, sizeof(HashCode));
+    return callocOrDie(capacity, sizeof(HashCode));
+}
+
+HashTable newHashTable(size_t elemSize, MemPool *pool)
+{
+    return newHashTableWithCapacity(elemSize, DEFAULT_HASH_TABLE_CAPACITY, pool);
+}
+
+HashTable newHashTableWithCapacity(size_t elemSize, size_t capacity, MemPool *pool)
 {
     capacity = nextPrime(capacity);
-    void *elems = mallocOrDie(capacity * elemSize);
-    HashCode *hashes = callocOrDie(capacity, sizeof(HashCode));
-    return (HashTable){.elems = elems, .hashes = hashes, .capacity = capacity};
+    HashTable ht = {
+        .pool = pool,
+        .capacity = capacity,
+    };
+    ht.elems = allocElems(&ht, capacity, elemSize);
+    ht.hashes = allocHashes(&ht, capacity);
+    return ht;
 }
 
 void freeHashTable(HashTable *hashTable)
 {
     if (hashTable == NULL)
         return;
-    free(hashTable->elems);
-    free(hashTable->hashes);
+    if (hashTable->pool == NULL) {
+        free(hashTable->elems);
+        free(hashTable->hashes);
+    }
     hashTable->capacity = hashTable->size = 0;
 }
 
@@ -62,8 +84,8 @@ static inline void rehashTable(HashTable *hashTable, size_t elemSize)
     size_t new_capacity = nextPrime(hashTable->capacity);
     if (new_capacity <= hashTable->capacity)
         new_capacity = hashTable->capacity * 2 + 1;
-    void *new_elems = mallocOrDie(new_capacity * elemSize);
-    HashCode *new_hashes = callocOrDie(new_capacity, elemSize);
+    void *new_elems = allocElems(hashTable, new_capacity, elemSize);
+    HashCode *new_hashes = allocHashes(hashTable, new_capacity);
     for (size_t i = 0, n = hashTable->capacity; i < n; ++i) {
         HashCode hash = hashTable->hashes[i];
         if (!isOccupiedHash(hash))
@@ -77,8 +99,10 @@ static inline void rehashTable(HashTable *hashTable, size_t elemSize)
                elemSize);
         new_hashes[index] = hash;
     }
-    free(hashTable->hashes);
-    free(hashTable->elems);
+    if (hashTable->pool == NULL) {
+        free(hashTable->hashes);
+        free(hashTable->elems);
+    }
     hashTable->hashes = new_hashes;
     hashTable->elems = new_elems;
     hashTable->capacity = new_capacity;

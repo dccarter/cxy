@@ -28,6 +28,7 @@ extern "C" {
     f(Question, "?")                \
     f(Comma, ",")                   \
     f(Colon, ":")                   \
+    f(DColon, "::")                 \
     f(Semicolon, ";")               \
     f(Assign, "=")                  \
     f(Equal, "==")                  \

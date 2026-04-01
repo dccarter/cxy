@@ -18,7 +18,7 @@ static bool compareCaptures(const void *left, const void *right)
 static void initClosureCapture(ClosureCapture *set)
 {
     set->table = mallocOrDie(sizeof(HashTable));
-    *set->table = newHashTable(sizeof(Capture));
+    *set->table = newTempHashTable(sizeof(Capture));
 }
 
 Capture *addClosureCapture(ClosureCapture *set, AstNode *node)

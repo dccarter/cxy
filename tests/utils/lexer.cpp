@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
         source = std::string(begin, end);
     }
 
-    Log L = newLog(nullptr, nullptr);
+    Log L = newLog(nullptr, nullptr, nullptr);
     L.ignoreStyles = true;
     Lexer lexer = newLexer(fileName, source.data(), source.size(), &L);
     auto getRangeValue = [&source](const FileLoc &loc, bool trim = true) {

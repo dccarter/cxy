@@ -71,7 +71,7 @@ bool preprocessorHasMacro(struct CompilerPreprocessor *preprocessor,
 void initCompilerPreprocessor(struct CompilerDriver *driver)
 {
     Options *options = &driver->options;
-    driver->preprocessor.symbols = newHashTable(sizeof(PreprocessorMacro));
+    driver->preprocessor.symbols = newTempHashTable(sizeof(PreprocessorMacro));
     driver->preprocessor.pool = driver->pool;
     if (options->optimizationLevel > O0) {
         preprocessorDefineMacro(&driver->preprocessor,
