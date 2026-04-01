@@ -99,6 +99,7 @@ set(CXY_CORE_SOURCES
         src/cxy/core/mempool.c
         src/cxy/core/sb.c
         src/cxy/core/strpool.c
+        src/cxy/core/synchronization.c
         src/cxy/core/utils.c)
 
 set(CXY_PACKAGE_SOURCES
@@ -253,6 +254,7 @@ set(CXY_DRIVER_SOURCES
         src/cxy/driver/options.c
         src/cxy/driver/stages.c
         src/cxy/driver/stats.c
+        src/cxy/driver/profiling.c
         src/cxy/driver/plugin.c
 
         src/cxy/driver/c-import/context.cpp

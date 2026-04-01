@@ -11,7 +11,15 @@ extern "C" {
 typedef struct Log Log;
 typedef struct StrPool StrPool;
 
-typedef enum { _cmdHelp, _cmdCompletion, cmdDev, cmdBuild, cmdTest, cmdPackage, cmdUtils } Command;
+typedef enum {
+    _cmdHelp,
+    _cmdCompletion,
+    cmdDev,
+    cmdBuild,
+    cmdTest,
+    cmdPackage,
+    cmdUtils
+} Command;
 // clang-format off
 #define DUMP_OPTIONS(ff)    \
     ff(NONE)                \
@@ -38,6 +46,18 @@ typedef enum {
     dsmCOUNT
 #undef ff
 } DumpStatsMode;
+
+#define PROFILE_MODE(f)         \
+    f(NONE)                     \
+    f(STDOUT)                   \
+    f(JSON)
+
+typedef enum {
+#define ff(N) prf## N,
+    PROFILE_MODE(ff)
+    prfCOUNT
+#undef ff
+} ProfileMode;
 
 typedef enum OptimizationLevel {
     O0 = '0',
@@ -84,6 +104,7 @@ typedef enum {
 // clang-format on
 
 typedef struct Options {
+    struct StrPool *strings;
     Command cmd;
     const char *output;
     const char *libDir;
@@ -120,6 +141,7 @@ typedef struct Options {
             bool withLocation;
             bool withoutAttrs;
             bool withNamedEnums;
+            ProfileMode profile;
             DumpModes dumpMode;
             u64 lastStage;
         } dev;
@@ -139,7 +161,7 @@ typedef struct Options {
             const char *version;
             bool interactive;
             const char *directory;
-            bool bin;                // Create binary package (main.cxy instead of lib)
+            bool bin; // Create binary package (main.cxy instead of lib)
             // add subcommand
             const char *repository;  // Git repository URL or package identifier
             const char *packageName; // Custom package name (--name option)
@@ -150,75 +172,78 @@ typedef struct Options {
             bool dev;                // Add as development dependency
             bool noInstall;          // Skip installation (validation only)
             // remove subcommand
-            DynArray packages;       // Array of package names to remove
+            DynArray packages; // Array of package names to remove
             // install subcommand
-            bool includeDev;         // Include development dependencies
-            bool clean;              // Ignore lock file and perform clean resolution
+            bool includeDev; // Include development dependencies
+            bool clean;      // Ignore lock file and perform clean resolution
             const char *packagesDir; // Custom packages directory
             bool verify;             // Verify integrity of installed packages
-            bool offline;            // Use only cached packages, no network access
-            bool frozenLockfile;     // Fail if lock file is missing or outdated (CI mode)
+            bool offline;        // Use only cached packages, no network access
+            bool frozenLockfile; // Fail if lock file is missing or outdated (CI
+                                 // mode)
             // update subcommand
-            bool latest;             // Update to latest version, ignoring constraints
-            bool dryRun;             // Show what would be updated without changing files
+            bool latest; // Update to latest version, ignoring constraints
+            bool dryRun; // Show what would be updated without changing files
             // test subcommand
-            const char *buildDir;    // Build directory for test binaries
-            const char *filter;      // Run only tests matching pattern
-            int parallel;            // Run tests in parallel
-            DynArray testFiles;      // Specific test files to run
+            const char *buildDir; // Build directory for test binaries
+            const char *filter;   // Run only tests matching pattern
+            int parallel;         // Run tests in parallel
+            DynArray testFiles;   // Specific test files to run
             // publish subcommand
-            const char *bump;        // Version bump: major, minor, patch
-            const char *tagName;     // Custom tag name
-            const char *message;     // Tag annotation message
+            const char *bump;    // Version bump: major, minor, patch
+            const char *tagName; // Custom tag name
+            const char *message; // Tag annotation message
             // info subcommand
-            const char *package;     // Package name to show info for
-            bool json;               // Output in JSON format
+            const char *package; // Package name to show info for
+            bool json;           // Output in JSON format
             // build subcommand
             bool release;
             bool debug;
             const char *buildTarget; // Specific build target to build
             bool buildAll;           // Build all targets
             bool listBuilds;         // List available build targets
-            DynArray rest;           // Positional arguments after build subcommand
+            DynArray rest; // Positional arguments after build subcommand
             // run subcommand
-            const char *scriptName;  // Script name to execute
-            bool listScripts;        // List available scripts
-            bool noCache;            // Disable script caching
+            const char *scriptName; // Script name to execute
+            bool listScripts;       // List available scripts
+            bool noCache;           // Disable script caching
             // clean subcommand
-            bool cleanCache;         // Clean package cache (.cxy/packages)
-            bool cleanBuild;         // Clean build directory
-            bool cleanAll;           // Clean everything
-            bool force;              // Skip confirmation prompts
+            bool cleanCache; // Clean package cache (.cxy/packages)
+            bool cleanBuild; // Clean build directory
+            bool cleanAll;   // Clean everything
+            bool force;      // Skip confirmation prompts
             // find-system subcommand
-            const char *findSystemPackage;  // Package name to find
-            const char *findSystemFormat;   // Output format: flags, json, yaml
-            DynArray findSystemSearchRoots; // Additional search root directories
-            bool findSystemIncludeDir;      // Output include directories
-            bool findSystemLibDir;          // Output library directories
-            bool findSystemLib;             // Output library names
-            bool findSystemVersion;         // Output version information
-            bool findSystemCFlags;          // Output compiler flags
-            bool findSystemLdFlags;         // Output linker flags
+            const char *findSystemPackage; // Package name to find
+            const char *findSystemFormat;  // Output format: flags, json, yaml
+            DynArray
+                findSystemSearchRoots; // Additional search root directories
+            bool findSystemIncludeDir; // Output include directories
+            bool findSystemLibDir;     // Output library directories
+            bool findSystemLib;        // Output library names
+            bool findSystemVersion;    // Output version information
+            bool findSystemCFlags;     // Output compiler flags
+            bool findSystemLdFlags;    // Output linker flags
         } package;
         struct {
             UtilsSubcommand subcmd;
-            const char *cmd;                // Command string for async-cmd-start / wait-for
+            const char *cmd; // Command string for async-cmd-start / wait-for
             // async-cmd-start
-            bool captureOutput;             // Capture output to log file
+            bool captureOutput; // Capture output to log file
             // async-cmd-logs
-            bool logsFollow;                // Follow log output (like tail -f)
+            bool logsFollow; // Follow log output (like tail -f)
             // wait-for / wait-for-port
-            i64 waitForTimeout;             // Timeout in milliseconds (default: 30000)
-            i64 waitForPeriod;              // Poll period in milliseconds (default: 500)
+            i64 waitForTimeout; // Timeout in milliseconds (default: 30000)
+            i64 waitForPeriod;  // Poll period in milliseconds (default: 500)
             // wait-for-port / find-free-port
-            i64 port;                       // Port number
-            i64 portRangeStart;             // Start of port range
-            i64 portRangeEnd;               // End of port range
+            i64 port;           // Port number
+            i64 portRangeStart; // Start of port range
+            i64 portRangeEnd;   // End of port range
             // env-check
-            DynArray envVars;               // List of env var names to check
+            DynArray envVars; // List of env var names to check
             // lock
-            const char *lockName;           // Lock name (used as filename)
-            i64 lockTimeout;                // Timeout waiting for lock in milliseconds (default: 30000)
+            const char *lockName; // Lock name (used as filename)
+            i64 lockTimeout;      // Timeout waiting for lock in milliseconds
+                                  // (default: 30000)
         } utils;
     };
 } Options;

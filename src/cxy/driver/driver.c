@@ -1,6 +1,7 @@
 #include "driver.h"
 #include "options.h"
 #include "stages.h"
+#include "profiling.h"
 
 #include "core/log.h"
 #include "core/mempool.h"
@@ -20,9 +21,11 @@
 #include "src/builtins.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct CachedModule {
@@ -106,6 +109,7 @@ static AstNode *parseFile(CompilerDriver *driver,
                           bool testMode)
 {
     size_t file_size = 0;
+    compilerStatsSnapshot(driver);
     printStatus(driver->L, cWHT "Parsing %s..." cDEF, fileName);
     char *fileData = readFile(fileName, &file_size);
     if (!fileData) {
@@ -116,12 +120,10 @@ static AstNode *parseFile(CompilerDriver *driver,
         return NULL;
     }
 
-    compilerStatsSnapshot(driver);
     Lexer lexer = newLexer(fileName, fileData, file_size, driver->L);
     Parser parser = makeParser(&lexer, driver, testMode);
     AstNode *program = parseProgram(&parser);
     compilerStatsRecord(driver, ccsParse);
-
     freeLexer(&lexer);
     free(fileData);
 
@@ -204,6 +206,8 @@ static bool compileProgram(CompilerDriver *driver,
                            const char *fileName,
                            bool mainFile)
 {
+    PROFILE_SCOPE(fileName);
+    
     const Options *options = &driver->options;
     bool status = true;
 
@@ -297,19 +301,26 @@ bool initCompilerDriver(CompilerDriver *compiler,
     realpath(compiler->cxyBinaryPath, tmp);
     compiler->cxyBinaryPath = makeString(compiler->strings, tmp);
     const Options *options = &compiler->options;
+
+    // Enable profiling if requested
+    if (options->dev.profile != prfNONE) {
+        profileEnable();
+    }
+
     if (!compiler->options.buildPlugin) {
-        compiler->nativeSources = newHashTable(sizeof(cstring));
-        compiler->linkLibraries = newHashTable(sizeof(cstring));
+        compiler->nativeSources = newHashTable(sizeof(cstring), compiler->pool);
+        compiler->linkLibraries = newHashTable(sizeof(cstring), compiler->pool);
         internCommonStrings(compiler->strings);
         compiler->types = newTypeTable(compiler->pool, compiler->strings);
-        compiler->moduleCache = newHashTable(sizeof(CachedModule));
+        compiler->moduleCache =
+            newHashTable(sizeof(CachedModule), compiler->pool);
         compiler->mir = mirContextCreate(compiler);
         csAssert0(compiler->mir);
         compiler->backend = initCompilerBackend(compiler, argc, argv);
         csAssert0(compiler->backend);
         initCompilerPreprocessor(compiler);
         initCImporter(compiler);
-        initializeBuiltins(compiler->L);
+        initializeBuiltins(compiler->L, compiler->pool);
         pluginInit(compiler);
 
         if (options->cmd == cmdBuild || !options->withoutBuiltins) {
@@ -364,9 +375,10 @@ static inline bool isImportModuleACHeader(cstring module)
 
 /**
  * Resolve package dependency import path
- * 
+ *
  * @param driver Compiler driver context
- * @param modulePath Import path starting with @ (e.g., "@json-parser" or "@json-parser/src/lib.cxy")
+ * @param modulePath Import path starting with @ (e.g., "@json-parser" or
+ * "@json-parser/src/lib.cxy")
  * @param source AST node for error reporting
  * @return Resolved absolute path, or NULL on error
  */
@@ -375,107 +387,121 @@ static cstring resolvePackageDependency(CompilerDriver *driver,
                                         const AstNode *source)
 {
     csAssert0(modulePath[0] == '@');
-    
+
     // Skip the '@' prefix
     const char *packagePath = modulePath + 1;
-    
+
     // Find the package name (up to first '/' or end of string)
     const char *slash = strchr(packagePath, '/');
     size_t packageNameLen = slash ? (slash - packagePath) : strlen(packagePath);
-    
+
     if (packageNameLen == 0) {
-        logError(driver->L, &source->loc,
-                "invalid package import path '{s}': missing package name after '@'",
-                (FormatArg[]){{.s = modulePath}});
+        logError(
+            driver->L,
+            &source->loc,
+            "invalid package import path '{s}': missing package name after '@'",
+            (FormatArg[]){{.s = modulePath}});
         return NULL;
     }
-    
+
     // Extract package name
     char packageName[256];
     if (packageNameLen >= sizeof(packageName)) {
-        logError(driver->L, &source->loc,
-                "package name too long in import path '{s}'",
-                (FormatArg[]){{.s = modulePath}});
+        logError(driver->L,
+                 &source->loc,
+                 "package name too long in import path '{s}'",
+                 (FormatArg[]){{.s = modulePath}});
         return NULL;
     }
     memcpy(packageName, packagePath, packageNameLen);
     packageName[packageNameLen] = '\0';
-    
+
     // Determine dependencies directory
     const char *depsDir = driver->options.depsDir;
     if (!depsDir || depsDir[0] == '\0') {
-        depsDir = ".cxy/packages";  // Fallback default
+        depsDir = ".cxy/packages"; // Fallback default
     }
-    
+
     // Build base path to package
     char basePath[PATH_MAX];
     int written;
-    
+
     // Handle absolute vs relative depsDir
     if (depsDir[0] == '/') {
         // Absolute path
-        written = snprintf(basePath, sizeof(basePath), "%s/%s", depsDir, packageName);
-    } else {
-        // Relative path - resolve from current directory
-        written = snprintf(basePath, sizeof(basePath),
-                          "%.*s/%s/%s",
-                          (int)driver->currentDirLen,
-                          driver->currentDir,
-                          depsDir,
-                          packageName);
+        written =
+            snprintf(basePath, sizeof(basePath), "%s/%s", depsDir, packageName);
     }
-    
+    else {
+        // Relative path - resolve from current directory
+        written = snprintf(basePath,
+                           sizeof(basePath),
+                           "%.*s/%s/%s",
+                           (int)driver->currentDirLen,
+                           driver->currentDir,
+                           depsDir,
+                           packageName);
+    }
+
     if (written < 0 || written >= sizeof(basePath)) {
-        logError(driver->L, &source->loc,
-                "package path too long for '{s}'",
-                (FormatArg[]){{.s = modulePath}});
+        logError(driver->L,
+                 &source->loc,
+                 "package path too long for '{s}'",
+                 (FormatArg[]){{.s = modulePath}});
         return NULL;
     }
-    
+
     // Check if package directory exists
     struct stat st;
     if (stat(basePath, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        logError(driver->L, &source->loc,
-                "package '{s}' not found in '{s}'. Did you run 'cxy package install'?",
-                (FormatArg[]){{.s = packageName}, {.s = depsDir}});
+        logError(driver->L,
+                 &source->loc,
+                 "package '{s}' not found in '{s}'. Did you run 'cxy package "
+                 "install'?",
+                 (FormatArg[]){{.s = packageName}, {.s = depsDir}});
         return NULL;
     }
-    
+
     // Determine file path within package
     char fullPath[PATH_MAX];
     if (slash) {
         // File-specific import: @package-name/path/file.cxy
         const char *filePath = slash + 1;
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, filePath);
-    } else {
+    }
+    else {
         // Module-level import: @package-name -> index.cxy
         snprintf(fullPath, sizeof(fullPath), "%s/index.cxy", basePath);
     }
-    
+
     // Verify file exists
     if (stat(fullPath, &st) != 0 || !S_ISREG(st.st_mode)) {
         if (slash) {
-            logError(driver->L, &source->loc,
-                    "file not found in package '{s}': {s}",
-                    (FormatArg[]){{.s = packageName}, {.s = slash + 1}});
-        } else {
-            logError(driver->L, &source->loc,
-                    "package '{s}' does not have an index.cxy file. "
-                    "Try importing a specific file with '@{s}/path/file.cxy'",
-                    (FormatArg[]){{.s = packageName}, {.s = packageName}});
+            logError(driver->L,
+                     &source->loc,
+                     "file not found in package '{s}': {s}",
+                     (FormatArg[]){{.s = packageName}, {.s = slash + 1}});
+        }
+        else {
+            logError(driver->L,
+                     &source->loc,
+                     "package '{s}' does not have an index.cxy file. "
+                     "Try importing a specific file with '@{s}/path/file.cxy'",
+                     (FormatArg[]){{.s = packageName}, {.s = packageName}});
         }
         return NULL;
     }
-    
+
     // Resolve to absolute path
     char tmp[PATH_MAX];
     if (realpath(fullPath, tmp) == NULL) {
-        logError(driver->L, &source->loc,
-                "failed to resolve path for '{s}': {s}",
-                (FormatArg[]){{.s = modulePath}, {.s = strerror(errno)}});
+        logError(driver->L,
+                 &source->loc,
+                 "failed to resolve path for '{s}': {s}",
+                 (FormatArg[]){{.s = modulePath}, {.s = strerror(errno)}});
         return NULL;
     }
-    
+
     return makeString(driver->strings, tmp);
 }
 
@@ -488,13 +514,14 @@ static cstring getModuleLocation(CompilerDriver *driver,
     csAssert0(modulePath && modulePath[0] != '\0');
     char path[PATH_MAX];
     u64 modulePathLen = strlen(modulePath);
-    
+
     // Handle @-prefixed dependency imports
     if (modulePath[0] == '@') {
         return resolvePackageDependency(driver, modulePath, source);
     }
-    
-    if (modulePath[0] == '.' && (modulePath[1] == '.' || modulePath[1] == '/')) {
+
+    if (modulePath[0] == '.' &&
+        (modulePath[1] == '.' || modulePath[1] == '/')) {
         cstring importerFilename = strrchr(importer, '/');
         if (importerFilename == NULL)
             return modulePath;
@@ -556,13 +583,14 @@ const Type *compileModule(CompilerDriver *driver,
     AstNode *program = NULL;
     bool cached = true;
     cstring path = source->stringLiteral.value;
+    ///
     if (!isImportModuleACHeader(source->stringLiteral.value)) {
         path = getModuleLocation(driver, source, false);
         if (path == NULL) {
             logError(driver->L,
-                &source->loc,
-                "module source file '{s}' does not exist",
-                (FormatArg[]){{.s = source->stringLiteral.value}});
+                     &source->loc,
+                     "module source file '{s}' does not exist",
+                     (FormatArg[]){{.s = source->stringLiteral.value}});
             return NULL;
         }
 
@@ -579,8 +607,9 @@ const Type *compileModule(CompilerDriver *driver,
             }
 
             program = parseFile(driver, path, testMode);
-            if (program == NULL)
+            if (program == NULL) {
                 return NULL;
+            }
 
             if (program->program.module == NULL) {
                 logError(driver->L,
@@ -591,7 +620,8 @@ const Type *compileModule(CompilerDriver *driver,
             }
 
             program->flags |= flgImportedModule;
-            if (!compileProgram(driver, program, path, false))
+            bool compileOk = compileProgram(driver, program, path, false);
+            if (!compileOk)
                 return NULL;
             AstNode *decls = program->program.decls;
             if (nodeIs(decls, ExternDecl) && hasFlag(decls, ModuleInit)) {
@@ -657,7 +687,24 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
         parseFile(driver, fileName, driver->options.cmd == cmdTest);
     if (program) {
         program->flags |= flgMain;
-        return compileProgram(driver, program, fileName, true);
+        bool status = compileProgram(driver, program, fileName, true);
+        
+        // Output profiling results after compilation completes
+        if (driver->options.dev.profile == prfSTDOUT) {
+            profilePrint(false);
+        } else if (driver->options.dev.profile == prfJSON) {
+            if (profilePrintToJSON("profiling.json")) {
+                printStatusAlways(driver->L,
+                                  cBGRN "\xE2\x9C\x93" cBWHT
+                                        " Profiling data written to profiling.json\n" cDEF);
+            } else {
+                printStatusAlways(driver->L,
+                                  cBRED "\xE2\x9C\x92" cBWHT
+                                        " Failed to write profiling.json\n" cDEF);
+            }
+        }
+        
+        return status;
     }
     return false;
 }
@@ -667,11 +714,28 @@ bool compilePlugin(const char *fileName, CompilerDriver *driver)
     const Options *options = &driver->options;
     printStatus(driver->L, cWHT "Building plugin %s..." cDEF, fileName);
     FormatState cmd = newFormatState("", true);
-    cstring outputPath = makeStringConcat(
-        driver->strings,
-        options->pluginsDir,
-        "/",
-        options->output ?: getFilenameWithoutExt(driver->strings, fileName));
+    cstring output =
+        options->output ?: getFilenameWithoutExt(driver->strings, fileName);
+    cstring outputPath;
+    if (output[0] == '/') {
+        // Absolute output path — use as-is
+        outputPath = output;
+    }
+    else if (options->pluginsDir && options->pluginsDir[0] == '/') {
+        // Absolute plugins-dir — <plugins-dir>/<output>
+        outputPath =
+            makeStringConcat(driver->strings, options->pluginsDir, "/", output);
+    }
+    else {
+        // Relative plugins-dir — <build-dir>/<plugins-dir>/<output>
+        cstring base = options->buildDir ?: ".";
+        cstring pluginsDir =
+            (options->pluginsDir && options->pluginsDir[0] != '\0')
+                ? options->pluginsDir
+                : "plugins";
+        outputPath = makeStringConcat(
+            driver->strings, base, "/", pluginsDir, "/", output);
+    }
     makeDirectoryForPath(driver, outputPath);
     format(&cmd,
            "cc {s} -o {s} -shared -fPIC -lcxy-plugin",

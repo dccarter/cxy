@@ -3,6 +3,10 @@
 //
 
 #include "stages.h"
+#include "profiling.h"
+#include "stats.h"
+
+#include <inttypes.h>
 
 #include "lang/frontend/flag.h"
 #include "lang/operations.h"
@@ -44,7 +48,7 @@ static CompilerStage parseNextCompilerStage(Log *L, char *start, char *end)
     static HashTable stages;
     if (!initialized) {
         initialized = true;
-        stages = newHashTable(sizeof(Stage));
+        stages = newTempHashTable(sizeof(Stage));
         registerStages(&stages);
     }
     char *p = start;
@@ -417,8 +421,14 @@ AstNode *executeCompilerStage(CompilerDriver *driver,
     printStatus(
         driver->L, cBWHT "* %s %s..." cDEF, stageName, name ?: "<unknown>");
     compilerStatsSnapshot(driver);
-    node = executor(driver, node);
+    u64 prevDuration = timespecToMilliseconds(&driver->stats.snapshot.at);
+    
+    PROFILE_SECTION(stageName) {
+        node = executor(driver, node);
+    }
+    
     compilerStatsRecord(driver, stage);
+    compilerStatsSnapshot(driver);
 
     if (hasErrors(driver->L))
         return NULL;

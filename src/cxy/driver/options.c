@@ -11,9 +11,9 @@
 #include "core/strpool.h"
 
 #include <ctype.h>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdlib.h>
 
 typedef struct {
     cstring name;
@@ -55,6 +55,22 @@ static bool cmdParseDumpStatsModes(CmdParser *P,
     return cmdParseEnumValue(
         P, dst, str, name, dumpModes, DUMP_STATS_MODES_COUNT);
 #undef DUMP_STATS_MODES_COUNT
+}
+
+static bool cmdParseProfileMode(CmdParser *P,
+                                CmdFlagValue *dst,
+                                const char *str,
+                                const char *name)
+{
+#define PROFILE_MODES_COUNT (sizeof(profileModes) / sizeof(EnumOptionMap))
+    static CmdEnumValueDesc profileModes[] = {
+#define ff(NN) {#NN, prf##NN},
+        PROFILE_MODE(ff)
+#undef ff
+    };
+    return cmdParseEnumValue(
+        P, dst, str, name, profileModes, PROFILE_MODES_COUNT);
+#undef PROFILE_MODES_COUNT
 }
 
 static bool cmdParseLastStage(CmdParser *P,
@@ -177,6 +193,42 @@ static bool cmdArrayArgument(CmdParser *P,
     return true;
 }
 
+static bool cmdPathArgument(CmdParser *P,
+                            CmdFlagValue *dst,
+                            const char *str,
+                            const char *name)
+{
+    Options *options = (Options *)P->ctx;
+    if (str == NULL || str[0] == '\0') {
+        sprintf(P->error,
+                "error: command line argument '%s' is missing a value",
+                name);
+        return false;
+    }
+    if (str[0] == '[' && str[strlen(str) - 1] == ']') {
+        // Skip default empty array marker
+        return true;
+    }
+
+    if (dst->array.elems == NULL)
+        dst->array = newDynArray(sizeof(cstring));
+
+    // Resolve path to canonical form (resolve symlinks)
+    char resolved[PATH_MAX];
+    if (realpath(str, resolved) == NULL) {
+        sprintf(P->error,
+                "error: invalid or missing path(%s) '%s'",
+                strerror(errno),
+                str);
+        return false;
+    }
+    // If realpath fails, use the original path (file might not exist yet)
+
+    pushStringOnDynArray(&dst->array, makeString(options->strings, resolved));
+    dst->state = cmdArray;
+    return true;
+}
+
 // Package validation wrappers for command-line parser
 static bool cmdValidatePackageName(CmdParser *P,
                                    CmdFlagValue *dst,
@@ -191,9 +243,12 @@ static bool cmdValidatePackageName(CmdParser *P,
     // Then validate
     cstring error = validatePackageName(str);
     if (error) {
-        snprintf(P->error, sizeof(P->error),
-                "error: invalid package name '%s' for flag '%s': %s\n",
-                str, name, error);
+        snprintf(P->error,
+                 sizeof(P->error),
+                 "error: invalid package name '%s' for flag '%s': %s\n",
+                 str,
+                 name,
+                 error);
         return false;
     }
 
@@ -230,14 +285,18 @@ static bool cmdValidateSemanticVersion(CmdParser *P,
     }
 
     // Skip whitespace after constraint operator
-    while (*versionToValidate == ' ') versionToValidate++;
+    while (*versionToValidate == ' ')
+        versionToValidate++;
 
     // Validate the base version
     cstring error = validateSemanticVersion(versionToValidate);
     if (error) {
-        snprintf(P->error, sizeof(P->error),
-                "error: invalid version '%s' for flag '%s': %s\n",
-                str, name, error);
+        snprintf(P->error,
+                 sizeof(P->error),
+                 "error: invalid version '%s' for flag '%s': %s\n",
+                 str,
+                 name,
+                 error);
         return false;
     }
 
@@ -257,9 +316,12 @@ static bool cmdValidateGitRepository(CmdParser *P,
     // Then validate
     cstring error = validateGitRepository(str);
     if (error) {
-        snprintf(P->error, sizeof(P->error),
-                "error: invalid repository '%s' for flag '%s': %s\n",
-                str, name, error);
+        snprintf(P->error,
+                 sizeof(P->error),
+                 "error: invalid repository '%s' for flag '%s': %s\n",
+                 str,
+                 name,
+                 error);
         return false;
     }
 
@@ -279,9 +341,12 @@ static bool cmdValidateLicenseIdentifier(CmdParser *P,
     // Then validate
     cstring error = validateLicenseIdentifier(str);
     if (error) {
-        snprintf(P->error, sizeof(P->error),
-                "error: invalid license '%s' for flag '%s': %s\n",
-                str, name, error);
+        snprintf(P->error,
+                 sizeof(P->error),
+                 "error: invalid license '%s' for flag '%s': %s\n",
+                 str,
+                 name,
+                 error);
         return false;
     }
 
@@ -332,7 +397,11 @@ Command(
     Opt(Name("emit-bitcode"),
         Help("emits the generated bitcode to given filename on supported "
              "platforms (e.g LLVM)"),
-        Def("false")));
+        Def("false")),
+    Use(cmdParseProfileMode,
+        Name("profile"),
+        Help("Enable profiling output: NONE|STDOUT|JSON (outputs to profiling.json)"),
+        Def("NONE")));
 
 Command(build,
         "transpiles the given cxy what file and builds it using gcc",
@@ -363,17 +432,18 @@ Command(test,
             Help("the build directory, used as the working directory for the "
                  "compiler"),
             Def("")),
-            Str(Name("output"),
-                Sf('o'),
-                Help("output file for the compiled binary (default: app)"),
-                Def("app")));
+        Str(Name("output"),
+            Sf('o'),
+            Help("output file for the compiled binary (default: app)"),
+            Def("app")));
 
 Command(package,
         "Package management commands (create, add, install, etc.)",
         Positionals());
 
 Command(utils,
-        "Utility commands for use within scripts (async processes, port management, etc.)",
+        "Utility commands for use within scripts (async processes, port "
+        "management, etc.)",
         Positionals());
 
 // clang-format off
@@ -396,6 +466,7 @@ Command(utils,
     f(dev.printIR, Local, Option, 7, ## __VA_ARGS__)                            \
     f(dev.emitAssembly, Local, Option, 8, ## __VA_ARGS__)                       \
     f(dev.emitBitCode, Local, Option, 9, ## __VA_ARGS__)                        \
+    f(dev.profile, Local, Int, 10, ## __VA_ARGS__)                           \
 
 #define BUILD_CMD_LAYOUT(f, ...)                                                \
     f(output, Local, String, 0, ## __VA_ARGS__)                                 \
@@ -703,194 +774,156 @@ static int parsePackageCommand(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
     // Define package subcommands
-    InteractiveCommand(create,
-            "Create a new Cxy package with scaffolding",
-            Positionals(),
-            Use(cmdValidatePackageName,
-                Name("name"),
-                Help("Package name (Must satisfy [_a-zA-Z][_\\-a-zA-Z0-9]*)"),
-                Def("")),
-            Str(Name("author"),
-                Help("Author name and email"),
-                Def("")),
-            Str(Name("description"),
-                Help("Short package description"),
-                Def("")),
-            Use(cmdValidateLicenseIdentifier,
-                Name("license"),
-                Help("License identifier (MIT, Apache-2.0, GPL-3.0, etc.)"),
-                Def("MIT")),
-            Use(cmdValidateSemanticVersion,
-                Name("version"),
-                Help("Initial version"),
-                Def("0.1.0")),
-            Str(Name("directory"),
-                Sf('d'),
-                Help("Target directory"),
-                Def(".")),
-            Opt(Name("bin"),
-                Help("Create binary package (main.cxy instead of library)")));
+    InteractiveCommand(
+        create,
+        "Create a new Cxy package with scaffolding",
+        Positionals(),
+        Use(cmdValidatePackageName,
+            Name("name"),
+            Help("Package name (Must satisfy [_a-zA-Z][_\\-a-zA-Z0-9]*)"),
+            Def("")),
+        Str(Name("author"), Help("Author name and email"), Def("")),
+        Str(Name("description"), Help("Short package description"), Def("")),
+        Use(cmdValidateLicenseIdentifier,
+            Name("license"),
+            Help("License identifier (MIT, Apache-2.0, GPL-3.0, etc.)"),
+            Def("MIT")),
+        Use(cmdValidateSemanticVersion,
+            Name("version"),
+            Help("Initial version"),
+            Def("0.1.0")),
+        Str(Name("directory"), Sf('d'), Help("Target directory"), Def(".")),
+        Opt(Name("bin"),
+            Help("Create binary package (main.cxy instead of library)")));
 
-    Command(add,
-            "Add a dependency to the package",
-            Positionals(Use(cmdValidateGitRepository,
-                           Name("repository"),
-                           Help("Git repository URL or package identifier"),
-                           Def(""))),
-            Use(cmdValidatePackageName,
-                Name("name"),
-                Help("Custom package name"),
-                Def("")),
-            Use(cmdValidateSemanticVersion,
-                Name("constraint"),
-                Help("Version constraint (default: *)"),
-                Def("*")),
-            Str(Name("tag"),
-                Help("Specific Git tag"),
-                Def("")),
-            Str(Name("branch"),
-                Help("Specific Git branch"),
-                Def("")),
-            Str(Name("path"),
-                Help("Local filesystem path"),
-                Def("")),
-            Opt(Name("dev"),
-                Help("Add as development dependency")),
-            Opt(Name("no-install"),
-                Help("Skip installation (validation only)")),
-    );
+    Command(
+        add,
+        "Add a dependency to the package",
+        Positionals(Use(cmdValidateGitRepository,
+                        Name("repository"),
+                        Help("Git repository URL or package identifier"),
+                        Def(""))),
+        Use(cmdValidatePackageName,
+            Name("name"),
+            Help("Custom package name"),
+            Def("")),
+        Use(cmdValidateSemanticVersion,
+            Name("constraint"),
+            Help("Version constraint (default: *)"),
+            Def("*")),
+        Str(Name("tag"), Help("Specific Git tag"), Def("")),
+        Str(Name("branch"), Help("Specific Git branch"), Def("")),
+        Str(Name("path"), Help("Local filesystem path"), Def("")),
+        Opt(Name("dev"), Help("Add as development dependency")),
+        Opt(Name("no-install"), Help("Skip installation (validation only)")), );
 
     Command(remove,
             "Remove a dependency from the package",
             Positionals(Use(cmdArrayArgument,
-                           Name("packages"),
-                           Help("One or more package names to remove"),
-                           Many())));
+                            Name("packages"),
+                            Help("One or more package names to remove"),
+                            Many())));
 
     Command(install,
             "Install all dependencies from Cxyfile.yaml",
             Positionals(),
-            Opt(Name("dev"),
-                Help("Include development dependencies")),
+            Opt(Name("dev"), Help("Include development dependencies")),
             Opt(Name("clean"),
                 Help("Ignore lock file and perform clean resolution")),
-            Opt(Name("verify"),
-                Help("Verify integrity of installed packages")),
+            Opt(Name("verify"), Help("Verify integrity of installed packages")),
             Opt(Name("offline"),
                 Help("Use only cached packages, no network access")),
             Opt(Name("frozen-lockfile"),
-                Help("Fail if lock file is missing or outdated (CI mode)")),
-            );
+                Help("Fail if lock file is missing or outdated (CI mode)")), );
 
     Command(update,
             "Update dependencies to latest compatible versions",
             Positionals(Use(cmdArrayArgument,
-                           Name("packages"),
-                           Help("Optional: specific packages to update"),
-                           Many())),
+                            Name("packages"),
+                            Help("Optional: specific packages to update"),
+                            Many())),
             Opt(Name("latest"),
                 Help("Update to latest version, ignoring constraints")),
             Opt(Name("dry-run"),
                 Help("Show what would be updated without changing files")),
-            Opt(Name("dev"),
-                Help("Include dev dependencies")));
+            Opt(Name("dev"), Help("Include dev dependencies")));
 
     Command(build,
             "Build the package",
             Positionals(Str(Name("target"),
-                           Help("Build target name (e.g., 'lib', 'bin')"),
-                           Def("")),
-                       PositionalRest()),
-            Opt(Name("release"),
-                Help("Build for release")),
-            Opt(Name("debug"),
-                Help("Build for debug")),
+                            Help("Build target name (e.g., 'lib', 'bin')"),
+                            Def("")),
+                        PositionalRest()),
+            Opt(Name("release"), Help("Build for release")),
+            Opt(Name("debug"), Help("Build for debug")),
             Str(Name("build-dir"),
                 Help("Output directory for build artifacts"),
                 Def(".cxy/build")),
-            Opt(Name("clean"),
-                Help("Clean build artifacts before building")),
-            Opt(Name("all"),
-                Help("Build all targets")),
-            Opt(Name("list"),
-                Help("List available build targets")));
+            Opt(Name("clean"), Help("Clean build artifacts before building")),
+            Opt(Name("all"), Help("Build all targets")),
+            Opt(Name("list"), Help("List available build targets")));
 
-    Command(test,
-            "Run package tests",
-            Positionals(Use(cmdArrayArgument,
-                           Name("test-files"),
-                           Help("Optional: specific test files to run"),
-                           Def("[]"),
-                           Many()),
-                        PositionalRest()),
-            Str(Name("build-dir"),
-                Help("Build directory for test binaries"),
-                Def(".cxy/build")),
-            Str(Name("filter"),
-                Help("Run only tests matching pattern"),
-                Def("")),
-            Int(Name("parallel"),
-                Sf('j'),
-                Help("Run tests in parallel"),
-                Def("1")));
+    Command(
+        test,
+        "Run package tests",
+        Positionals(Use(cmdArrayArgument,
+                        Name("test-files"),
+                        Help("Optional: specific test files to run"),
+                        Def("[]"),
+                        Many()),
+                    PositionalRest()),
+        Str(Name("build-dir"),
+            Help("Build directory for test binaries"),
+            Def(".cxy/build")),
+        Str(Name("filter"), Help("Run only tests matching pattern"), Def("")),
+        Int(Name("parallel"),
+            Sf('j'),
+            Help("Run tests in parallel"),
+            Def("1")));
 
-    Command(publish,
-            "Publish package by creating a Git tag",
-            Positionals(),
-            Str(Name("bump"),
-                Help("Bump version before publishing (major|minor|patch)"),
-                Def("")),
-            Str(Name("tag"),
-                Help("Custom tag name"),
-                Def("")),
-            Str(Name("message"),
-                Sf('m'),
-                Help("Tag annotation message"),
-                Def("")),
-            Opt(Name("dry-run"),
-                Help("Show what would be published")));
+    Command(
+        publish,
+        "Publish package by creating a Git tag",
+        Positionals(),
+        Str(Name("bump"),
+            Help("Bump version before publishing (major|minor|patch)"),
+            Def("")),
+        Str(Name("tag"), Help("Custom tag name"), Def("")),
+        Str(Name("message"), Sf('m'), Help("Tag annotation message"), Def("")),
+        Opt(Name("dry-run"), Help("Show what would be published")));
 
-    Command(list,
-            "List all installed dependencies",
-            Positionals());
+    Command(list, "List all installed dependencies", Positionals());
 
     Command(info,
             "Show information about a package",
             Positionals(Str(Name("package"),
-                           Help("Package name to show info for"),
-                           Def(""))),
-            Opt(Name("json"),
-                Help("Output in JSON format")));
+                            Help("Package name to show info for"),
+                            Def(""))),
+            Opt(Name("json"), Help("Output in JSON format")));
 
     Command(clean,
             "Clean package cache and build artifacts",
             Positionals(),
-            Opt(Name("cache"),
-                Help("Clean package cache (.cxy/packages)")),
-            Opt(Name("build"),
-                Help("Clean build directory")),
-            Opt(Name("all"),
-                Help("Clean everything (cache + build)")),
-            Opt(Name("force"),
-                Sf('f'),
-                Help("Skip confirmation prompts")));
+            Opt(Name("cache"), Help("Clean package cache (.cxy/packages)")),
+            Opt(Name("build"), Help("Clean build directory")),
+            Opt(Name("all"), Help("Clean everything (cache + build)")),
+            Opt(Name("force"), Sf('f'), Help("Skip confirmation prompts")));
 
-    Command(run,
-            "Run a script defined in Cxyfile.yaml",
-            Positionals(Str(Name("script"),
-                           Help("Script name to execute"),
-                           Def("")),
-                       PositionalRest()),
-            Opt(Name("list"),
-                Help("List all available scripts")),
-            Opt(Name("no-cache"),
-                Help("Disable script caching (force re-run)")));
+    Command(
+        run,
+        "Run a script defined in Cxyfile.yaml",
+        Positionals(
+            Str(Name("script"), Help("Script name to execute"), Def("")),
+            PositionalRest()),
+        Opt(Name("list"), Help("List all available scripts")),
+        Opt(Name("no-cache"), Help("Disable script caching (force re-run)")));
 
     Command(find_system,
             "Find system packages and output build configuration",
-            Positionals(Str(Name("package"),
-                           Help("Package name to find (e.g., openssl, postgresql)"),
-                           Def(""))),
+            Positionals(
+                Str(Name("package"),
+                    Help("Package name to find (e.g., openssl, postgresql)"),
+                    Def(""))),
             Str(Name("format"),
                 Help("Output format: flags (default), json, yaml"),
                 Def("flags")),
@@ -898,19 +931,13 @@ static int parsePackageCommand(
                 Name("search-root"),
                 Help("Additional search root directory (repeatable)"),
                 Def("[]")),
-            Opt(Name("include-dir"),
-                Help("Output include/header directories")),
-            Opt(Name("lib-dir"),
-                Help("Output library directories")),
-            Opt(Name("lib"),
-                Help("Output library names to link")),
-            Opt(Name("version"),
-                Help("Output package version")),
-            Opt(Name("cflags"),
-                Help("Output compiler flags")),
-            Opt(Name("ldflags"),
-                Help("Output linker flags")));
-    
+            Opt(Name("include-dir"), Help("Output include/header directories")),
+            Opt(Name("lib-dir"), Help("Output library directories")),
+            Opt(Name("lib"), Help("Output library names to link")),
+            Opt(Name("version"), Help("Output package version")),
+            Opt(Name("cflags"), Help("Output compiler flags")),
+            Opt(Name("ldflags"), Help("Output linker flags")));
+
     // Override the command name to use hyphen instead of underscore
     find_system.meta.name = "find-system";
 
@@ -920,16 +947,14 @@ static int parsePackageCommand(
            DefaultCmd(help),
            DisableVersionOpt(),
            Str(Name("cxyfile"),
-               Help("Path to Cxyfile.yaml (default: searches current and parent directories)"),
+               Help("Path to Cxyfile.yaml (default: searches current and "
+                    "parent directories)"),
                Def("")),
            Str(Name("packages-dir"),
                Help("Directory for installed packages"),
                Def(".cxy/packages")),
-           Opt(Name("quiet"),
-               Sf('q'),
-               Help("Suppress non-error output")),
-           Opt(Name("verbose"),
-               Help("Enable verbose output")));
+           Opt(Name("quiet"), Sf('q'), Help("Suppress non-error output")),
+           Opt(Name("verbose"), Help("Enable verbose output")));
     SubParser(P);
 
     int selected = argparse(argc, &argv, parser);
@@ -1023,81 +1048,79 @@ static int parsePackageCommand(
         UnloadCmd(cmd, options, PKG_FIND_SYSTEM_CMD_LAYOUT);
     }
     return cmdPackage;
-    CMD_parse_error:
+CMD_parse_error:
     return -1;
 }
 
 static int parsePackageCommandFwd(void *ctx, int argc, char **argv)
 {
     ParseContext *pctx = (ParseContext *)ctx;
-    return parsePackageCommand(&argc, argv, pctx->strings, pctx->options, pctx->log);
+    return parsePackageCommand(
+        &argc, argv, pctx->strings, pctx->options, pctx->log);
 }
 
 static int parseUtilsCommand(
     int *argc, char **argv, StrPool *strings, Options *options, Log *log)
 {
-    Command(async_cmd_status,
-            "Check whether a background command is still running",
-            Positionals(Str(Name("pid"),
-                           Help("Process ID to check"),
-                           Def(""))));
+    Command(
+        async_cmd_status,
+        "Check whether a background command is still running",
+        Positionals(Str(Name("pid"), Help("Process ID to check"), Def(""))));
 
     async_cmd_status.meta.name = "async-cmd-status";
 
-    Command(async_cmd_logs,
-            "Print (or follow) the captured log output of a background command",
-            Positionals(Str(Name("pid"),
-                           Help("Process ID whose log to read"),
-                           Def(""))),
-            Opt(Name("follow"),
-                Sf('f'),
-                Help("Follow log output as the process writes it (like tail -f)")));
+    Command(
+        async_cmd_logs,
+        "Print (or follow) the captured log output of a background command",
+        Positionals(
+            Str(Name("pid"), Help("Process ID whose log to read"), Def(""))),
+        Opt(Name("follow"),
+            Sf('f'),
+            Help("Follow log output as the process writes it (like tail -f)")));
 
     async_cmd_logs.meta.name = "async-cmd-logs";
 
-    Command(async_cmd_start,
-            "Start a background command (for use within scripts)",
-            Positionals(Str(Name("cmd"),
-                           Help("Command to run in background (e.g. \"./server --port 8080\")"),
-                           Def(""))),
-            Opt(Name("capture"),
-                Help("Capture output to log file instead of terminal")));
+    Command(
+        async_cmd_start,
+        "Start a background command (for use within scripts)",
+        Positionals(Str(
+            Name("cmd"),
+            Help(
+                "Command to run in background (e.g. \"./server --port 8080\")"),
+            Def(""))),
+        Opt(Name("capture"),
+            Help("Capture output to log file instead of terminal")));
 
     async_cmd_start.meta.name = "async-cmd-start";
 
     Command(async_cmd_stop,
             "Stop a background command by PID",
-            Positionals(Str(Name("pid"),
-                           Help("Process ID to stop"),
-                           Def(""))));
+            Positionals(Str(Name("pid"), Help("Process ID to stop"), Def(""))));
 
     async_cmd_stop.meta.name = "async-cmd-stop";
 
-    Command(wait_for,
-            "Poll a command until it exits 0 or timeout is reached",
-            Positionals(Str(Name("cmd"),
-                           Help("Command to poll (e.g. \"curl 0.0.0.0:80\")"),
-                           Def(""))),
-            Int(Name("timeout"),
-                Help("Total timeout in milliseconds"),
-                Def("30000")),
-            Int(Name("period"),
-                Help("Poll interval in milliseconds"),
-                Def("500")));
+    Command(
+        wait_for,
+        "Poll a command until it exits 0 or timeout is reached",
+        Positionals(Str(Name("cmd"),
+                        Help("Command to poll (e.g. \"curl 0.0.0.0:80\")"),
+                        Def(""))),
+        Int(Name("timeout"),
+            Help("Total timeout in milliseconds"),
+            Def("30000")),
+        Int(Name("period"), Help("Poll interval in milliseconds"), Def("500")));
 
     wait_for.meta.name = "wait-for";
 
-    Command(wait_for_port,
-            "Wait until a TCP port is open and accepting connections",
-            Positionals(Int(Name("port"),
-                           Help("Port number to wait for"),
-                           Def("0"))),
-            Int(Name("timeout"),
-                Help("Total timeout in milliseconds"),
-                Def("30000")),
-            Int(Name("period"),
-                Help("Poll interval in milliseconds"),
-                Def("500")));
+    Command(
+        wait_for_port,
+        "Wait until a TCP port is open and accepting connections",
+        Positionals(
+            Int(Name("port"), Help("Port number to wait for"), Def("0"))),
+        Int(Name("timeout"),
+            Help("Total timeout in milliseconds"),
+            Def("30000")),
+        Int(Name("period"), Help("Poll interval in milliseconds"), Def("500")));
 
     wait_for_port.meta.name = "wait-for-port";
 
@@ -1116,23 +1139,25 @@ static int parseUtilsCommand(
     Command(env_check,
             "Assert that required environment variables are set",
             Positionals(Use(cmdArrayArgument,
-                           Name("vars"),
-                           Help("Environment variable names to check"),
-                           Many())));
+                            Name("vars"),
+                            Help("Environment variable names to check"),
+                            Many())));
 
     env_check.meta.name = "env-check";
 
-    Command(lock,
-            "Run a command while holding a named lock file, preventing concurrent execution",
-            Positionals(Str(Name("name"),
-                           Help("Lock name (e.g. \"db-migrate\")"),
-                           Def("")),
-                        Str(Name("cmd"),
-                           Help("Command to run while holding the lock"),
-                           Def(""))),
-            Int(Name("timeout"),
-                Help("Timeout waiting for lock in milliseconds (0 = fail immediately)"),
-                Def("30000")));
+    Command(
+        lock,
+        "Run a command while holding a named lock file, preventing concurrent "
+        "execution",
+        Positionals(
+            Str(Name("name"), Help("Lock name (e.g. \"db-migrate\")"), Def("")),
+            Str(Name("cmd"),
+                Help("Command to run while holding the lock"),
+                Def(""))),
+        Int(Name("timeout"),
+            Help("Timeout waiting for lock in milliseconds (0 = fail "
+                 "immediately)"),
+            Def("30000")));
 
     lock.meta.name = "lock";
 
@@ -1141,11 +1166,8 @@ static int parseUtilsCommand(
            UTILS_SUBCOMMANDS,
            DefaultCmd(help),
            DisableVersionOpt(),
-           Opt(Name("quiet"),
-               Sf('q'),
-               Help("Suppress non-error output")),
-           Opt(Name("verbose"),
-               Help("Enable verbose output")));
+           Opt(Name("quiet"), Sf('q'), Help("Suppress non-error output")),
+           Opt(Name("verbose"), Help("Enable verbose output")));
     SubParser(P);
 
     int selected = argparse(argc, &argv, parser);
@@ -1216,14 +1238,15 @@ static int parseUtilsCommand(
     }
 
     return cmdUtils;
-    CMD_parse_error:
+CMD_parse_error:
     return -1;
 }
 
 static int parseUtilsCommandFwd(void *ctx, int argc, char **argv)
 {
     ParseContext *pctx = (ParseContext *)ctx;
-    return parseUtilsCommand(&argc, argv, pctx->strings, pctx->options, pctx->log);
+    return parseUtilsCommand(
+        &argc, argv, pctx->strings, pctx->options, pctx->log);
 }
 
 bool parseCommandLineOptions(
@@ -1232,7 +1255,7 @@ bool parseCommandLineOptions(
     bool status = true;
     int file_count = 0;
     initializeOptions(strings, options);
-    ParseContext ctx = { options, strings, log };
+    ParseContext ctx = {options, strings, log};
 
     Parser(
         "cxy",
@@ -1280,11 +1303,11 @@ bool parseCommandLineOptions(
             Help("Adds a compiler definition that will be parsed to the C "
                  "importer"),
             Def("[]")),
-        Use(cmdArrayArgument,
+        Use(cmdPathArgument,
             Name("c-header-dir"),
             Help("Adds a directory to search for C header files"),
             Def("[]")),
-        Use(cmdArrayArgument,
+        Use(cmdPathArgument,
             Name("c-lib-dir"),
             Help("Adds a directory to search for C libraries"),
             Def("[]")),
@@ -1323,6 +1346,7 @@ bool parseCommandLineOptions(
             Help("Directory containing installed package dependencies"),
             Def(".cxy/packages")));
 
+    P->ctx = options;
     CustomParser(package, parsePackageCommandFwd, &ctx);
     CustomParser(utils, parseUtilsCommandFwd, &ctx);
 
@@ -1379,7 +1403,8 @@ bool parseCommandLineOptions(
     }
     else if (cmd->id == CMD_package) {
         // This should not be reached due to early interception
-        logError(log, NULL, "package command should be intercepted earlier", NULL);
+        logError(
+            log, NULL, "package command should be intercepted earlier", NULL);
         return false;
     }
 
@@ -1398,6 +1423,10 @@ bool parseCommandLineOptions(
     moveListOptions(&options->loadPassPlugins, &getGlobalArray(cmd, 17));
     options->dsmMode = getGlobalInt(cmd, 18);
     log->progress = !getGlobalOption(cmd, 19);
+    if (options->dev.profile != prfNONE) {
+        log->progress = false;
+        options->dsmMode = dsmNONE;
+    }
     options->libDir = getGlobalString(cmd, 20);
     options->pluginsDir = getGlobalString(cmd, 21);
     options->depsDir = getGlobalString(cmd, 22);
