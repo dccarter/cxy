@@ -132,7 +132,7 @@ def mode_table(data, opts)
   c_import_ns  = data[:c_import_ns]
 
   # Column widths
-  name_w   = [4, files.map { |f| basename(f["fileName"]).length }.max || 4].max
+  name_w   = [4, "TOTAL".length, files.map { |f| basename(f["fileName"]).length }.max || 4].max
   parse_w  = [5, files.map { |f| fmt_ns(f["parseTimeNs"]).length }.max,
                  fmt_ns(totals["parseTimeNs"]).length].max
   total_w  = [5, files.map { |f| fmt_ns(f["totalTimeNs"]).length }.max,
@@ -184,7 +184,7 @@ def mode_table(data, opts)
   # Totals row
   st = totals["stageTimesNs"] || {}
   total_row = "  " +
-    "%-*s" % [name_w, C.apply(C::BOLD, "TOTAL")] + " | " +
+    C.apply(C::BOLD, "%-*s" % [name_w, "TOTAL"]) + " | " +
     "%*s" % [parse_w, fmt_ns(totals["parseTimeNs"])] + " | " +
     stage_names.map { |s| "%*s" % [stage_w[s], fmt_ns(st[s])] }.join(" | ") + " | " +
     "%*s" % [total_w, fmt_ns(totals["totalTimeNs"])]
@@ -208,12 +208,12 @@ def mode_table(data, opts)
   out.puts
   out.puts C.apply(C::BOLD, "  Stage Totals")
   out.puts divider(s_row_w + 2)
-  out.puts "  %-*s | %*s | %*s | %*s" % [
-    s_name_w, C.apply(C::BOLD, "Stage"),
+  out.puts C.apply(C::BOLD, "  %-*s | %*s | %*s | %*s" % [
+    s_name_w, "Stage",
     s_total_w, "Total Time",
     s_pct_w,  "%",
     s_files_w, "Files"
-  ]
+  ])
   out.puts divider(s_row_w + 2)
 
   all_stages.each do |name, ns|
