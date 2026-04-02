@@ -421,9 +421,8 @@ AstNode *executeCompilerStage(CompilerDriver *driver,
     printStatus(
         driver->L, cBWHT "* %s %s..." cDEF, stageName, name ?: "<unknown>");
     compilerStatsSnapshot(driver);
-    u64 prevDuration = timespecToMilliseconds(&driver->stats.snapshot.at);
     
-    PROFILE_SECTION(stageName) {
+    PROFILE_STAGE(&driver->profiling, stage) {
         node = executor(driver, node);
     }
     

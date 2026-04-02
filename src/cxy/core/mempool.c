@@ -28,7 +28,7 @@ static size_t remainingMem(MemBlock *block)
     return block->capacity - block->size;
 }
 
-static MemBlock *allocMemBlock(MemBlock *prev, size_t capacity)
+static MemBlock *allocMemBlock(MemPool *pool, MemBlock *prev, size_t capacity)
 {
     if (capacity < MIN_MEM_BLOCK_CAPACITY)
         capacity = MIN_MEM_BLOCK_CAPACITY;
@@ -38,6 +38,8 @@ static MemBlock *allocMemBlock(MemBlock *prev, size_t capacity)
     block->next = NULL;
     if (prev)
         prev->next = block;
+    pool->totalAllocated += capacity;
+    pool->numberOfBlocks++;
     return block;
 }
 
@@ -53,13 +55,13 @@ void *allocFromMemPool(MemPool *pool, size_t size)
         return NULL;
     size = alignTo(size, sizeof(max_align_t));
     if (!pool->cur) {
-        pool->first = pool->cur = allocMemBlock(NULL, size);
+        pool->first = pool->cur = allocMemBlock(pool, NULL, size);
     }
     else {
         // Try to re-use the next memory pools if they are appropriately sized
         while (remainingMem(pool->cur) < size) {
             if (!pool->cur->next) {
-                pool->cur = allocMemBlock(pool->cur, size);
+                pool->cur = allocMemBlock(pool, pool->cur, size);
                 break;
             }
             pool->cur = pool->cur->next;
@@ -70,6 +72,7 @@ void *allocFromMemPool(MemPool *pool, size_t size)
     assert(remainingMem(pool->cur) >= size);
     void *ptr = ((char *)pool->cur->data) + pool->cur->size;
     pool->cur->size += size;
+    pool->totalUsed += size;
     return ptr;
 }
 
@@ -176,14 +179,9 @@ void freeMemPool(MemPool *pool)
 
 void getMemPoolStats(const MemPool *pool, MemPoolStats *stats)
 {
-    *stats = (MemPoolStats){};
-    const MemBlock *block = pool->first;
-    while (block) {
-        stats->numberOfBlocks++;
-        stats->totalAllocated += block->capacity;
-        stats->totalUsed += block->size;
-        block = block->next;
-    }
+    stats->numberOfBlocks  = pool->numberOfBlocks;
+    stats->totalAllocated  = pool->totalAllocated;
+    stats->totalUsed       = pool->totalUsed;
 
     stats->totalUsed += pool->trackedAllocations.allocated;
 }

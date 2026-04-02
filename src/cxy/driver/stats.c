@@ -47,7 +47,6 @@ static void compilerPrintSummarySize(const CompilerStats *stats)
 void compilerStatsSnapshot(CompilerDriver *driver)
 {
     getMemPoolStats(driver->pool, &driver->stats.snapshot.poolStats);
-    timespec_get(&driver->stats.snapshot.at, TIME_UTC);
 }
 
 void startCompilerStats(struct CompilerDriver *driver)
@@ -65,14 +64,10 @@ void stopCompilerStats(struct CompilerDriver *driver)
 
 void compilerStatsRecord(CompilerDriver *driver, CompilerStage stage)
 {
-    struct timespec ts;
     MemPoolStats stats;
-    timespec_get(&ts, TIME_UTC);
     getMemPoolStats(driver->pool, &stats);
     StatsSnapshot *snapshot = &driver->stats.snapshot;
 
-    driver->stats.stages[stage].duration +=
-        timespecToMilliseconds(&ts) - timespecToMilliseconds(&snapshot->at);
     driver->stats.stages[stage].pool.totalUsed +=
         stats.totalUsed - snapshot->poolStats.totalUsed;
     driver->stats.stages[stage].pool.numberOfBlocks +=
@@ -92,10 +87,10 @@ void compilerStatsPrint(const struct CompilerDriver *driver)
 
     if (options->dsmMode == dsmFULL) {
         // clang-format off
-    printf("+---------------+---------------+-----------------------------------------------+\n");
-    printf("|               |               |              Memory Usage                     |\n");
-    printf("| Stage         | Duration (ms) |-------------+----------------+----------------|\n");
-    printf("|               |               | # of Blocks | Allocated (Kb) | Used (Kb)      |\n");
+    printf("+---------------+-------------+----------------+----------------+\n");
+    printf("|               |              Memory Usage                     |\n");
+    printf("| Stage         |-------------+----------------+----------------|\n");
+    printf("|               | # of Blocks | Allocated (Kb) | Used (Kb)      |\n");
         // clang-format on
         for (CompilerStage stage = ccsInvalid + 1; stage != ccsCOUNT; stage++) {
             __typeof(driver->stats.stages[stage]) *stats =
@@ -103,11 +98,10 @@ void compilerStatsPrint(const struct CompilerDriver *driver)
             if (!stats->captured)
                 continue;
             // clang-format off
-        printf("|---------------+---------------+-------------+----------------+----------------|\n");
+        printf("|---------------+-------------+----------------+----------------|\n");
             // clang-format on
-            printf("| %-14s|%14" PRIu64 " |%12zu |%15g |%15g |\n",
+            printf("| %-14s|%12zu |%15g |%15g |\n",
                    getCompilerStageDescription(stage),
-                   stats->duration,
                    stats->pool.numberOfBlocks,
                    BYTES_TO_KB(stats->pool.totalAllocated),
                    BYTES_TO_KB(stats->pool.totalUsed));
@@ -115,17 +109,16 @@ void compilerStatsPrint(const struct CompilerDriver *driver)
 
         printf(cBWHT);
         // clang-format off
-        printf("+---------------+---------------+-------------+----------------+----------------+\n");
+        printf("+---------------+-------------+----------------+----------------+\n");
         // clang-format on
 
-        printf("| Total         |%14" PRIu64 " |%12zu |%15g |%15g |\n",
-               driver->stats.duration,
+        printf("| Total         |%12zu |%15g |%15g |\n",
                driver->stats.snapshot.poolStats.numberOfBlocks,
                BYTES_TO_KB(driver->stats.snapshot.poolStats.totalAllocated),
                BYTES_TO_KB(driver->stats.snapshot.poolStats.totalUsed));
 
         // clang-format off
-        printf("+---------------+---------------+-------------+----------------+----------------+\n");
+        printf("+---------------+-------------+----------------+----------------+\n");
         // clang-format on
         printf(cDEF);
     }

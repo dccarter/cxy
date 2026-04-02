@@ -42,6 +42,10 @@ typedef struct MemPool {
         TrackedMemoryItem *last;
         size_t allocated;
     } trackedAllocations;
+    // Running totals updated on every allocation — keeps getMemPoolStats O(1)
+    size_t totalAllocated;
+    size_t totalUsed;
+    size_t numberOfBlocks;
 } MemPool;
 
 typedef struct {

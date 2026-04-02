@@ -14,19 +14,17 @@ extern "C" {
 struct CompilerDriver;
 
 typedef struct {
-    struct timespec at;
     MemPoolStats poolStats;
 } StatsSnapshot;
 
 typedef struct CompilerStats {
     struct {
         bool captured;
-        u64 duration;
         MemPoolStats pool;
     } stages[ccsCOUNT];
+    StatsSnapshot snapshot;
     struct timespec start;
     u64 duration;
-    StatsSnapshot snapshot;
 } CompilerStats;
 
 void startCompilerStats(struct CompilerDriver *driver);

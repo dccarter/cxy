@@ -2,6 +2,7 @@
 #pragma once
 
 #include <driver/options.h>
+#include <driver/profiling.h>
 #include <driver/stats.h>
 
 #include <core/strpool.h>
@@ -55,6 +56,7 @@ typedef struct CompilerDriver {
     cstring os;
     cstring cxyBinaryPath;
     CompilerStats stats;
+    ProfilingContext profiling;
     Log *L;
     TypeTable *types;
     AstNode *mainModule;

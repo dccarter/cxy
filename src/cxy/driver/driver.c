@@ -120,10 +120,17 @@ static AstNode *parseFile(CompilerDriver *driver,
         return NULL;
     }
 
+    // Start parse timer for active file (context must be started by caller)
+    profileParseStart(&driver->profiling);
+
     Lexer lexer = newLexer(fileName, fileData, file_size, driver->L);
     Parser parser = makeParser(&lexer, driver, testMode);
     AstNode *program = parseProgram(&parser);
     compilerStatsRecord(driver, ccsParse);
+    
+    // Stop parse timer
+    profileParseStop(&driver->profiling);
+    
     freeLexer(&lexer);
     free(fileData);
 
@@ -206,8 +213,6 @@ static bool compileProgram(CompilerDriver *driver,
                            const char *fileName,
                            bool mainFile)
 {
-    PROFILE_SCOPE(fileName);
-    
     const Options *options = &driver->options;
     bool status = true;
 
@@ -302,9 +307,12 @@ bool initCompilerDriver(CompilerDriver *compiler,
     compiler->cxyBinaryPath = makeString(compiler->strings, tmp);
     const Options *options = &compiler->options;
 
+    // Initialize profiling context
+    profileInitContext(&compiler->profiling, pool);
+    
     // Enable profiling if requested
     if (options->dev.profile != prfNONE) {
-        profileEnable();
+        profileEnable(&compiler->profiling);
     }
 
     if (!compiler->options.buildPlugin) {
@@ -346,6 +354,8 @@ void deinitCompilerDriver(CompilerDriver *driver)
         freeHashTable(&driver->nativeSources);
         freeTypeTable(driver->types);
     }
+    
+    profileDeinitContext(&driver->profiling);
     deinitCommandLineOptions(&driver->options);
 }
 
@@ -606,8 +616,18 @@ const Type *compileModule(CompilerDriver *driver,
                 return NULL;
             }
 
+            // Save parent file context, then start the import's own context.
+            // profileEndFile sets activeFile = NULL, so we must restore the
+            // parent explicitly before resuming its parse timer.
+            FileProfileData *parentFile = profileGetActiveFile(&driver->profiling);
+            profileParsePause(&driver->profiling);
+            profileStartFile(&driver->profiling, path);
+
             program = parseFile(driver, path, testMode);
             if (program == NULL) {
+                profileEndFile(&driver->profiling);
+                driver->profiling.activeFile = parentFile;
+                profileParseResume(&driver->profiling);
                 return NULL;
             }
 
@@ -616,13 +636,24 @@ const Type *compileModule(CompilerDriver *driver,
                          &source->loc,
                          "module source '{s}' is not declared as a module",
                          (FormatArg[]){{.s = path}});
+                profileEndFile(&driver->profiling);
+                driver->profiling.activeFile = parentFile;
+                profileParseResume(&driver->profiling);
                 return NULL;
             }
 
             program->flags |= flgImportedModule;
             bool compileOk = compileProgram(driver, program, path, false);
-            if (!compileOk)
+            if (!compileOk) {
+                profileEndFile(&driver->profiling);
+                driver->profiling.activeFile = parentFile;
+                profileParseResume(&driver->profiling);
                 return NULL;
+            }
+            profileEndFile(&driver->profiling);
+            // Restore parent file context and resume its parse timer
+            driver->profiling.activeFile = parentFile;
+            profileParseResume(&driver->profiling);
             AstNode *decls = program->program.decls;
             if (nodeIs(decls, ExternDecl) && hasFlag(decls, ModuleInit)) {
                 // copy this declaration
@@ -632,7 +663,9 @@ const Type *compileModule(CompilerDriver *driver,
         }
     }
     else {
-        program = importCHeader(driver, source);
+        PROFILE_CIMPORT(&driver->profiling) {
+            program = importCHeader(driver, source);
+        }
         if (program == NULL)
             return NULL;
     }
@@ -683,17 +716,24 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
     if (!configureDriverSourceDir(driver, &fileName))
         return false;
     startCompilerStats(driver);
-    AstNode *program =
-        parseFile(driver, fileName, driver->options.cmd == cmdTest);
-    if (program) {
-        program->flags |= flgMain;
-        bool status = compileProgram(driver, program, fileName, true);
-        
-        // Output profiling results after compilation completes
+    
+    bool status = false;
+    
+    // Profile the entire file compilation (parse + stages)
+    PROFILE_FILE(&driver->profiling, fileName) {
+        AstNode *program = parseFile(driver, fileName, driver->options.cmd == cmdTest);
+        if (program) {
+            program->flags |= flgMain;
+            status = compileProgram(driver, program, fileName, true);
+        }
+    }
+    
+    // Output profiling results after compilation completes
+    if (status) {
         if (driver->options.dev.profile == prfSTDOUT) {
-            profilePrint(false);
+            profilePrint(&driver->profiling);
         } else if (driver->options.dev.profile == prfJSON) {
-            if (profilePrintToJSON("profiling.json")) {
+            if (profilePrintToJSON(&driver->profiling, "profiling.json")) {
                 printStatusAlways(driver->L,
                                   cBGRN "\xE2\x9C\x93" cBWHT
                                         " Profiling data written to profiling.json\n" cDEF);
@@ -703,10 +743,9 @@ bool compileFile(const char *fileName, CompilerDriver *driver)
                                         " Failed to write profiling.json\n" cDEF);
             }
         }
-        
-        return status;
     }
-    return false;
+    
+    return status;
 }
 
 bool compilePlugin(const char *fileName, CompilerDriver *driver)
