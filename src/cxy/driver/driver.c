@@ -663,9 +663,13 @@ const Type *compileModule(CompilerDriver *driver,
         }
     }
     else {
+        // Pause the parent file's parse timer — C import time is tracked
+        // separately and must not be counted as parse time
+        profileParsePause(&driver->profiling);
         PROFILE_CIMPORT(&driver->profiling) {
             program = importCHeader(driver, source);
         }
+        profileParseResume(&driver->profiling);
         if (program == NULL)
             return NULL;
     }
