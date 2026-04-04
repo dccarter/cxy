@@ -12,8 +12,7 @@
 
 StrPool newStrPool(MemPool *pool)
 {
-    return (StrPool){.pool = pool,
-                     .table = newHashTable(sizeof(char *), pool)};
+    return (StrPool){.pool = pool, .table = newHashTable(sizeof(char *), pool)};
 }
 
 void freeStrPool(StrPool *str_pool) { freeHashTable(&str_pool->table); }
@@ -74,16 +73,17 @@ const char *makeStringSized(StrPool *pool, const char *str, u64 len)
         return NULL;
     uint32_t hash = hashRawBytes(hashInit(), str, len);
     SizedString s = {.s = str, .len = len};
-    char **strPtr = findInHashTable(
-        &pool->table, &s, hash, sizeof(char *), compareStrFind);
+    char **strPtr =
+        findInHashTable(&pool->table, &s, hash, sizeof(char *), compareStrFind);
     if (strPtr)
         return *strPtr;
 
     char *newStr = allocFromMemPool(pool->pool, len + 1);
     memcpy(newStr, str, len);
     newStr[len] = 0;
+    s = (SizedString){.s = newStr, .len = len};
     if (!insertInHashTable(
-            &pool->table, &newStr, hash, sizeof(char *), compareStrInsert))
+            &pool->table, &s, hash, sizeof(char *), compareStrInsert))
         assert(false && "cannot insert string in string pool");
     return newStr;
 }

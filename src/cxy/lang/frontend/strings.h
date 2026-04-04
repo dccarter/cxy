@@ -127,6 +127,8 @@ extern "C" {
     f(clib)                     \
     f(src)                      \
     f(hint)                     \
+    f(mm)                       \
+    f(valid)                    \
     ff(__LLVM_global_ctors, "llvm.global_ctors") \
     ff(ctor_section,        ".ctor")             \
     ff(sptr_ref,            "__smart_ptr_get")   \

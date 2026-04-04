@@ -10,397 +10,286 @@
 
 #include "package/commands/commands.h"
 #include "package/cxyfile.h"
+#include "package/registry.h"
 #include "core/log.h"
-#include "core/format.h"
 #include "core/strpool.h"
-#include "core/mempool.h"
-#include "core/utils.h"
 #include "cJSON.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
-/**
- * Check if a string looks like a git URL
- */
-static bool isGitUrl(const char *str)
+/* -------------------------------------------------------------------------
+ * Helpers
+ * ---------------------------------------------------------------------- */
+
+static bool isLocallyInstalled(const char *name, char *outDir, size_t dirSize)
 {
-    if (!str || str[0] == '\0')
-        return false;
-
-    // Check for common git URL patterns
-    return (strstr(str, "://") != NULL ||
-            strstr(str, "git@") != NULL ||
-            strstr(str, ".git") != NULL);
-}
-
-/**
- * Check if a local package is installed
- */
-static bool isLocalPackageInstalled(const char *name, char *outPath, size_t pathSize)
-{
-    snprintf(outPath, pathSize, ".cxy/packages/%s/Cxyfile.yaml", name);
-
+    snprintf(outDir, dirSize, ".cxy/packages/%s", name);
+    char cxyfilePath[2048];
+    snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", outDir);
     struct stat st;
-    return (stat(outPath, &st) == 0 && S_ISREG(st.st_mode));
+    return stat(cxyfilePath, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/**
- * Add dependency array to JSON
- */
-static void addDependenciesToJson(cJSON *json, const char *key, const DynArray *deps)
+static void printField(const char *label, const char *value)
 {
-    if (deps->size == 0)
-        return;
-
-    cJSON *depsArray = cJSON_CreateArray();
-
-    for (u32 i = 0; i < deps->size; i++) {
-        PackageDependency *dep = &((PackageDependency *)deps->elems)[i];
-        cJSON *depObj = cJSON_CreateObject();
-
-        cJSON_AddItemToObject(depObj, "name", cJSON_CreateString(dep->name));
-
-        if (dep->repository && dep->repository[0] != '\0') {
-            cJSON_AddItemToObject(depObj, "repository", cJSON_CreateString(dep->repository));
-        }
-        if (dep->version && dep->version[0] != '\0') {
-            cJSON_AddItemToObject(depObj, "version", cJSON_CreateString(dep->version));
-        }
-        if (dep->tag && dep->tag[0] != '\0') {
-            cJSON_AddItemToObject(depObj, "tag", cJSON_CreateString(dep->tag));
-        }
-        if (dep->branch && dep->branch[0] != '\0') {
-            cJSON_AddItemToObject(depObj, "branch", cJSON_CreateString(dep->branch));
-        }
-        if (dep->path && dep->path[0] != '\0') {
-            cJSON_AddItemToObject(depObj, "path", cJSON_CreateString(dep->path));
-        }
-
-        cJSON_AddItemToArray(depsArray, depObj);
-    }
-
-    cJSON_AddItemToObject(json, key, depsArray);
+    if (value && value[0] != '\0')
+        printf("  " cBBLU "%-14s" cDEF " %s\n", label, value);
 }
 
-/**
- * Add tests array to JSON
- */
-static void addTestsToJson(cJSON *json, const DynArray *tests)
+static void printDownloadCount(i64 n)
 {
-    if (tests->size == 0)
-        return;
-
-    cJSON *testsArray = cJSON_CreateArray();
-
-    for (u32 i = 0; i < tests->size; i++) {
-        PackageTest *test = &((PackageTest *)tests->elems)[i];
-        cJSON *testObj = cJSON_CreateObject();
-
-        cJSON_AddItemToObject(testObj, "file", cJSON_CreateString(test->file));
-
-        if (test->args.size > 0) {
-            cJSON *argsArray = cJSON_CreateArray();
-            for (u32 j = 0; j < test->args.size; j++) {
-                cstring arg = dynArrayAt(cstring *, &test->args, j);
-                cJSON_AddItemToArray(argsArray, cJSON_CreateString(arg));
-            }
-            cJSON_AddItemToObject(testObj, "args", argsArray);
-        }
-
-        cJSON_AddItemToArray(testsArray, testObj);
-    }
-
-    cJSON_AddItemToObject(json, "tests", testsArray);
+    if (n >= 1000000)
+        printf("  " cBBLU "%-14s" cDEF " %.1fM\n", "Downloads:", (double)n / 1000000.0);
+    else if (n >= 1000)
+        printf("  " cBBLU "%-14s" cDEF " %.1fK\n", "Downloads:", (double)n / 1000.0);
+    else
+        printf("  " cBBLU "%-14s" cDEF " %lld\n",  "Downloads:", (long long)n);
 }
 
-/**
- * Add scripts to JSON
- */
-static void addScriptsToJson(cJSON *json, const DynArray *scripts)
+/* -------------------------------------------------------------------------
+ * Human-readable output
+ * ---------------------------------------------------------------------- */
+
+static void outputHuman(const RegistryPackageDetails *reg,
+                        const PackageMetadata *local,
+                        bool installed,
+                        const char *installDir)
 {
-    if (scripts->size == 0)
-        return;
+    /* Use registry data if available, otherwise fall back to local */
+    const char *name        = reg ? reg->pkg.name        : (local ? local->name        : NULL);
+    const char *description = reg ? reg->pkg.description : (local ? local->description : NULL);
+    const char *author      = reg ? reg->pkg.author      : (local ? local->author      : NULL);
+    const char *license     = reg ? reg->pkg.license     : (local ? local->license     : NULL);
+    const char *repository  = reg ? reg->pkg.repository  : (local ? local->repository  : NULL);
+    const char *homepage    = reg ? reg->pkg.homepage    : (local ? local->homepage    : NULL);
+    const char *latestVer   = (reg && reg->hasLatest) ? reg->latest.version : NULL;
+    const char *localVer    = local ? local->version : NULL;
 
-    cJSON *scriptsObj = cJSON_CreateObject();
+    printf("\n");
+    printf(cBBLU " %s" cDEF, name ? name : "(unknown)");
+    if (latestVer)
+        printf("  v%s", latestVer);
+    else if (localVer)
+        printf("  v%s", localVer);
+    printf("\n");
+    printf(" %s\n", description ? description : "No description available.");
+    printf("\n");
 
-    for (u32 i = 0; i < scripts->size; i++) {
-        PackageScript *script = &((PackageScript *)scripts->elems)[i];
+    printField("Author:",     author);
+    printField("License:",    license);
+    printField("Repository:", repository);
+    printField("Homepage:",   homepage);
 
-        if (script->dependencies.size == 0) {
-            // Simple script
-            cJSON_AddItemToObject(scriptsObj, script->name, cJSON_CreateString(script->command));
-        } else {
-            // Script with dependencies
-            cJSON *scriptObj = cJSON_CreateObject();
-            cJSON_AddItemToObject(scriptObj, "command", cJSON_CreateString(script->command));
+    if (reg)
+        printDownloadCount(reg->pkg.totalDownloads);
 
-            cJSON *depsArray = cJSON_CreateArray();
-            for (u32 j = 0; j < script->dependencies.size; j++) {
-                cstring dep = dynArrayAt(cstring *, &script->dependencies, j);
-                cJSON_AddItemToArray(depsArray, cJSON_CreateString(dep));
-            }
-            cJSON_AddItemToObject(scriptObj, "depends", depsArray);
-
-            cJSON_AddItemToObject(scriptsObj, script->name, scriptObj);
-        }
-    }
-
-    cJSON_AddItemToObject(json, "scripts", scriptsObj);
-}
-
-/**
- * Add build configuration to JSON
- */
-static void addBuildToJson(cJSON *json, const PackageBuildConfig *build)
-{
-    if (!build->entry || build->entry[0] == '\0')
-        return;
-
-    cJSON *buildObj = cJSON_CreateObject();
-
-    cJSON_AddItemToObject(buildObj, "entry", cJSON_CreateString(build->entry));
-
-    if (build->output && build->output[0] != '\0') {
-        cJSON_AddItemToObject(buildObj, "output", cJSON_CreateString(build->output));
-    }
-
-    if (build->cLibs.size > 0) {
-        cJSON *libsArray = cJSON_CreateArray();
-        for (u32 i = 0; i < build->cLibs.size; i++) {
-            cstring lib = dynArrayAt(cstring *, &build->cLibs, i);
-            cJSON_AddItemToArray(libsArray, cJSON_CreateString(lib));
-        }
-        cJSON_AddItemToObject(buildObj, "cLibs", libsArray);
-    }
-
-    if (build->cLibDirs.size > 0) {
-        cJSON *dirsArray = cJSON_CreateArray();
-        for (u32 i = 0; i < build->cLibDirs.size; i++) {
-            cstring dir = dynArrayAt(cstring *, &build->cLibDirs, i);
-            cJSON_AddItemToArray(dirsArray, cJSON_CreateString(dir));
-        }
-        cJSON_AddItemToObject(buildObj, "cLibDirs", dirsArray);
-    }
-
-    cJSON_AddItemToObject(json, "build", buildObj);
-}
-
-/**
- * Output package info as JSON
- */
-static void outputJson(const PackageMetadata *meta, bool installed, const char *location, Log *log)
-{
-    cJSON *json = cJSON_CreateObject();
-
-    // Basic info
-    cJSON_AddItemToObject(json, "name", cJSON_CreateString(meta->name));
-    cJSON_AddItemToObject(json, "version", cJSON_CreateString(meta->version));
-
-    if (meta->description && meta->description[0] != '\0') {
-        cJSON_AddItemToObject(json, "description", cJSON_CreateString(meta->description));
-    }
-    if (meta->author && meta->author[0] != '\0') {
-        cJSON_AddItemToObject(json, "author", cJSON_CreateString(meta->author));
-    }
-    if (meta->license && meta->license[0] != '\0') {
-        cJSON_AddItemToObject(json, "license", cJSON_CreateString(meta->license));
-    }
-    if (meta->repository && meta->repository[0] != '\0') {
-        cJSON_AddItemToObject(json, "repository", cJSON_CreateString(meta->repository));
-    }
-    if (meta->homepage && meta->homepage[0] != '\0') {
-        cJSON_AddItemToObject(json, "homepage", cJSON_CreateString(meta->homepage));
-    }
-
-    // Dependencies
-    addDependenciesToJson(json, "dependencies", &meta->dependencies);
-    addDependenciesToJson(json, "devDependencies", &meta->devDependencies);
-
-    // Tests
-    addTestsToJson(json, &meta->tests);
-
-    // Scripts
-    addScriptsToJson(json, &meta->scripts);
-
-    // Build
-    addBuildToJson(json, &meta->build);
-
-    // Installation info
-    cJSON_AddItemToObject(json, "installed", cJSON_CreateBool(installed));
-    if (installed && location) {
-        cJSON_AddItemToObject(json, "installLocation", cJSON_CreateString(location));
-    }
-
-    // Print JSON
-    char *jsonStr = cJSON_Print(json);
-    printf("%s\n", jsonStr);
-    free(jsonStr);
-    cJSON_Delete(json);
-}
-
-/**
- * Output package info in human-readable format
- */
-static void outputHumanReadable(const PackageMetadata *meta, bool installed, const char *location, Log *log)
-{
-    // Header
-    printStatusSticky(log, cBBLU "Package:" cDEF " %s", meta->name);
-    printStatusSticky(log, cBBLU "Version:" cDEF " %s", meta->version);
-
-    if (meta->description && meta->description[0] != '\0') {
-        printStatusSticky(log, cBBLU "Description:" cDEF " %s", meta->description);
-    }
-
-    // Metadata
-    if (meta->author && meta->author[0] != '\0') {
-        printStatusSticky(log, cBBLU "Author:" cDEF " %s", meta->author);
-    }
-    if (meta->license && meta->license[0] != '\0') {
-        printStatusSticky(log, cBBLU "License:" cDEF " %s", meta->license);
-    }
-    if (meta->repository && meta->repository[0] != '\0') {
-        printStatusSticky(log, cBBLU "Repository:" cDEF " %s", meta->repository);
-    }
-    if (meta->homepage && meta->homepage[0] != '\0') {
-        printStatusSticky(log, cBBLU "Homepage:" cDEF " %s", meta->homepage);
-    }
-
-    // Dependencies
-    if (meta->dependencies.size > 0) {
+    /* Installation status */
+    printf("\n");
+    if (installed) {
+        printf("  " cBBLU "%-14s" cDEF " " cBGRN "Installed" cDEF, "Status:");
+        if (localVer)
+            printf(" (v%s)", localVer);
         printf("\n");
-        printStatusSticky(log, cBBLU "Dependencies (%u):" cDEF, meta->dependencies.size);
-        for (u32 i = 0; i < meta->dependencies.size; i++) {
-            PackageDependency *dep = &((PackageDependency *)meta->dependencies.elems)[i];
-            if (dep->version && dep->version[0] != '\0') {
-                printStatusSticky(log, "  - %s (%s)", dep->name, dep->version);
-            } else {
-                printStatusSticky(log, "  - %s", dep->name);
-            }
+        printf("  " cBBLU "%-14s" cDEF " %s\n", "Location:", installDir);
+    } else {
+        printf("  " cBBLU "%-14s" cDEF " " cBYLW "Not installed" cDEF "\n", "Status:");
+    }
+
+    /* Dependencies from local Cxyfile */
+    if (local && local->dependencies.size > 0) {
+        printf("\n");
+        printf("  " cBBLU "Dependencies (%u):\n" cDEF, (u32)local->dependencies.size);
+        for (u32 i = 0; i < local->dependencies.size; i++) {
+            PackageDependency *dep = &((PackageDependency *)local->dependencies.elems)[i];
+            if (dep->version && dep->version[0] != '\0')
+                printf("    - %s  %s\n", dep->name, dep->version);
+            else
+                printf("    - %s\n", dep->name);
         }
     }
 
-    // Dev Dependencies
-    if (meta->devDependencies.size > 0) {
+    /* All versions from registry */
+    if (reg && reg->versionCount > 0) {
         printf("\n");
-        printStatusSticky(log, cBBLU "Dev Dependencies (%u):" cDEF, meta->devDependencies.size);
-        for (u32 i = 0; i < meta->devDependencies.size; i++) {
-            PackageDependency *dep = &((PackageDependency *)meta->devDependencies.elems)[i];
-            if (dep->version && dep->version[0] != '\0') {
-                printStatusSticky(log, "  - %s (%s)", dep->name, dep->version);
-            } else {
-                printStatusSticky(log, "  - %s", dep->name);
-            }
-        }
-    }
-
-    // Tests
-    if (meta->tests.size > 0) {
-        printf("\n");
-        printStatusSticky(log, cBBLU "Tests:" cDEF);
-        for (u32 i = 0; i < meta->tests.size; i++) {
-            PackageTest *test = &((PackageTest *)meta->tests.elems)[i];
-            printStatusSticky(log, "  - %s", test->file);
-        }
-    }
-
-    // Scripts
-    if (meta->scripts.size > 0) {
-        printf("\n");
-        printStatusSticky(log, cBBLU "Scripts (%u):" cDEF, meta->scripts.size);
-        for (u32 i = 0; i < meta->scripts.size; i++) {
-            PackageScript *script = &((PackageScript *)meta->scripts.elems)[i];
-            printStatusSticky(log, "  - %s: %s", script->name, script->command);
-        }
-    }
-
-    // Build Configuration
-    if (meta->build.entry && meta->build.entry[0] != '\0') {
-        printf("\n");
-        printStatusSticky(log, cBBLU "Build Configuration:" cDEF);
-        printStatusSticky(log, "  Entry: %s", meta->build.entry);
-        if (meta->build.output && meta->build.output[0] != '\0') {
-            printStatusSticky(log, "  Output: %s", meta->build.output);
-        }
-        if (meta->build.cLibs.size > 0) {
-            printf("  C Libraries: ");
-            for (u32 i = 0; i < meta->build.cLibs.size; i++) {
-                cstring lib = dynArrayAt(cstring *, &meta->build.cLibs, i);
-                printf("%s", lib);
-                if (i < meta->build.cLibs.size - 1) printf(", ");
-            }
+        printf("  " cBBLU "Versions (%u):\n" cDEF, reg->versionCount);
+        /* Show newest first, cap at 10 */
+        u32 show = reg->versionCount < 10 ? reg->versionCount : 10;
+        for (u32 i = 0; i < show; i++) {
+            const RegistryVersion *v = &reg->versions[i];
+            printf("    %s%-8s" cDEF,
+                   (latestVer && v->version && strcmp(v->version, latestVer) == 0)
+                       ? cBGRN : "",
+                   v->version ? v->version : "?");
+            if (v->tag)
+                printf("  %s", v->tag);
+            if (v->yanked)
+                printf("  " cBRED "[yanked]" cDEF);
             printf("\n");
         }
+        if (reg->versionCount > 10)
+            printf("    … and %u more\n", reg->versionCount - 10);
     }
 
-    // Installation status
     printf("\n");
-    printStatusSticky(log, cBBLU "Installation:" cDEF);
-    if (installed) {
-        printStatusSticky(log, "  Status: %sInstalled%s", cBGRN, cDEF);
-        if (location) {
-            printStatusSticky(log, "  Location: %s", location);
-        }
-    } else {
-        printStatusSticky(log, "  Status: %sNot installed%s", cBYLW, cDEF);
-    }
 }
 
-/**
- * Package info command implementation
- */
+/* -------------------------------------------------------------------------
+ * JSON output
+ * ---------------------------------------------------------------------- */
+
+static void outputJson(const RegistryPackageDetails *reg,
+                       const PackageMetadata *local,
+                       bool installed,
+                       const char *installDir)
+{
+    cJSON *root = cJSON_CreateObject();
+
+    /* Basic fields — prefer registry */
+    const char *name       = reg ? reg->pkg.name       : (local ? local->name       : NULL);
+    const char *desc       = reg ? reg->pkg.description: (local ? local->description: NULL);
+    const char *author     = reg ? reg->pkg.author     : (local ? local->author     : NULL);
+    const char *license    = reg ? reg->pkg.license    : (local ? local->license    : NULL);
+    const char *repository = reg ? reg->pkg.repository : (local ? local->repository : NULL);
+    const char *homepage   = reg ? reg->pkg.homepage   : (local ? local->homepage   : NULL);
+
+    if (name)       cJSON_AddStringToObject(root, "name",        name);
+    if (desc)       cJSON_AddStringToObject(root, "description", desc);
+    if (author)     cJSON_AddStringToObject(root, "author",      author);
+    if (license)    cJSON_AddStringToObject(root, "license",     license);
+    if (repository) cJSON_AddStringToObject(root, "repository",  repository);
+    if (homepage)   cJSON_AddStringToObject(root, "homepage",    homepage);
+
+    if (reg) {
+        cJSON_AddNumberToObject(root, "total_downloads", (double)reg->pkg.totalDownloads);
+        if (reg->hasLatest && reg->latest.version)
+            cJSON_AddStringToObject(root, "latest_version", reg->latest.version);
+    }
+
+    /* Installation */
+    cJSON_AddBoolToObject(root, "installed", installed);
+    if (installed) {
+        if (local && local->version)
+            cJSON_AddStringToObject(root, "installed_version", local->version);
+        if (installDir)
+            cJSON_AddStringToObject(root, "install_location", installDir);
+    }
+
+    /* Dependencies from local */
+    if (local && local->dependencies.size > 0) {
+        cJSON *deps = cJSON_CreateArray();
+        for (u32 i = 0; i < local->dependencies.size; i++) {
+            PackageDependency *dep = &((PackageDependency *)local->dependencies.elems)[i];
+            cJSON *obj = cJSON_CreateObject();
+            if (dep->name)       cJSON_AddStringToObject(obj, "name",       dep->name);
+            if (dep->version)    cJSON_AddStringToObject(obj, "version",    dep->version);
+            if (dep->repository) cJSON_AddStringToObject(obj, "repository", dep->repository);
+            cJSON_AddItemToArray(deps, obj);
+        }
+        cJSON_AddItemToObject(root, "dependencies", deps);
+    }
+
+    /* Versions from registry */
+    if (reg && reg->versionCount > 0) {
+        cJSON *versions = cJSON_CreateArray();
+        for (u32 i = 0; i < reg->versionCount; i++) {
+            const RegistryVersion *v = &reg->versions[i];
+            cJSON *obj = cJSON_CreateObject();
+            if (v->version)     cJSON_AddStringToObject(obj, "version",      v->version);
+            if (v->tag)         cJSON_AddStringToObject(obj, "tag",          v->tag);
+            if (v->commit)      cJSON_AddStringToObject(obj, "commit",       v->commit);
+            if (v->publishedAt) cJSON_AddStringToObject(obj, "published_at", v->publishedAt);
+            cJSON_AddNumberToObject(obj, "downloads", (double)v->downloads);
+            cJSON_AddBoolToObject(obj, "yanked", v->yanked);
+            cJSON_AddItemToArray(versions, obj);
+        }
+        cJSON_AddItemToObject(root, "versions", versions);
+    }
+
+    char *json = cJSON_Print(root);
+    if (json) {
+        printf("%s\n", json);
+        free(json);
+    }
+    cJSON_Delete(root);
+}
+
+/* -------------------------------------------------------------------------
+ * Command
+ * ---------------------------------------------------------------------- */
+
 bool packageInfoCommand(const Options *options, StrPool *strings, Log *log)
 {
-    const char *packageArg = options->package.package;
+    const char *packageName  = options->package.package;
+    const char *registryFile = options->package.registryFile;
+    bool        asJson       = options->package.json;
 
-    // Validate argument
-    if (!packageArg || packageArg[0] == '\0') {
-        logError(log, NULL, "package name or URL required. Usage: cxy package info <name>", NULL);
+    if (!packageName || packageName[0] == '\0') {
+        logError(log, NULL,
+                 "package name required. Usage: cxy package info <name>", NULL);
         return false;
     }
 
-    PackageMetadata meta;
-    initPackageMetadata(&meta, strings);
+    /* ------------------------------------------------------------------ */
+    /* 1. Query registry (best-effort)                                     */
+    /* ------------------------------------------------------------------ */
 
-    bool installed = false;
-    char installPath[2048];
-    char *installLocation = NULL;
+    RegistryPackageDetails regDetails;
+    memset(&regDetails, 0, sizeof(regDetails));
+    bool hasRegistry = false;
 
-    // Check if it's a URL or local package name
-    if (isGitUrl(packageArg)) {
-        // Remote package - not implemented yet
-        logError(log, NULL, "remote package info not yet implemented. Use package name for installed packages.", NULL);
-        freePackageMetadata(&meta);
-        return false;
-    } else {
-        // Local package
-        if (isLocalPackageInstalled(packageArg, installPath, sizeof(installPath))) {
-            // Load from local installation
-            if (!parseCxyfile(installPath, &meta, strings, log)) {
-                logError(log, NULL, "failed to load Cxyfile from {s}",
-                        (FormatArg[]){{.s = installPath}});
-                freePackageMetadata(&meta);
-                return false;
-            }
+    RegistryClient *client = registryClientInit(strings, log, registryFile);
+    if (client) {
+        hasRegistry = registryGetPackage(client, packageName, &regDetails);
+        registryClientFree(client);
+    }
 
-            installed = true;
-            snprintf(installPath, sizeof(installPath), ".cxy/packages/%s", packageArg);
-            installLocation = installPath;
-        } else {
-            logError(log, NULL, "package '{s}' not found locally. Install it first with 'cxy package install' or use a git URL.",
-                    (FormatArg[]){{.s = packageArg}});
-            freePackageMetadata(&meta);
-            return false;
+    /* ------------------------------------------------------------------ */
+    /* 2. Check local installation                                         */
+    /* ------------------------------------------------------------------ */
+
+    char installDir[1024];
+    bool installed = isLocallyInstalled(packageName, installDir, sizeof(installDir));
+
+    PackageMetadata localMeta;
+    PackageMetadata *localMetaPtr = NULL;
+
+    initPackageMetadata(&localMeta, strings);
+
+    if (installed) {
+        char cxyfilePath[2048];
+        snprintf(cxyfilePath, sizeof(cxyfilePath), "%s/Cxyfile.yaml", installDir);
+        char *pkgDir = NULL;
+        if (findAndLoadCxyfile(installDir, &localMeta, strings, log, &pkgDir)) {
+            localMetaPtr = &localMeta;
+            free(pkgDir);
         }
     }
 
-    // Output the information
-    if (options->package.json) {
-        outputJson(&meta, installed, installLocation, log);
-    } else {
-        outputHumanReadable(&meta, installed, installLocation, log);
+    /* ------------------------------------------------------------------ */
+    /* 3. Nothing found at all                                             */
+    /* ------------------------------------------------------------------ */
+
+    if (!hasRegistry && !installed) {
+        logError(log, NULL,
+                 "package '{s}' not found in registry or local installation",
+                 (FormatArg[]){{.s = packageName}});
+        freePackageMetadata(&localMeta);
+        return false;
     }
 
-    freePackageMetadata(&meta);
+    /* ------------------------------------------------------------------ */
+    /* 4. Output                                                           */
+    /* ------------------------------------------------------------------ */
+
+    if (asJson)
+        outputJson(hasRegistry ? &regDetails : NULL, localMetaPtr, installed, installDir);
+    else
+        outputHuman(hasRegistry ? &regDetails : NULL, localMetaPtr, installed, installDir);
+
+    if (hasRegistry)
+        registryPackageDetailsFree(&regDetails);
+    freePackageMetadata(&localMeta);
     return true;
 }

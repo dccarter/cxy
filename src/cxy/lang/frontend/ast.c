@@ -1003,25 +1003,24 @@ AstNode *makeIfStmt(MemPool *pool,
 }
 
 AstNode *makeForStmt(MemPool *pool,
-                    const FileLoc *loc,
-                    u64 flags,
-                    AstNode *var,
-                    AstNode *range,
-                    AstNode *cond,
-                    AstNode *body,
-                    AstNode *next)
+                     const FileLoc *loc,
+                     u64 flags,
+                     AstNode *var,
+                     AstNode *range,
+                     AstNode *cond,
+                     AstNode *body,
+                     AstNode *next)
 {
     return makeAstNode(pool,
                        loc,
                        &(AstNode){.tag = astForStmt,
-                                  .type = body? body->type : NULL,
+                                  .type = body ? body->type : NULL,
                                   .next = next,
                                   .flags = flags,
-                                  .forStmt = {
-                                      .var = var,
-                                      .range = range,
-                                      .cond = cond,
-                                      .body = body}});
+                                  .forStmt = {.var = var,
+                                              .range = range,
+                                              .cond = cond,
+                                              .body = body}});
 }
 
 AstNode *makeFunctionDecl(MemPool *pool,
@@ -1121,15 +1120,14 @@ AstNode *makeNewExpr(MemPool *pool,
                      AstNode *next,
                      const Type *type)
 {
-    return makeAstNode(pool,
-                       loc,
-                       &(AstNode){.tag = astNewExpr,
-                                  .type = type,
-                                  .next = next,
-                                  .flags = flags,
-                                  .newExpr = {
-                                      .allocator = allocator,
-                                      .expr = expr}});
+    return makeAstNode(
+        pool,
+        loc,
+        &(AstNode){.tag = astNewExpr,
+                   .type = type,
+                   .next = next,
+                   .flags = flags,
+                   .newExpr = {.allocator = allocator, .expr = expr}});
 }
 
 AstNode *makeStructExpr(MemPool *pool,
@@ -1971,7 +1969,7 @@ u64 countPackageExports(const AstNode *node)
         if (!nodeIs(node, ImportDecl))
             continue;
         AstNode *entities = node->import.entities;
-        if(entities == NULL) {
+        if (entities == NULL) {
             const Type *module = node->type;
             for (u64 i = 0; i < module->module.members->count; i++) {
                 NamedTypeMember *member = &module->module.members->members[i];
@@ -3109,6 +3107,8 @@ bool nodeIsLeftValue(const AstNode *node)
         return true;
     case astGroupExpr:
         return nodeIsLeftValue(node->groupExpr.expr);
+    case astReferenceOf:
+    case astPointerOf:
     case astUnaryExpr: {
         Operator op = node->unaryExpr.op;
         if (op == opPtrof || op == opRefof)

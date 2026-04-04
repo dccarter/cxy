@@ -552,7 +552,7 @@ static void visitUnaryExpr(AstVisitor *visitor, AstNode *node)
             return;
         case opDelete:
             vt->state = vtsDropped;
-            if (nodeNeedsMemMgmt(node)) {
+            if (nodeNeedsMemMgmt(operand)) {
                 transformToDropExpr(ctx, node, operand);
             }
             return;

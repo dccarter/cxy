@@ -271,6 +271,22 @@ bool gitCalculateChecksum(cstring repoPath, cstring *checksum, MemPool *pool, Lo
  */
 bool gitNormalizeRepositoryUrl(cstring repositoryUrl, cstring *normalized, MemPool *pool, Log *log);
 
+/**
+ * Stage files and create a commit in a local repository.
+ *
+ * Used by the publish command when bumping the version: stages the modified
+ * Cxyfile.yaml (or all dirty files when the user has confirmed) and records
+ * a commit with the supplied message.
+ *
+ * @param repoPath   Path to local Git repository.
+ * @param stageAll   If true, run "git add -A" (all dirty files).
+ *                   If false, run "git add Cxyfile.yaml" only.
+ * @param message    Commit message (must not be NULL or empty).
+ * @param log        Logger for error reporting.
+ * @return true if both the stage and the commit succeeded.
+ */
+bool gitStageAndCommit(cstring repoPath, bool stageAll, cstring message, Log *log);
+
 #ifdef __cplusplus
 }
 #endif

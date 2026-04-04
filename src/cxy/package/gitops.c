@@ -728,7 +728,7 @@ bool gitCalculateChecksum(cstring repoPath, cstring *checksum, MemPool *pool, Lo
     }
 
     FormatState cmd = newFormatState(NULL, true);
-    format(&cmd, "cd \"{s}\" && git archive HEAD | shasum -a 256 | cut -d' ' -f1 2>/dev/null",
+    format(&cmd, "cd \"{s}\" && git archive HEAD | openssl dgst -sha256 2>/dev/null | awk '{{print $NF}'",
            (FormatArg[]){{.s = repoPath}});
 
     char *cmdStr = formatStateToString(&cmd);
@@ -803,5 +803,58 @@ bool gitNormalizeRepositoryUrl(cstring repositoryUrl, cstring *normalized, MemPo
     char *result = allocFromMemPool(pool, len + 1);
     memcpy(result, repositoryUrl, len + 1);
     *normalized = result;
+    return true;
+}
+
+bool gitStageAndCommit(cstring repoPath, bool stageAll, cstring message, Log *log)
+{
+    if (!repoPath || repoPath[0] == '\0') {
+        logError(log, NULL, "repository path cannot be empty", NULL);
+        return false;
+    }
+
+    if (!message || message[0] == '\0') {
+        logError(log, NULL, "commit message cannot be empty", NULL);
+        return false;
+    }
+
+    /* Stage */
+    FormatState stageCmd = newFormatState(NULL, true);
+    if (stageAll)
+        format(&stageCmd, "cd \"{s}\" && git add -A 2>&1",
+               (FormatArg[]){{.s = repoPath}});
+    else
+        format(&stageCmd, "cd \"{s}\" && git add Cxyfile.yaml 2>&1",
+               (FormatArg[]){{.s = repoPath}});
+
+    char *stageCmdStr = formatStateToString(&stageCmd);
+    freeFormatState(&stageCmd);
+
+    bool ok = executeGitCommandQuiet(stageCmdStr, log, false);
+    free(stageCmdStr);
+
+    if (!ok) {
+        logError(log, NULL, "failed to stage files in repository '{s}'",
+                 (FormatArg[]){{.s = repoPath}});
+        return false;
+    }
+
+    /* Commit */
+    FormatState commitCmd = newFormatState(NULL, true);
+    format(&commitCmd, "cd \"{s}\" && git commit -m \"{s}\" 2>&1",
+           (FormatArg[]){{.s = repoPath}, {.s = message}});
+
+    char *commitCmdStr = formatStateToString(&commitCmd);
+    freeFormatState(&commitCmd);
+
+    ok = executeGitCommandQuiet(commitCmdStr, log, false);
+    free(commitCmdStr);
+
+    if (!ok) {
+        logError(log, NULL, "failed to commit in repository '{s}'",
+                 (FormatArg[]){{.s = repoPath}});
+        return false;
+    }
+
     return true;
 }

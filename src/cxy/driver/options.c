@@ -328,6 +328,33 @@ static bool cmdValidateGitRepository(CmdParser *P,
     return true;
 }
 
+static bool cmdValidatePackageNameOrRepository(CmdParser *P,
+                                               CmdFlagValue *dst,
+                                               const char *str,
+                                               const char *name)
+{
+    // First parse as string
+    if (!cmdParseString(P, dst, str, name)) {
+        return false;
+    }
+
+    // Accept bare package names (registry lookup)
+    if (validatePackageName(str) == NULL) {
+        return true;
+    }
+
+    // Accept git repository URLs / shorthands
+    if (validateGitRepository(str) == NULL) {
+        return true;
+    }
+
+    snprintf(P->error,
+             sizeof(P->error),
+             "error: '%s' is not a valid package name or repository URL\n",
+             str);
+    return false;
+}
+
 static bool cmdValidateLicenseIdentifier(CmdParser *P,
                                          CmdFlagValue *dst,
                                          const char *str,
@@ -494,11 +521,13 @@ Command(utils,
     f(test)                                                                 \
     f(build)                                                                \
     f(publish)                                                              \
+    f(yank)                                                                 \
     f(list)                                                                 \
     f(info)                                                                 \
     f(clean)                                                                \
     f(run)                                                                  \
-    f(find_system)
+    f(find_system)                                                          \
+    f(login)
 
 #define UTILS_SUBCOMMANDS(f)                                                \
     PARSER_BUILTIN_COMMANDS(f)                                              \
@@ -528,8 +557,9 @@ Command(utils,
     f(package.tag, Local, String, 2, ## __VA_ARGS__)                           \
     f(package.branch, Local, String, 3, ## __VA_ARGS__)                        \
     f(package.path, Local, String, 4, ## __VA_ARGS__)                          \
-    f(package.dev, Local, Option, 5, ## __VA_ARGS__)                           \
-    f(package.noInstall, Local, Option, 6, ## __VA_ARGS__)
+    f(package.registryFile, Local, String, 5, ## __VA_ARGS__)                  \
+    f(package.dev, Local, Option, 6, ## __VA_ARGS__)                           \
+    f(package.noInstall, Local, Option, 7, ## __VA_ARGS__)
 
 #define PKG_REMOVE_CMD_LAYOUT(f, ...)                                          \
     /* No specific options for remove */
@@ -555,13 +585,26 @@ Command(utils,
     f(package.bump, Local, String, 0, ## __VA_ARGS__)                          \
     f(package.tagName, Local, String, 1, ## __VA_ARGS__)                       \
     f(package.message, Local, String, 2, ## __VA_ARGS__)                       \
-    f(package.dryRun, Local, Option, 3, ## __VA_ARGS__)
+    f(package.dryRun, Local, Option, 3, ## __VA_ARGS__)                        \
+    f(package.registryFile, Local, String, 4, ## __VA_ARGS__)
+
+#define PKG_LOGIN_CMD_LAYOUT(f, ...)                                           \
+    f(package.loginRegistryFile, Local, String, 0, ## __VA_ARGS__)
+
+#define PKG_YANK_CMD_LAYOUT(f, ...)                                            \
+    f(package.yankUndo,         Local, Option, 0, ## __VA_ARGS__)             \
+    f(package.yankRegistryFile, Local, String, 1, ## __VA_ARGS__)
 
 #define PKG_LIST_CMD_LAYOUT(f, ...)                                            \
-    /* No specific options beyond global package options */
+    f(package.listLimit,   Local, Int,    0, ## __VA_ARGS__)                   \
+    f(package.listOffset,  Local, Int,    1, ## __VA_ARGS__)                   \
+    f(package.listSort,    Local, String, 2, ## __VA_ARGS__)                   \
+    f(package.registryFile,Local, String, 3, ## __VA_ARGS__)                   \
+    f(package.json,        Local, Option, 4, ## __VA_ARGS__)
 
 #define PKG_INFO_CMD_LAYOUT(f, ...)                                            \
-    f(package.json, Local, Option, 0, ## __VA_ARGS__)
+    f(package.registryFile, Local, String, 0, ## __VA_ARGS__)                  \
+    f(package.json,         Local, Option, 1, ## __VA_ARGS__)
 
 #define PKG_CLEAN_CMD_LAYOUT(f, ...)                                           \
     f(package.cleanCache, Local, Option, 0, ## __VA_ARGS__)                    \
@@ -799,9 +842,9 @@ static int parsePackageCommand(
     Command(
         add,
         "Add a dependency to the package",
-        Positionals(Use(cmdValidateGitRepository,
+        Positionals(Use(cmdValidatePackageNameOrRepository,
                         Name("repository"),
-                        Help("Git repository URL or package identifier"),
+                        Help("Package name or git repository URL"),
                         Def(""))),
         Use(cmdValidatePackageName,
             Name("name"),
@@ -814,6 +857,9 @@ static int parsePackageCommand(
         Str(Name("tag"), Help("Specific Git tag"), Def("")),
         Str(Name("branch"), Help("Specific Git branch"), Def("")),
         Str(Name("path"), Help("Local filesystem path"), Def("")),
+        Str(Name("registry"),
+            Help("Path to registry credentials JSON file"),
+            Def("~/.cxy-registry.json")),
         Opt(Name("dev"), Help("Add as development dependency")),
         Opt(Name("no-install"), Help("Skip installation (validation only)")), );
 
@@ -883,22 +929,45 @@ static int parsePackageCommand(
 
     Command(
         publish,
-        "Publish package by creating a Git tag",
+        "Publish package by creating a Git tag and registering with the registry",
         Positionals(),
         Str(Name("bump"),
             Help("Bump version before publishing (major|minor|patch)"),
             Def("")),
         Str(Name("tag"), Help("Custom tag name"), Def("")),
         Str(Name("message"), Sf('m'), Help("Tag annotation message"), Def("")),
-        Opt(Name("dry-run"), Help("Show what would be published")));
+        Opt(Name("dry-run"), Help("Show what would be published without doing it")),
+        Str(Name("registry"),
+            Help("Path to registry credentials JSON file"),
+            Def("~/.cxy-registry.json")));
 
-    Command(list, "List all installed dependencies", Positionals());
+    Command(list,
+            "Search or list packages in the registry",
+            Positionals(Str(Name("query"),
+                            Help("Search query (name, description, author)"),
+                            Def(""))),
+            Int(Name("limit"),
+                Help("Maximum number of results to return"),
+                Def("20")),
+            Int(Name("offset"),
+                Help("Number of results to skip (for pagination)"),
+                Def("0")),
+            Str(Name("sort"),
+                Help("Sort order: relevance, downloads, updated, name"),
+                Def("relevance")),
+            Str(Name("registry"),
+                Help("Path to registry credentials JSON file"),
+                Def("~/.cxy-registry.json")),
+            Opt(Name("json"), Help("Output results as JSON")));
 
     Command(info,
             "Show information about a package",
             Positionals(Str(Name("package"),
-                            Help("Package name to show info for"),
+                            Help("Package name to show info for (local or registry)"),
                             Def(""))),
+            Str(Name("registry"),
+                Help("Path to registry credentials JSON file"),
+                Def("~/.cxy-registry.json")),
             Opt(Name("json"), Help("Output in JSON format")));
 
     Command(clean,
@@ -917,6 +986,28 @@ static int parsePackageCommand(
             PositionalRest()),
         Opt(Name("list"), Help("List all available scripts")),
         Opt(Name("no-cache"), Help("Disable script caching (force re-run)")));
+
+    Command(yank,
+            "Yank (or un-yank) a specific version of a published package",
+            Positionals(Str(Name("name"),
+                            Help("Package name"),
+                            Def("")),
+                        Str(Name("version"),
+                            Help("Version to yank (e.g. 1.2.3)"),
+                            Def(""))),
+            Opt(Name("undo"), Help("Un-yank the version (restore it to the index)")),
+            Str(Name("registry"),
+                Help("Path to registry credentials JSON file"),
+                Def("~/.cxy-registry.json")));
+
+    Command(login,
+            "Authenticate with a Cxy package registry",
+            Positionals(Str(Name("url"),
+                            Help("Registry URL (default: https://registry.cxy-lang.org)"),
+                            Def(""))),
+            Str(Name("registry"),
+                Help("Path to registry credentials JSON file"),
+                Def("~/.cxy-registry.json")));
 
     Command(find_system,
             "Find system packages and output build configuration",
@@ -1017,6 +1108,9 @@ static int parsePackageCommand(
     }
     else if (cmd->id == CMD_list) {
         options->package.subcmd = pkgSubList;
+        if (hasPositional(cmd, 0)) {
+            options->package.listQuery = getPositionalString(cmd, 0);
+        }
         UnloadCmd(cmd, options, PKG_LIST_CMD_LAYOUT);
     }
     else if (cmd->id == CMD_info) {
@@ -1047,8 +1141,26 @@ static int parsePackageCommand(
         }
         UnloadCmd(cmd, options, PKG_FIND_SYSTEM_CMD_LAYOUT);
     }
+    else if (cmd->id == CMD_login) {
+        options->package.subcmd = pkgSubLogin;
+        if (hasPositional(cmd, 0)) {
+            options->package.loginUrl = getPositionalString(cmd, 0);
+        }
+        UnloadCmd(cmd, options, PKG_LOGIN_CMD_LAYOUT);
+    }
+    else if (cmd->id == CMD_yank) {
+        options->package.subcmd = pkgSubYank;
+        if (hasPositional(cmd, 0)) {
+            options->package.yankName = getPositionalString(cmd, 0);
+        }
+        if (hasPositional(cmd, 1)) {
+            options->package.yankVersion = getPositionalString(cmd, 1);
+        }
+        UnloadCmd(cmd, options, PKG_YANK_CMD_LAYOUT);
+    }
     return cmdPackage;
 CMD_parse_error:
+    logError(log, NULL, P->error, NULL);
     return -1;
 }
 
@@ -1239,6 +1351,7 @@ static int parseUtilsCommand(
 
     return cmdUtils;
 CMD_parse_error:
+    logError(log, NULL, P->error, NULL);
     return -1;
 }
 
@@ -1351,6 +1464,9 @@ bool parseCommandLineOptions(
     CustomParser(utils, parseUtilsCommandFwd, &ctx);
 
     int selected = argparse(argc, &argv, parser);
+    if (selected == CMD_parse_subcmd_failed) {
+        return false;
+    }
     if (selected == CMD_package) {
         options->cmd = cmdPackage;
         return true;

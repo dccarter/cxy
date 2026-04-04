@@ -311,7 +311,7 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P);
             return _selected;                                                  \
         }                                                                      \
         else if (_selected == CMD_parse_subcmd_failed) {                       \
-            return _selected;                                                  \
+            goto CMD_parse_error;                                              \
         }                                                                      \
         else if (_selected < 0)  {                                             \
             goto CMD_parse_error;                                              \

@@ -1392,6 +1392,23 @@ static void visitBackendBfiDrop(ConstAstVisitor *visitor, const AstNode *node)
     }
 }
 
+static bool isValidAtInitialization(const AstNode *node)
+{
+    if (nodeIs(node, FuncParamDecl))
+        return true;
+    if (!nodeIs(node, VarDecl) || node->varDecl.init == NULL)
+        return false;
+    if (!nodeIs(node->varDecl.init, NullLit))
+        return true;
+    const AstNode *mm = findAttribute(node, S_mm);
+    if (mm != NULL) {
+        const AstNode *valid = findAttributeArgument(mm, S_valid);
+        if (nodeIs(valid, BoolLit))
+            return valid->boolLiteral.value;
+    }
+    return false;
+}
+
 static void visitBackendBfiDeclare(ConstAstVisitor *visitor,
                                    const AstNode *node)
 {
@@ -1401,8 +1418,7 @@ static void visitBackendBfiDeclare(ConstAstVisitor *visitor,
     cstring initFunc = nodeIs(var, VarDecl) ? "builtins__ManagedVariable_init"
                                             : "builtins__ManagedParam_init";
     const Type *type = resolveUnThisUnwrapType(stripReference(node->type));
-    bool valid = nodeIs(var, FuncParamDecl) ||
-                 (var->varDecl.init && !nodeIs(node->varDecl.init, NullLit));
+    bool valid = isValidAtInitialization(var);
     addDebugInfo(ctx, node);
     if (isClassType(type)) {
         format(getState(ctx), "{s}(", (FormatArg[]){{.s = initFunc}});
@@ -1421,6 +1437,7 @@ static void visitBackendBfiDeclare(ConstAstVisitor *visitor,
             generateFunctionName(getState(ctx), func);
         }
         else {
+            csAssert0(hasFlag(type, FuncTypeParam));
             format(getState(ctx), "builtins__ClosureTuple_cleanup", NULL);
         }
         format(getState(ctx), ", {b}, Var)", (FormatArg[]){{.b = valid}});

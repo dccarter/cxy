@@ -20,6 +20,7 @@ if (LLVM_ROOT_DIR)
 endif ()
 
 find_package(Clang REQUIRED)
+find_package(CURL REQUIRED)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -111,6 +112,7 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/env.c
         src/cxy/package/cache.c
         src/cxy/package/install_scripts.c
+        src/cxy/package/registry.c
         src/cxy/package/commands/create.c
         src/cxy/package/commands/add.c
         src/cxy/package/commands/build.c
@@ -123,6 +125,10 @@ set(CXY_PACKAGE_SOURCES
         src/cxy/package/commands/clean.c
         src/cxy/package/commands/info.c
         src/cxy/package/commands/find_system.c
+        src/cxy/package/commands/login.c
+        src/cxy/package/commands/publish.c
+        src/cxy/package/commands/yank.c
+        src/cxy/package/commands/list.c
         src/cxy/utils/async_tracker.c
         src/cxy/utils/commands/dispatch.c
         src/cxy/utils/commands/async_cmd.c
@@ -356,10 +362,10 @@ if (ENABLE_LLVM_BACKEND)
             Passes
             Support
     )
-    target_link_libraries(cxy-core msgpack-c yaml ${llvm_libs} ${CLANG_LIBS})
+    target_link_libraries(cxy-core msgpack-c yaml ${llvm_libs} ${CLANG_LIBS} CURL::libcurl)
     target_link_libraries(cxy cxy-core)
 else ()
-    target_link_libraries(cxy-core msgpack-c yaml ${CLANG_LIBS})
+    target_link_libraries(cxy-core msgpack-c yaml ${CLANG_LIBS} CURL::libcurl)
     target_link_libraries(cxy cxy-core)
 endif ()
 

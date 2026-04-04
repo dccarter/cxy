@@ -14,7 +14,8 @@ RUN apk add --update \
     openssl \
     openssl-dev \
     bash \
-    git
+    git \
+    curl-dev
 
 # Link llvm-config21 to llvm-config
 RUN ln -sf /usr/lib/llvm21/bin/llvm-config /usr/bin/llvm-config

@@ -423,6 +423,9 @@ pub class Response {
     @inline
     func header(name: String, value: String) => _headers.[&&name] = &&value
 
+    @inline
+    func header(name: String) => _headers.[&&name]
+
     func onBodyPart(buf: ^const char, len: u64): i32 {
         if (_writer != null) {
             // Write the body to the writer

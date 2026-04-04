@@ -58,6 +58,12 @@ bool packageTestCommand(const Options *options, struct StrPool *strings, Log *lo
 /* Publish package (MVP may only create a git tag; registry publishing is future work). */
 bool packagePublishCommand(const Options *options, struct StrPool *strings, Log *log);
 
+/* Authenticate with a Cxy package registry and save credentials. */
+bool packageLoginCommand(const Options *options, struct StrPool *strings, Log *log);
+
+/* Yank (or un-yank) a specific version of a published package. */
+bool packageYankCommand(const Options *options, struct StrPool *strings, Log *log);
+
 /* List installed dependencies in the local package cache. */
 bool packageListCommand(const Options *options, struct StrPool *strings, Log *log);
 

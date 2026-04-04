@@ -33,12 +33,10 @@ bool dispatchPackageCommand(const Options *options, struct StrPool *strings, Log
             return packageTestCommand(options, strings, log);
         
         case pkgSubPublish:
-            logError(log, NULL, "package publish command not yet implemented", NULL);
-            return false;
+            return packagePublishCommand(options, strings, log);
         
         case pkgSubList:
-            logError(log, NULL, "package list command not yet implemented", NULL);
-            return false;
+            return packageListCommand(options, strings, log);
         
         case pkgSubInfo:
             return packageInfoCommand(options, strings, log);
@@ -54,7 +52,13 @@ bool dispatchPackageCommand(const Options *options, struct StrPool *strings, Log
         
         case pkgSubFindSystem:
             return packageFindSystemCommand(options, strings, log);
-    
+
+        case pkgSubLogin:
+            return packageLoginCommand(options, strings, log);
+
+        case pkgSubYank:
+            return packageYankCommand(options, strings, log);
+
         default:
             logError(log, NULL, "unknown package subcommand", NULL);
             return false;

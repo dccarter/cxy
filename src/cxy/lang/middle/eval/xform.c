@@ -6,6 +6,7 @@
 
 #include "lang/frontend/flag.h"
 #include "lang/frontend/ttable.h"
+#include "lang/middle/sema/check.h"
 
 #include <core/alloc.h>
 
@@ -31,6 +32,7 @@ void evalXformType(AstVisitor *visitor, AstNode *node)
         mallocOrDie(sizeof(const Type *) * target->tuple.count);
     AstNode *arg1 = node->xForm.args, *arg2 = arg1->next;
     int j = 0;
+    Flags flg = flgNone;
     for (int i = 0; i < target->tuple.count; i++) {
         const Type *member = target->tuple.members[i];
         arg1->varDecl.init =
@@ -74,11 +76,18 @@ void evalXformType(AstVisitor *visitor, AstNode *node)
             return;
         }
         members[j++] = xForm->type;
+        if (isClassType(xForm->type) ||
+            hasFlag(xForm->type, ReferenceMembers)) {
+            flg |= flgReferenceMembers;
+        }
     }
 
-    const Type *type = makeTupleType(ctx->types, members, j, flgNone);
+    const Type *type = makeTupleType(ctx->types, members, j, flg);
     free(members);
     node->tag = astTypeRef;
     node->type = type;
     clearAstBody(node);
+    if (flg & flgReferenceMembers) {
+        implementTupleTypeCopyAndDestructor(visitor, node);
+    }
 }

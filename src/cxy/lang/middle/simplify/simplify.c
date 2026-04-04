@@ -1132,7 +1132,7 @@ static void visitMemberExpr(AstVisitor *visitor, AstNode *node)
                           : flgTemporary;
         AstNode *var = makeVarDecl(ctx->pool,
                                    &target->loc,
-                                   flags,
+                                   flgNone,
                                    makeAnonymousVariable(ctx->strings, "_m"),
                                    NULL,
                                    target,

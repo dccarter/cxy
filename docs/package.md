@@ -111,6 +111,12 @@ scripts:
     depends: [build]
     command: ./build/benchmarks
   clean: rm -rf build/
+
+install:
+  - name: openssl
+    required: true
+    script: |
+      cxy package find-system openssl --include-dir --lib-dir --lib
 ```
 
 ### Package Metadata
@@ -405,6 +411,96 @@ The package manager detects common environment variable errors:
 - **Undefined variables**: Using `{{UNDEFINED}}` generates a warning
 - **Malformed syntax**: Missing closing `}}` treats the text as literal
 
+### Install Scripts
+
+The `install:` and `install-dev:` sections define scripts that locate and configure native system dependencies at install time. They are run by `cxy package install` and their output is collected into `.cxy/build/.install.yaml` (or `.cxy/build/.install.dev.yaml` for dev scripts), which the compiler uses automatically during `build` and `test`.
+
+Each entry runs a shell script and collects stdout flags in the following format:
+- `--c-header-dir=<path>` — C header include directory
+- `--c-lib-dir=<path>` — library search directory
+- `--c-lib=<name>` — library to link against
+- `--define=<NAME>=<value>` — preprocessor/compile-time definition
+
+**Basic Example:**
+```yaml
+install:
+  - name: openssl
+    required: true
+    script: |
+      cxy package find-system openssl --include-dir --lib-dir --lib
+
+  - name: sqlite3
+    required: false
+    script: |
+      cxy package find-system sqlite3 --include-dir --lib-dir --lib || true
+
+install-dev:
+  - name: test-coverage
+    required: false
+    script: |
+      cxy package find-system lcov --version
+```
+
+**Fields:**
+- `name` — Label for the install entry (shown in progress output)
+- `required` — If `true`, a non-zero script exit code aborts the entire install (default: `false`)
+- `script` — Shell command(s) to run; stdout is parsed for flag lines
+
+**Running install scripts:**
+- `cxy package install` runs `install:` scripts only
+- `cxy package install --dev` runs both `install:` and `install-dev:` scripts
+
+**Plugin Entries:**
+
+Instead of a shell script, an entry can build a native compiler plugin (`.so`) from a C source file. The plugin is compiled once and cached by input file modification times:
+
+```yaml
+install:
+  - name: my-plugin
+    required: true
+    plugin: true
+    entry: plugins/my_plugin.c
+    inputs:
+      - "src/**/*.h"
+    args:
+      - "--define=PLUGIN_VERSION=1"
+```
+
+Plugin-specific fields:
+- `plugin: true` — Marks this as a plugin build entry (no `script:` needed)
+- `entry` — Path to the C source file for the plugin
+- `inputs` — Glob patterns; the plugin is rebuilt when any matching file changes
+- `args` — Extra arguments passed to the cxy build command
+
+**Complete Example:**
+```yaml
+install:
+  - name: openssl
+    required: true
+    script: |
+      cxy package find-system openssl --include-dir --lib-dir --lib
+
+  - name: sqlite3
+    required: false
+    script: |
+      cxy package find-system sqlite3 --include-dir --lib-dir --lib || true
+
+  - name: my-plugin
+    required: true
+    plugin: true
+    entry: plugins/my_plugin.c
+    inputs:
+      - "src/**/*.h"
+    args:
+      - "--define=PLUGIN_VERSION=1"
+
+install-dev:
+  - name: test-coverage
+    required: false
+    script: |
+      cxy package find-system lcov --version
+```
+
 ## The Lock File
 
 The `Cxyfile.lock` ensures reproducible builds by recording exact dependency versions and commit hashes. It is automatically generated and should be committed to version control.
@@ -615,6 +711,10 @@ cxy package install --frozen-lockfile
 ```
 
 This fails if the lock file is missing or doesn't match Cxyfile, preventing unexpected dependency resolution during deployment.
+
+**Install Scripts:**
+
+After installing all package dependencies, `cxy package install` also runs the root package's `install:` scripts. When `--dev` is passed, `install-dev:` scripts are run as well. The collected flags are written to `.cxy/build/.install.yaml` (and `.cxy/build/.install.dev.yaml` for dev) and automatically applied during `cxy package build` and `cxy package test`. See the [Install Scripts](#install-scripts) Cxyfile section for configuration details.
 
 ### cxy package update
 
@@ -966,38 +1066,214 @@ install:
       fi
 ```
 
-### cxy package publish
+### cxy package login
 
-Publish package by creating a git tag (not yet implemented).
+Authenticate with the Cxy package registry and save credentials locally. Required before publishing packages.
 
-**Planned Usage:**
+**Basic Usage:**
 ```bash
-# Publish with version bump
-cxy package publish --bump patch
-
-# Publish with custom tag
-cxy package publish --tag v1.0.0
-
-# Dry run to preview
-cxy package publish --bump minor --dry-run
+cxy package login
 ```
 
-This will create annotated git tags for version releases.
+**With a custom registry:**
+```bash
+cxy package login https://my-registry.example.com
+```
+
+**Options:**
+- `--registry <file>` — Path to save credentials (default: `~/.cxy-registry.json`)
+
+**Process:**
+
+1. Prompts you to enter your API key (input is hidden)
+2. Validates the key against the registry
+3. Saves credentials to `~/.cxy-registry.json`
+
+```
+Logging in to https://registry.cxy-lang.org
+Credentials will be saved to ~/.cxy-registry.json
+
+Enter API key: 
+✔ Logged in as dccarter
+✔ Credentials saved to ~/.cxy-registry.json
+```
+
+**Generating an API key:**
+
+API keys are managed through the registry web interface. Visit your registry's dashboard to create a key with `publish` scope.
+
+The saved credentials file is automatically used by `cxy package publish`, `cxy package list`, `cxy package info`, and `cxy package yank`.
+
+### cxy package publish
+
+Publish the current package to the Cxy package registry by bumping the version, creating an annotated git tag, pushing it, and registering the release with the registry.
+
+**Basic Usage:**
+```bash
+# Publish current version as-is
+cxy package publish
+
+# Bump patch version (0.1.0 → 0.1.1) then publish
+cxy package publish --bump patch
+
+# Bump minor version (0.1.0 → 0.2.0) then publish
+cxy package publish --bump minor
+
+# Bump major version (0.1.0 → 1.0.0) then publish
+cxy package publish --bump major
+
+# Use a custom tag name
+cxy package publish --tag v1.0.0-rc1
+
+# Add an annotation message to the git tag
+cxy package publish --bump patch -m "Fix critical bug in parser"
+
+# Preview what would happen without making any changes
+cxy package publish --bump patch --dry-run
+
+# Use a specific registry credentials file
+cxy package publish --registry ~/.my-registry.json
+```
+
+**Options:**
+- `--bump <major|minor|patch>` — Increment the version in `Cxyfile.yaml` before publishing
+- `--tag <name>` — Override the git tag name (default: `v<version>`)
+- `-m, --message <text>` — Annotation message for the git tag
+- `--dry-run` — Print a summary of what would be published without making any changes
+- `--registry <file>` — Path to credentials file (default: `~/.cxy-registry.json`)
+
+**Publish Process:**
+
+1. Load and validate `Cxyfile.yaml` (name, version, author, license, repository required)
+2. Check for uncommitted changes in the working tree
+   - Without `--bump`: dirty tree is rejected (commit or stash first)
+   - With `--bump`: you are prompted to confirm whether to include the changes in the bump commit
+3. If `--bump` is given, increment the version, write back to `Cxyfile.yaml`, ask you to confirm the commit message, then `git commit`
+4. Create and push an annotated git tag (`v<version>` by default)
+5. Collect repository metadata (commit SHA, remote URL, checksum)
+6. Read `README.md` if present and include it in the registry entry
+7. POST to the registry — requires an API key (run `cxy package login` first)
+
+**Logging in:**
+
+Before publishing you must authenticate:
+```bash
+cxy package login
+```
+
+This saves an API key to `~/.cxy-registry.json` which `publish` reads automatically.
+
+**Dry Run:**
+
+Use `--dry-run` to preview without making any changes:
+```bash
+cxy package publish --bump minor --dry-run
+```
+Output:
+```
+Dry run — no changes will be made
+
+  Package   : my-library
+  Version   : 0.2.0
+  Tag       : v0.2.0
+  Message   : my-library v0.2.0
+  Repository: https://github.com/username/my-library
+  Registry  : ~/.cxy-registry.json
+```
+
+**Required Cxyfile Fields:**
+
+The following fields must be set before publishing:
+- `name` — used as the package identifier in the registry
+- `version` — must be valid semver (e.g. `1.2.3`)
+- `author` — package maintainer name
+- `license` — license identifier (e.g. `MIT`)
+- `repository` — canonical git repository URL
+
+### cxy package yank
+
+Yank (hide) or un-yank a specific version of a published package. A yanked version is hidden from fresh dependency resolution but remains accessible to projects that have already pinned it in their lock file — existing installs are never broken.
+
+**Basic Usage:**
+```bash
+# Yank a specific version
+cxy package yank <name> <version>
+
+# Un-yank a previously yanked version
+cxy package yank <name> <version> --undo
+```
+
+**Examples:**
+```bash
+# Yank a broken release
+cxy package yank cxy-json 1.3.0
+
+# Restore it after a fix is published
+cxy package yank cxy-json 1.3.0 --undo
+
+# Use a specific registry credentials file
+cxy package yank cxy-json 1.3.0 --registry ~/.my-registry.json
+```
+
+**Options:**
+- `--undo` — Remove the yank flag (restore the version to the resolver index)
+- `--registry <file>` — Path to credentials file (default: `~/.cxy-registry.json`)
+
+**Yank Semantics:**
+
+| Scenario | Yanked version behaviour |
+|---|---|
+| Fresh `cxy package add` or `cxy package install` | Version is skipped during resolution |
+| Project with version pinned in `Cxyfile.lock` | Version is still downloaded normally |
+| `cxy package info <name>` | Version is listed but marked as yanked |
+
+Yanking is the preferred way to handle a bad release. It prevents new projects from picking up a broken version without breaking any project already using it.
+
+**Who can yank:**
+
+Only the package owner or a registry administrator can yank a version. You must be logged in (`cxy package login`) with an API key that has publish access.
 
 ### cxy package list
 
-List all installed dependencies (not yet implemented).
+Search and browse packages in the Cxy package registry.
 
-**Planned Usage:**
+**Basic Usage:**
 ```bash
-# List all installed packages
+# List all packages
 cxy package list
 
-# Show dependency tree
-cxy package list --tree
+# Search for packages matching a query
+cxy package list json
+
+# Paginate results
+cxy package list --limit 10 --offset 20
+
+# Sort results
+cxy package list --sort downloads
+cxy package list --sort updated
+cxy package list --sort name
+
+# Output as JSON
+cxy package list --format json
+cxy package list json --format json
 ```
 
-This will display all packages in `.cxy/packages/` with version information.
+**Options:**
+- `--limit <n>` — Maximum number of results (default: 20)
+- `--offset <n>` — Number of results to skip for pagination (default: 0)
+- `--sort <field>` — Sort order: `relevance` (default), `downloads`, `updated`, `name`
+- `--json` — Output results as JSON instead of a table
+- `--registry <file>` — Path to credentials file (default: `~/.cxy-registry.json`)
+
+**Example Output:**
+```
+ NAME                           VERSION      AUTHOR               DL       DESCRIPTION
+ ------------------------------ ------------ -------------------- -------  -----------
+ cxy-json                       1.4.2        dccarter              42.3K   A fast JSON parser for Cxy
+ json-rpc                       0.9.1        alice                  1.2K   JSON-RPC 2.0 client/server
+ 
+ Showing 1–2 of 2 package(s)
+```
 
 ### cxy completion
 
@@ -1343,16 +1619,29 @@ cxy package info package-name
 
 ## Future Enhancements
 
-Planned features for future releases:
+### Shipped
 
-- **Package registry** - Central package repository for discovery and distribution
-- **Binary cache** - Pre-built binaries to speed up installation
-- **Workspace support** - Multi-package monorepo management
-- **Package publishing** - Automated release workflow with git tags
-- **Dependency auditing** - Security vulnerability scanning
-- **Private dependencies** - Support for private git repositories with authentication
-- **Mirror support** - Alternative package sources for air-gapped environments
-- **Plugin system** - Extensible package manager with custom commands
+Features that were planned and are now available:
+
+- ✅ **Package registry** - Central repository at `registry.cxy-lang.org` for discovery and distribution
+- ✅ **Package publishing** - `cxy package publish` with version bumping, git tagging, and registry registration
+- ✅ **Package login** - `cxy package login` authenticates with the registry and stores credentials
+- ✅ **Package search** - `cxy package list` searches and browses the registry
+- ✅ **Version yanking** - `cxy package yank` hides broken releases without breaking existing lockfiles
+- ✅ **Install scripts** - `install:` / `install-dev:` sections run native dependency discovery at install time
+- ✅ **System package discovery** - `cxy package find-system` locates system libraries via pkg-config or common paths
+
+### Planned
+
+Features still on the roadmap:
+
+- **Binary cache** - Pre-built binaries to speed up installation across machines
+- **Workspace support** - Multi-package monorepo management with shared dependency resolution
+- **Dependency auditing** - Security vulnerability scanning against known CVE databases
+- **Private dependencies** - Support for private git repositories with SSH key or token authentication
+- **Mirror support** - Alternative registry sources for air-gapped or enterprise environments
+- **Package transfer** - Transfer ownership of a published package to another user
+- **Search filters** - Filter registry search by license, author, or minimum download count
 
 ## See Also
 

@@ -1207,8 +1207,9 @@ class Connection[Middlewares] {
     @private
     func invokeRouteHandler(route: &Route) : void {
         req.route(route)
-        var ctxs: Contexts = null;
-        @unused var deps: `Middlewares as T,i => Dependencies[T.Deps], has_type!(#T, :Deps)` = null;
+
+        @mm(valid: true) var ctxs: Contexts = null
+        @[unused, mm(valid: true)] var deps: `Middlewares as T,i => Dependencies[T.Deps], has_type!(#T, :Deps)` = null;
         #const j = 0;
         #for (const i: 0..Middlewares.membersCount) {
             // invoke middlewares

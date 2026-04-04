@@ -12,7 +12,6 @@
 #include "array.h"
 #include "utils.h"
 
-#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -320,8 +319,9 @@ static bool cmdParseCommandArguments(CmdParser *P,
         if (cmdIsIgnoreArguments(arg)) {
             --argc;
             ++argv;
-            if (cmd->npos != 0 && cmdIsIgnoreArguments(cmd->pos[cmd->npos-1].name)) {
-                CmdPositional *pos = &cmd->pos[cmd->npos-1];
+            if (cmd->npos != 0 &&
+                cmdIsIgnoreArguments(cmd->pos[cmd->npos - 1].name)) {
+                CmdPositional *pos = &cmd->pos[cmd->npos - 1];
                 if (pos->isMany) {
                     pos->val.state = cmdArray;
                     pos->val.array = newDynArray(sizeof(cstring));
@@ -368,11 +368,11 @@ static bool cmdParseCommandArguments(CmdParser *P,
 
             CmdPositional *pos = NULL;
             if (npos >= cmd->npos) {
-                pos = &cmd->pos[cmd->npos-1];
+                pos = &cmd->pos[cmd->npos - 1];
                 if (cmdIsIgnoreArguments(pos->name)) {
                     if (cmd->npos >= 1) {
                         // Go back one more flag
-                        pos = &cmd->pos[cmd->npos-2];
+                        pos = &cmd->pos[cmd->npos - 2];
                     }
                     else {
                         pos = NULL;
@@ -393,10 +393,10 @@ static bool cmdParseCommandArguments(CmdParser *P,
 
             if (cmdIsIgnoreArguments(pos->name)) {
                 sprintf(cmd->P->error,
-                            "error: unexpected number of positional arguments "
-                            "passed, expecting at most %u, you can use '--' "
-                            "to capture rest of arguments\n",
-                            cmd->npos - 1);
+                        "error: unexpected number of positional arguments "
+                        "passed, expecting at most %u, you can use '--' "
+                        "to capture rest of arguments\n",
+                        cmd->npos - 1);
                 return false;
             }
 
@@ -485,11 +485,13 @@ static bool promptUser(CmdParser *P, CmdFlag *flag)
         if (fgets(buf, sizeof(buf), stdin) == NULL)
             return false;
         buf[strcspn(buf, "\n")] = '\0';
-        // We support [Yy]([eE][sS]) or empty for default, everything else is a no
+        // We support [Yy]([eE][sS]) or empty for default, everything else is a
+        // no
         flag->val.num = strlen(buf) == 0 || strcasecmp("yes", buf) == 0;
         flag->val.state = cmdNumber;
         printf("\033[A\r\033[K\r" cGRN "✔" cDEF " %s: " cCYN "%s" cDEF "\n",
-                flag->prompt, flag->val.num ? "Yes" : "No");
+               flag->prompt,
+               flag->val.num ? "Yes" : "No");
         return true;
     }
     else {
@@ -504,9 +506,7 @@ static bool promptUser(CmdParser *P, CmdFlag *flag)
             return false;
         buf[strcspn(buf, "\n")] = '\0';
         if (buf[0] == '\0' && flag->def == NULL) {
-            sprintf(P->error,
-                    "error: value required for '%s'\n",
-                    flag->name);
+            sprintf(P->error, "error: value required for '%s'\n", flag->name);
             return false;
         }
 
@@ -515,7 +515,8 @@ static bool promptUser(CmdParser *P, CmdFlag *flag)
 
         if (valid) {
             printf("\033[A\r\033[K\r" cGRN "✔" cDEF " %s: " cCYN "%s" cDEF "\n",
-                flag->prompt, finalValue);
+                   flag->prompt,
+                   finalValue);
         }
         return valid;
     }
@@ -735,7 +736,14 @@ bool cmdParseEnumValue(CmdParser *P,
             return true;
         }
     }
-
+    sprintf(
+        P->error, "`--%s` value '%s' no supported, choose one of (", name, str);
+    for (u64 i = 0; i < len; i++) {
+        sprintf(P->error + strlen(P->error),
+                "%s%s",
+                enums[i].str,
+                i == len - 1 ? "" : ", ");
+    }
     return false;
 }
 
@@ -767,7 +775,8 @@ void cmdShowUsage(CmdParser *P, const char *name, FILE *fp)
     CmdCommand *cmd = cmdFindCommandByName(P, name);
     if (cmd != NULL) {
         cmdShowCommandUsage(P, cmd, cols, fp);
-    } else {
+    }
+    else {
         fprintf(fp, "Usage: %s [cmd] ...\n\n", P->name);
         fputs("Commands:\n", fp);
         for (int i = 0; i < P->ncmds; i++) {
@@ -878,7 +887,7 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P)
 
     if (cmd->parse != NULL) {
         // This parser has its own custom parse function
-        int selected = cmd->parse(cmd->ctx, argc+1, argv-1);
+        int selected = cmd->parse(cmd->ctx, argc + 1, argv - 1);
         if (selected < 0) {
             // We failed to parse the command line arguments
             return CMD_parse_subcmd_failed;
@@ -898,7 +907,7 @@ i32 parseCommandLineArguments_(int *pargc, char ***pargv, CmdParser *P)
             if (requestedCmd != NULL) {
                 if (requestedCmd->parse != NULL) {
                     int newArgc = 2;
-                    char * argvs[] = { (char *)requestedCmd->name, "help", NULL };
+                    char *argvs[] = {(char *)requestedCmd->name, "help", NULL};
                     if (argc > 1) {
                         newArgc = 3;
                         argvs[2] = argv[1];

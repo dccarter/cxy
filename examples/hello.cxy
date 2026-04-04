@@ -1,19 +1,25 @@
+import { Server, Request, Response, Config, SendFile } from "stdlib/http.cxy"
 
-func peek() : char => '\0'
-
-struct Has {
-    val: bool
+struct User {
+    name: String = null
+    age: i32 = 0
+    func `init`() {}
 }
 
-func get(c: char): Has {
-    if (c == '\n') {
-        // do something
+class AuthMiddleware {
+    type Context = User
+    func `init`() {}
+
+    func before(req: &const Request, resp: &Response, ctx: &Context): void {
     }
-    return Has{val: false}
+    func after(req: &const Request, resp: &Response, ctx: &Context): void {
+    }
 }
 
 func main(): !void {
-
-    while get(peek()).val {
-    }
+    var server = Server[AuthMiddleware]()
+    server("GET /hello", (@unused req: &const Request, resp: &Response) => {
+        resp.body() << "Hello, World!"
+    })
+    server.start()
 }

@@ -77,7 +77,7 @@ else {
         macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^i32, 1)
     }
     else {
-        macro __cxy_coro_setjmp(ctx)  module.jmp.__sigsetjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 0)
+        macro __cxy_coro_setjmp(ctx)  module.jmp.sigsetjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 0)
         macro __cxy_coro_longjmp(ctx) module.jmp.siglongjmp(ctx! !: ^module.jmp.__jmp_buf_tag, 1)
     }
     macro __cxy_coro_setsp(x) {

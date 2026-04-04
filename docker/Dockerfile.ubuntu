@@ -8,7 +8,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing \
   libssl-dev \
   wget \
   software-properties-common \
-  lsb-release
+  lsb-release \
+  libcurl4-openssl-dev
 
 # Install llvm-21
 RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - \

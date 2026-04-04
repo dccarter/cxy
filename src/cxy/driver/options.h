@@ -87,6 +87,8 @@ typedef enum {
     pkgSubClean,
     pkgSubRun,
     pkgSubFindSystem,
+    pkgSubLogin,
+    pkgSubYank,
 } PackageSubcommand;
 
 typedef enum {
@@ -163,14 +165,23 @@ typedef struct Options {
             const char *directory;
             bool bin; // Create binary package (main.cxy instead of lib)
             // add subcommand
-            const char *repository;  // Git repository URL or package identifier
-            const char *packageName; // Custom package name (--name option)
-            const char *constraint;  // Version constraint
-            const char *tag;         // Specific Git tag
-            const char *branch;      // Specific Git branch
-            const char *path;        // Local filesystem path
-            bool dev;                // Add as development dependency
-            bool noInstall;          // Skip installation (validation only)
+            const char *repository;   // Git repository URL or package identifier
+            const char *packageName;  // Custom package name (--name option)
+            const char *constraint;   // Version constraint
+            const char *tag;          // Specific Git tag
+            const char *branch;       // Specific Git branch
+            const char *path;         // Local filesystem path
+            const char *registryFile; // Path to registry credentials JSON file
+            bool dev;                 // Add as development dependency
+            bool noInstall;           // Skip installation (validation only)
+            // login subcommand
+            const char *loginUrl;          // Registry URL to log into
+            const char *loginRegistryFile; // Path to registry credentials JSON file
+            // yank subcommand
+            const char *yankName;          // Package name to yank
+            const char *yankVersion;       // Version to yank (e.g. "1.2.3")
+            bool        yankUndo;          // If true, un-yank the version
+            const char *yankRegistryFile;  // Path to registry credentials JSON file
             // remove subcommand
             DynArray packages; // Array of package names to remove
             // install subcommand
@@ -193,6 +204,12 @@ typedef struct Options {
             const char *bump;    // Version bump: major, minor, patch
             const char *tagName; // Custom tag name
             const char *message; // Tag annotation message
+            // list subcommand
+            const char *listQuery;        // Search query
+            int listLimit;                // Max results
+            int listOffset;               // Pagination offset
+            const char *listSort;         // Sort order
+            const char *listRegistryFile; // Path to registry credentials JSON file
             // info subcommand
             const char *package; // Package name to show info for
             bool json;           // Output in JSON format
@@ -224,6 +241,7 @@ typedef struct Options {
             bool findSystemCFlags;     // Output compiler flags
             bool findSystemLdFlags;    // Output linker flags
         } package;
+
         struct {
             UtilsSubcommand subcmd;
             const char *cmd; // Command string for async-cmd-start / wait-for
