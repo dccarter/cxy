@@ -312,10 +312,15 @@ static bool runTestFile(const char *testFile,
     // Build command: cxy test <file> -o <unique-path>
     FormatState cmd = newFormatState(NULL, true);
     format(&cmd, "cxy test {s} -o {s}", (FormatArg[]){{.s = testFile}, {.s = outputPath}});
+    // Add --no-progress to disable interactive progress indicators when piped
+    format(&cmd, " --no-progress", NULL);
 
     // Add build directory if specified
     if (buildDir && buildDir[0] != '\0') {
         format(&cmd, " --build-dir {s}", (FormatArg[]){{.s = buildDir}});
+        // Default --plugins-dir to buildDir/plugins so plugins installed via
+        // cxy package install are visible to the test runner (mirrors build.c).
+        format(&cmd, " --plugins-dir={s}/plugins", (FormatArg[]){{.s = buildDir}});
     }
 
     // Inject flags from .install.yaml

@@ -26,6 +26,43 @@ static AstNode *resolveMember(TypingContext *ctx,
     return decl;
 }
 
+static AstNode *findMemberInUntaggedUnion(TypingContext *ctx,
+                                          AstNode *node,
+                                          const Type *type,
+                                          cstring name)
+{
+    for (u64 i = 0; i < type->untaggedUnion.members->count; i++) {
+        NamedTypeMember *member = &type->untaggedUnion.members->members[i];
+        if (member->name == name)
+            return (AstNode *)member->decl;
+        if (hasFlag(member->decl, Anonymous)) {
+            AstNode *found =
+                findMemberInUntaggedUnion(ctx, node, member->type, name);
+            if (found == NULL) {
+                return NULL;
+            }
+            if (nodeIs(found, FieldDecl)) {
+                // Special case, we need to build our member
+                found = makeResolvedPathElement(ctx->pool,
+                                                &found->loc,
+                                                name,
+                                                found->flags & flgConst,
+                                                found,
+                                                NULL,
+                                                found->type);
+            }
+            return makeResolvedPathElement(ctx->pool,
+                                           &node->loc,
+                                           member->name,
+                                           member->decl->flags & flgConst,
+                                           (AstNode *)member->decl,
+                                           found,
+                                           member->type);
+        }
+    }
+    return NULL;
+}
+
 static AstNode *resolveMemberUpInheritance(TypingContext *ctx,
                                            const Type *parent,
                                            AstNode *node,
@@ -99,6 +136,10 @@ const Type *checkMember(AstVisitor *visitor, const Type *parent, AstNode *node)
         decl = findInAstNode(parent->exception.decl, name);
         resolved = decl ? decl->type : NULL;
         break;
+    case typUntaggedUnion:
+        decl = findMemberInUntaggedUnion(ctx, node, parent, name);
+        resolved = decl ? decl->type : NULL;
+        break;
     default:
         logError(ctx->L,
                  &node->loc,
@@ -116,6 +157,12 @@ const Type *checkMember(AstVisitor *visitor, const Type *parent, AstNode *node)
                                         : node->pathElement.resolvesTo;
         if (typeIs(resolved, Error))
             return resolved;
+    }
+
+    if (typeIs(parent, UntaggedUnion) && nodeIs(decl, PathElem)) {
+        // This is a special case, transform the node into a path
+        replaceAstNode(node, decl);
+        return getLastAstNode(decl)->type;
     }
 
     node->type = resolved;
@@ -185,18 +232,24 @@ void checkPath(AstVisitor *visitor, AstNode *node)
         }
     }
 
-    u64 flags = base->flags | base->pathElement.resolvesTo->flags;
+    u64 flags = node->flags | base->flags | base->pathElement.resolvesTo->flags;
     const Type *prev = stripAll(type);
-    for (; elem; elem = elem->next) {
-        type = checkMember(visitor, prev, elem);
-        if (typeIs(type, Error)) {
-            node->type = ERROR_TYPE(ctx);
-            return;
+    while (elem) {
+        type = elem->type;
+        if (type == NULL) {
+            type = checkMember(visitor, prev, elem);
+            if (typeIs(type, Error)) {
+                node->type = ERROR_TYPE(ctx);
+                return;
+            }
         }
-        flags = elem->flags;
         prev = stripAll(type);
+        elem = elem->next;
     }
 
+    if (hasFlag(node, Const) && !isConstType(type) && !isPrimitiveType(type)) {
+        type = makeWrappedType(ctx->types, type, flgConst);
+    }
     node->type = type;
     node->flags |= flags;
     if (hasFlag(node, Comptime)) {

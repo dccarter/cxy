@@ -288,7 +288,7 @@ void checkFunctionParam(AstVisitor *visitor, AstNode *node)
         return;
     }
 
-    if (!isTypeAssignableFrom(type_, def_)) {
+    if (!nodeIs(def, NullLit) && !isTypeAssignableFrom(type_, def_)) {
         logError(ctx->L,
                  &def->loc,
                  "parameter default value type '{t}' is incompatible with "

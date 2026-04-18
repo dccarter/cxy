@@ -235,7 +235,7 @@ pub class Vector[T] {
     @inline const func capacity() => _capacity
     @inline const func size() => _size
     @inline const func empty() => _size == 0
-    @inline const func data() => Slice[T](_data, _size)
+    @inline const func data() => _data
 }
 
 test "Vector[T]::push" {

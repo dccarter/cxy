@@ -511,7 +511,8 @@ static bool promptUser(CmdParser *P, CmdFlag *flag)
         }
 
         const char *finalValue = buf[0] == '\0' ? flag->def : buf;
-        bool valid = flag->validator(P, &flag->val, finalValue, flag->name);
+        bool valid = flag->validator(
+            P, &flag->val, P->strdup(P->ctx, finalValue), flag->name);
 
         if (valid) {
             printf("\033[A\r\033[K\r" cGRN "✔" cDEF " %s: " cCYN "%s" cDEF "\n",

@@ -1,0 +1,85 @@
+module endian
+
+##if (defined MACOS) {
+    import "sys/_endian.h" as endian
+}
+else {
+    import "endian.h" as endian
+}
+
+pub func htons(x: u16) : u16 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap16(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}
+
+@inline
+pub func htonl(x: u32) : u32 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap32(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}
+
+@inline
+pub func htonll(x: u64) : u64 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap64(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}
+
+@inline
+pub func ntohs(x: u16) : u16 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap16(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}
+
+@inline
+pub func ntohl(x: u32) : u32 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap32(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}
+
+@inline
+pub func ntohll(x: u64) : u64 {
+    #if (BYTE_ORDER! == BIG_ENDIAN!) {
+        return x
+    }
+    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
+        return __bswap64(x)
+    }
+    else {
+        error!("Unknown byte order")
+    }
+}

@@ -31,6 +31,7 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
             cond->parentScope = node->parentScope;
             if (!evaluate(visitor, cond) || !evalBooleanCast(ctx, cond)) {
                 node->tag = astError;
+                ctx->jmpFlags = jmpNone;
                 return false;
             }
             if (!cond->boolLiteral.value)
@@ -43,6 +44,7 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
         const Type *type = evalType(ctx, body);
         if (type == NULL || typeIs(type, Error)) {
             node->tag = astError;
+            ctx->jmpFlags = jmpNone;
             return false;
         }
 
@@ -58,6 +60,7 @@ static bool evalExprForStmtIterable(AstVisitor *visitor,
         }
     }
 
+    ctx->jmpFlags = jmpNone;
     return true;
 }
 
@@ -79,6 +82,7 @@ static bool evalExprForStmtArray(AstVisitor *visitor,
 
         if (type == NULL || typeIs(type, Error)) {
             node->tag = astError;
+            ctx->jmpFlags = jmpNone;
             return false;
         }
 
@@ -94,6 +98,7 @@ static bool evalExprForStmtArray(AstVisitor *visitor,
         }
     }
 
+    ctx->jmpFlags = jmpNone;
     return true;
 }
 
@@ -122,6 +127,7 @@ static bool evalExprForStmtVariadic(AstVisitor *visitor,
         const Type *type = evalType(ctx, body);
         if (type == NULL || typeIs(type, Error)) {
             node->tag = astError;
+            ctx->jmpFlags = jmpNone;
             return false;
         }
 
@@ -137,6 +143,7 @@ static bool evalExprForStmtVariadic(AstVisitor *visitor,
         }
     }
 
+    ctx->jmpFlags = jmpNone;
     return true;
 }
 
@@ -161,6 +168,7 @@ static bool evalForStmtWithString(AstVisitor *visitor,
         const Type *type = evalType(ctx, body);
         if (type == NULL || typeIs(type, Error)) {
             node->tag = astError;
+            ctx->jmpFlags = jmpNone;
             return false;
         }
 
@@ -176,6 +184,7 @@ static bool evalForStmtWithString(AstVisitor *visitor,
         }
     }
 
+    ctx->jmpFlags = jmpNone;
     return true;
 }
 
@@ -205,6 +214,7 @@ static bool evalForStmtWithRange(AstVisitor *visitor,
             const Type *type = evalType(ctx, body);
             if (type == NULL || typeIs(type, Error)) {
                 node->tag = astError;
+                ctx->jmpFlags = jmpNone;
                 return false;
             }
 
@@ -221,6 +231,7 @@ static bool evalForStmtWithRange(AstVisitor *visitor,
         }
     }
 
+    ctx->jmpFlags = jmpNone;
     return true;
 }
 

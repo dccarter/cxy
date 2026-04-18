@@ -125,6 +125,8 @@ void checkBuiltinType(AstVisitor *visitor, AstNode *node)
     default:
         csAssert0(false);
     }
+    if (hasFlag(node, Const))
+        node->type = makeWrappedType(ctx->types, node->type, flgConst);
 }
 
 void checkTypeDecl(AstVisitor *visitor, AstNode *node)

@@ -798,6 +798,56 @@ static AstNode *isDestructibleType(EvalContext *ctx,
                                                        isDestructible(type)});
 }
 
+static bool funcHasDefaultInit(const Type *type)
+{
+    if (type == NULL || !typeIs(type, Func))
+        return false;
+    AstNode *decl = getTypeDecl(type);
+    if (decl == NULL || !nodeIs(decl, FuncDecl))
+        return false;
+    if (decl->funcDecl.operatorOverload != opInitOverload)
+        return false;
+    AstNode *it = decl->list.first;
+    for (; it; it = it->list.link) {
+        if (it->type->func.paramsCount == 0)
+            return true;
+    }
+    return false;
+}
+
+static AstNode *isDefaultConstructibleType(EvalContext *ctx,
+                                           const FileLoc *loc,
+                                           AstNode *node,
+                                           attr(unused) AstNode *args)
+{
+    const Type *type = node->type ?: evalType(ctx, node);
+    type = resolveUnThisUnwrapType(type);
+    bool value = false;
+    if (isClassOrStructType(type)) {
+        type = findMemberInType(type, S_InitOverload);
+        if (type != NULL) {
+            value = funcHasDefaultInit(type);
+        }
+        else if (isStructType(type)) {
+            for (uint64_t i = 0; i < type->tStruct.members->count; i++) {
+                const NamedTypeMember *member =
+                    &type->tStruct.members->members[i];
+                if (!nodeIs(member->decl, FieldDecl))
+                    continue;
+                if (member->decl->structField.value == NULL) {
+                    value = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    return makeAstNode(
+        ctx->pool,
+        loc,
+        &(AstNode){.tag = astBoolLit, .boolLiteral.value = value});
+}
+
 static AstNode *isCover(EvalContext *ctx,
                         const FileLoc *loc,
                         AstNode *node,
@@ -957,23 +1007,6 @@ static AstNode *hasInit(EvalContext *ctx,
                        findMemberInType(type, S_InitOverload) != NULL});
 }
 
-static bool funcHasDefaultInit(const Type *type)
-{
-    if (type == NULL || !typeIs(type, Func))
-        return false;
-    AstNode *decl = getTypeDecl(type);
-    if (decl == NULL || !nodeIs(decl, FuncDecl))
-        return false;
-    if (decl->funcDecl.operatorOverload != opInitOverload)
-        return false;
-    AstNode *it = decl->list.first;
-    for (; it; it = it->list.link) {
-        if (it->type->func.paramsCount == 0)
-            return true;
-    }
-    return false;
-}
-
 static AstNode *hasDefaultInit(EvalContext *ctx,
                                const FileLoc *loc,
                                AstNode *node,
@@ -1109,6 +1142,7 @@ static void initDefaultMembers(EvalContext *ctx)
     ADD_MEMBER("isEnum", isEnum);
     ADD_MEMBER("isVoid", isVoidComptime);
     ADD_MEMBER("isDestructible", isDestructibleType);
+    ADD_MEMBER("isDefaultConstructible", isDefaultConstructibleType);
     ADD_MEMBER("isCover", isCover);
     ADD_MEMBER("isFunction", isFunction);
     ADD_MEMBER("isClosure", isClosure);

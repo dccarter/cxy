@@ -212,14 +212,13 @@ static AstNode *serverRpcMethodWrapper(CxyPluginContext *ctx,
             ctx->pool,
             loc,
             flgConst,
-            makeResolvedPath(
-                ctx->pool,
-                loc,
-                makeString(ctx->strings, "Value"),
-                flgNone,
-                _Value,
-                NULL,
-                _Value->type),
+            makeResolvedPath(ctx->pool,
+                             loc,
+                             makeString(ctx->strings, "Value"),
+                             flgNone,
+                             _Value,
+                             NULL,
+                             _Value->type),
             NULL,
             NULL),
         NULL,
@@ -267,9 +266,12 @@ static AstNode *serverRpcMethodWrapper(CxyPluginContext *ctx,
                     params->_name,
                     flgNone,
                     params,
-                    makeStringLiteral(ctx->pool, loc, param->_name,
-                        makeIntegerLiteral(
-                            ctx->pool, loc, i, NULL, NULL), NULL),
+                    makeStringLiteral(
+                        ctx->pool,
+                        loc,
+                        param->_name,
+                        makeIntegerLiteral(ctx->pool, loc, i, NULL, NULL),
+                        NULL),
                     NULL),
                 flgNone,
                 NULL,
@@ -364,6 +366,7 @@ static AstNode *addServerMethods(CxyPluginContext *ctx,
 bool pluginInit(CxyPluginContext *ctx, const FileLoc *loc)
 {
     internCommonStrings(ctx->strings);
+    cxyPluginInitialize(ctx, NULL, pipSemantic);
     printStatus(ctx->L, "Initializing jsonrpc plugin", NULL);
     jsonrpc_submit = makeString(ctx->strings, "submit");
     jsonrpc_api = makeString(ctx->strings, "api");

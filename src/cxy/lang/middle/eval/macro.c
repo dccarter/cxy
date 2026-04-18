@@ -237,9 +237,10 @@ static AstNode *makeCopyNode(AstVisitor *visitor,
     if (typeIs(type, Error))
         return NULL;
     if (!nodeIsLeftValue(args) && !isReferenceType(type)) {
-        logError(ctx->L, &args->loc,
-                "expecting a lvalue expression or a reference typed node",
-                NULL);
+        logError(ctx->L,
+                 &args->loc,
+                 "expecting a lvalue expression or a reference typed node",
+                 NULL);
         return NULL;
     }
 
@@ -611,17 +612,18 @@ static AstNode *makeLShiftNode(AstVisitor *visitor,
 }
 
 static AstNode *makeMemberOfNode(AstVisitor *visitor,
-                               attr(unused) const AstNode *node,
-                               attr(unused) AstNode *args)
+                                 attr(unused) const AstNode *node,
+                                 attr(unused) AstNode *args)
 {
     EvalContext *ctx = getAstVisitorContext(visitor);
     if (!validateMacroArgumentCount(ctx, &node->loc, args, 2))
         return NULL;
 
     if (!nodeIs(args, TypeRef) && !hasFlag(args, Typeinfo)) {
-        logError(ctx->L, &args->loc,
-            "the first argument of `member_of` macro must be a type info",
-            NULL);
+        logError(ctx->L,
+                 &args->loc,
+                 "the first argument of `member_of` macro must be a type info",
+                 NULL);
         return NULL;
     }
     const Type *left = args->type ?: evalType(ctx, args);
@@ -630,10 +632,11 @@ static AstNode *makeMemberOfNode(AstVisitor *visitor,
 
     args = args->next;
     if (!nodeIs(args, TypeRef) && !hasFlag(args, Typeinfo)) {
-        logError(ctx->L, &args->loc,
-            "the second argument of `member_of` macro must be a type info"
-             " union or tuple",
-            NULL);
+        logError(ctx->L,
+                 &args->loc,
+                 "the second argument of `member_of` macro must be a type info"
+                 " union or tuple",
+                 NULL);
         return NULL;
     }
     left = resolveAndUnThisType(left);
@@ -648,16 +651,20 @@ static AstNode *makeMemberOfNode(AstVisitor *visitor,
         isMember = findUnionTypeIndex(right, left) != UINT32_MAX;
     }
     else {
-        logError(ctx->L, &args->loc,
+        logError(
+            ctx->L,
+            &args->loc,
             "the second argument of `member_of` must either be a union or tuple"
-             " got `{t}`",
+            " got `{t}`",
             (FormatArg[]){{.t = right}});
         return NULL;
     }
 
-    return makeBoolLiteral(
-        ctx->pool,&node->loc,isMember, NULL,
-        getPrimitiveType(ctx->types, prtBool));
+    return makeBoolLiteral(ctx->pool,
+                           &node->loc,
+                           isMember,
+                           NULL,
+                           getPrimitiveType(ctx->types, prtBool));
 }
 
 static AstNode *makeAstNodeList(AstVisitor *visitor,
@@ -1186,6 +1193,7 @@ static AstNode *makeLenNode(AstVisitor *visitor,
         }
         else
             args->intLiteral.uValue = 0;
+        args->next = NULL;
         return args;
     }
 
@@ -1467,8 +1475,6 @@ static AstNode *makeTypeofNode(AstVisitor *visitor,
                  (FormatArg[]){{.t = type}});
         return NULL;
     }
-    u64 flags = flgNone;
-    type = unwrapType(type, &flags);
 
     return makeTypeinfoNode(visitor, &node->loc, type);
 }
@@ -1701,7 +1707,7 @@ static AstNode *makePointerOfNode(AstVisitor *visitor,
         args->binaryExpr.lhs->type ?: evalType(ctx, args->binaryExpr.lhs);
     csAssert0(lhs);
 
-    if (!typeIs(lhs, Pointer)) {
+    if (!isPointerTypeExact(lhs)) {
         logError(ctx->L,
                  &args->binaryExpr.lhs->loc,
                  "unexpected expression passed to `ptroff`, expecting a "

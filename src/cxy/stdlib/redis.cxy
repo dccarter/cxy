@@ -785,39 +785,39 @@ pub class RedisDb {
 
         _cleaning = true
         while !_cache.empty() {
-            var it = _cache.begin()
-            // We want to cleanup expired connections and that will expire
-            // in the near future, so we scan up to 500ms ahead to avoid
-            // thrashing.
-            var t = timestamp() + 500
-            var prunned = 0 as u64
-            while it != null {
-                var client = &it.value
-                if client.alive <= t {
-                    _cache.erase(it)
-                    it = _cache.begin()
-                }
-                else {
-                    // Connection is still alive, break because all next connections
-                    // will also be alive.
-                    break
+                var it = _cache.begin()
+                // We want to cleanup expired connections and that will expire
+                // in the near future, so we scan up to 500ms ahead to avoid
+                // thrashing.
+                var t = timestamp() + 500
+                var prunned = 0 as u64
+                while it != null {
+                    var client = &it.value
+                    if client.alive <= t {
+                        _cache.erase(it)
+                        it = _cache.begin()
+                    }
+                    else {
+                        // Connection is still alive, break because all next connections
+                        // will also be alive.
+                        break
+                    }
+
+                    if ++prunned % 100 == 0 {
+                        // Yield to avoid blocking the event loop for too long.
+                        yld()
+                    }
                 }
 
-                if ++prunned % 100 == 0 {
-                    // Yield to avoid blocking the event loop for too long.
-                    yld()
+                if it != null {
+                    // Ensure that the cleanup routine will be rescheduled after at least 3 seconds
+                    var expires = it.value.alive - t
+                    var status = _notify.receive(expires)
+                    if !!status && !*status {
+                        // We we explicitly cancelled
+                        break
+                    }
                 }
-            }
-
-            if it != null {
-                // Ensure that the cleanup routine will be rescheduled after at least 3 seconds
-                var expires = it.value.alive - t
-                var status = _notify.receive(expires)
-                if !!status && !*status {
-                    // We we explicitly cancelled
-                    break
-                }
-            }
         }
 
         _cleaning = false

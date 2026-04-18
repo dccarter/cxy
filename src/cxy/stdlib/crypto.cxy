@@ -127,11 +127,11 @@ pub func HMAC_256(digest: &SHA256Digest, key: __string, data: ^const void, len: 
     params.[0] = OpenSSLParams.OSSL_PARAM_construct_utf8_string("digest", "SHA256" !: ^char, 0)
     params.[1] = OpenSSLParams.OSSL_PARAM_construct_end()
 
-    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as ^const u8, key.size(), params) != 1 {
+    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as const ^u8, key.size(), params) != 1 {
         raise CryptoError(OpenSSLErr.ERR_get_error())
     }
 
-    if OpenSSLEVP.EVP_MAC_update(ctx, data as ^const u8, len) != 1 {
+    if OpenSSLEVP.EVP_MAC_update(ctx, data as const ^u8, len) != 1 {
         raise CryptoError(OpenSSLErr.ERR_get_error())
     }
 
@@ -161,11 +161,11 @@ pub func HMAC_512(digest: &SHA512Digest, key: __string, data: ^const void, len: 
     params.[0] = OpenSSLParams.OSSL_PARAM_construct_utf8_string("digest", "SHA512" !: ^char, 0)
     params.[1] = OpenSSLParams.OSSL_PARAM_construct_end()
 
-    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as ^const u8, key.size(), params) != 1 {
+    if OpenSSLEVP.EVP_MAC_init(ctx, key.data() as const ^u8, key.size(), params) != 1 {
         raise CryptoError(OpenSSLErr.ERR_get_error())
     }
 
-    if OpenSSLEVP.EVP_MAC_update(ctx, data as ^const u8, len) != 1 {
+    if OpenSSLEVP.EVP_MAC_update(ctx, data as const ^u8, len) != 1 {
         raise CryptoError(OpenSSLErr.ERR_get_error())
     }
 

@@ -19,17 +19,17 @@ func main() {
     { asm("nop": "=r"(10)) }
 
     // CHECK: error: unexpected token, expecting 'string literal', but got 'integer literal'
-    { asm("nop" :: 10) }
+    { asm("nop" : : 10) }
 
     // CHECK: error: unexpected token, expecting ''('', but got 'integer literal'
-    { asm("nop" :: "r"10) }
+    { asm("nop" : : "r"10) }
 
     // CHECK: error: unexpected token, expecting 'string literal', but got 'identifier'
-    { asm("nop" ::: x) }
+    { asm("nop" : : : x) }
 
     // CHECK: error: unexpected token, expecting 'string literal', but got 'integer literal'
-    { asm("nop" :::: 10) }
+    { asm("nop" : : : : 10) }
 
     // CHECK:  error: unexpected token, expecting '')'', but got '':''
-    { asm("nop" ::::: 10) }
+    { asm("nop" : : : : : 10) }
 }

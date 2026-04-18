@@ -124,7 +124,7 @@ static void printLiteralType(FormatState *state, const AstNode *value, u64 idx)
     }
 }
 
-bool isPrimitiveType(TokenTag tag)
+bool isPrimitiveTypeTag(TokenTag tag)
 {
     switch (tag) {
 #define f(name, ...) case tok##name:
@@ -178,16 +178,22 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
     if (_to == NULL || _from == NULL)
         return false;
     if (isTypeConst(from) && !isTypeConst(to)) {
-        if (typeIs(_to, Pointer))
-            return false;
+        if (typeIs(_to, Pointer)) {
+            if (!isTypeConst(_to->pointer.pointed) || !isPointerType(_from))
+                return false;
+
+            // return isVoidType(_to->pointer.pointed) ||
+            //        isTypeAssignableFrom(_to->pointer.pointed,
+            //                             _from->pointer.pointed);
+        }
     }
 
     to = _to, from = _from;
     if (to == from)
         return true;
 
-    if (typeIs(to, Pointer) && typeIs(from, Pointer)) {
-        if (typeIs(to->pointer.pointed, Void))
+    if (typeIs(_to, Pointer) && typeIs(_from, Pointer)) {
+        if (isVoidPointer(to))
             return true;
         if (typeIs(from->pointer.pointed, Null))
             return true;
@@ -246,6 +252,7 @@ bool isTypeAssignableFrom(const Type *to, const Type *from)
                                         from->array.elementType);
 
         const Type *type = stripPointer(_to);
+        type = unwrapType(type, &flags);
         // string to ^const char
         if (typeIs(type, Primitive) && type->primitive.id == prtCChar &&
             (flags & flgConst) == flgConst && typeIs(_from, String))
@@ -463,6 +470,12 @@ bool isPrimitiveTypeBigger(const Type *lhs, const Type *rhs)
     return false;
 }
 
+bool isPrimitiveType(const Type *type)
+{
+    type = resolveUnThisUnwrapType(type);
+    return typeIs(type, Primitive);
+}
+
 bool isIntegerType(const Type *type)
 {
     type = resolveType(type);
@@ -677,6 +690,19 @@ bool isPointerType(const Type *type)
     return typeIs(type, Pointer) || typeIs(type, Array) || typeIs(type, String);
 }
 
+bool isPointerTypeExact(const Type *type)
+{
+    type = resolveType(type);
+
+    if (typeIs(type, Wrapped))
+        return isPointerTypeExact(unwrapType(type, NULL));
+
+    if (typeIs(type, Info))
+        return isPointerTypeExact(type->info.target);
+
+    return typeIs(type, Pointer);
+}
+
 bool isReferenceType(const Type *type)
 {
     type = resolveType(type);
@@ -728,7 +754,7 @@ bool isVoidPointer(const Type *type)
     if (typeIs(type, Wrapped))
         return isVoidPointer(type->wrapped.target);
 
-    return typeIs(type, Pointer) && typeIs(type->pointer.pointed, Void);
+    return typeIs(type, Pointer) && isVoidType(type->pointer.pointed);
 }
 
 bool isVoidType(const Type *type)
@@ -1174,6 +1200,7 @@ const NamedTypeMember *findNamedTypeMemberInContainer(
 const NamedTypeMember *findOverloadMemberUpInheritanceChain(const Type *type,
                                                             cstring member)
 {
+    type = unwrapType(type, NULL);
     while (type != NULL && isClassOrStructType(type)) {
         const NamedTypeMember *named = findStructMember(type, member);
         if (named)
@@ -1306,6 +1333,7 @@ const Type *getResultTargetType(const Type *type)
 
 u32 findUnionTypeIndex(const Type *tagged, const Type *type)
 {
+    tagged = unwrapType(tagged, NULL);
     if (!typeIs(tagged, Union))
         return UINT32_MAX;
     type = resolveUnThisUnwrapType(type);

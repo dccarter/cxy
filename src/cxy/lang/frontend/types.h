@@ -346,6 +346,8 @@ bool isTypeCastAssignable(const Type *to, const Type *from);
 
 bool isPrimitiveTypeBigger(const Type *to, const Type *from);
 
+bool isPrimitiveType(const Type *type);
+
 bool isIntegerType(const Type *type);
 
 bool isIntegralType(const Type *type);
@@ -369,6 +371,8 @@ bool isCharacterType(const Type *type);
 bool isArrayType(const Type *type);
 
 bool isPointerType(const Type *type);
+
+bool isPointerTypeExact(const Type *type);
 
 bool isReferenceType(const Type *type);
 

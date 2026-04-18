@@ -666,7 +666,7 @@ static inline AstNode *parseMacroParam(Parser *P)
 static inline AstNode *primitive(Parser *P)
 {
     const Token tok = *current(P);
-    if (!isPrimitiveType(tok.tag)) {
+    if (!isPrimitiveTypeTag(tok.tag)) {
         reportUnexpectedToken(P, "a primitive type");
     }
     advance(P);
@@ -1348,14 +1348,14 @@ static AstNode *parseFuncType(Parser *P)
 
 static AstNode *parsePointerType(Parser *P)
 {
+    // u64 flags = match(P, tokConst) ? flgConst : flgNone;
     Token tok = *consume0(P, tokBXor);
-    u64 flags = match(P, tokConst) ? flgConst : flgNone;
     AstNode *pointed = parseType(P);
 
     return newAstNode(P,
                       &tok,
                       &(AstNode){.tag = astPointerType,
-                                 .flags = flags,
+                                 .flags = flgNone,
                                  .pointerType = {.pointed = pointed}});
 }
 
@@ -1815,12 +1815,12 @@ static AstNode *substitute(Parser *P, bool allowStructs)
     if (match(P, tokHash, tokSubstitutue)) {
         parserError(P,
                     &previous(P)->fileLoc,
-                    "compile time markers `#` or `#{` cannot be used in "
+                    "compile time markers `#` or `#{{` cannot be used in "
                     "current context",
                     NULL);
     }
 
-    expr = assign(P, primary);
+    expr = ternary(P, primary);
 
     consume0(P, tokRBrace);
 
@@ -1952,7 +1952,7 @@ static AstNode *attribute(Parser *P)
     AstNodeList args = {NULL};
     bool isKvp = false;
     if (match(P, tokLParen) && !isEoF(P)) {
-        isKvp = check(P, tokIdent) && checkPeek(P, 1, tokColon);
+        isKvp = check(P, tokIdent);
         while (!check(P, tokRParen, tokEoF)) {
             AstNode *value = NULL;
             const char *pname = NULL;
@@ -1960,39 +1960,46 @@ static AstNode *attribute(Parser *P)
             if (isKvp) {
                 consume0(P, tokIdent);
                 pname = getTokenString(P, &start, false);
-                consume0(P, tokColon);
+                if (!match(P, tokColon)) {
+                    value = makeAstNode(P->memPool,
+                                        &start.fileLoc,
+                                        &(AstNode){.tag = astBoolLit,
+                                                   .boolLiteral.value = true});
+                }
             }
-
-            switch (current(P)->tag) {
-            case tokTrue:
-            case tokFalse:
-                value = parseBool(P);
-                break;
-            case tokCharLiteral:
-                value = parseChar(P);
-                break;
-            case tokIntLiteral:
-                value = parseInteger(P, false);
-                break;
-            case tokFloatLiteral:
-                value = parseFloat(P, false);
-                break;
-            case tokStringLiteral:
-                value = parseString(P);
-                break;
-            case tokPlus:
-            case tokMinus:
-                if (match(P, tokIntLiteral)) {
-                    value = parseInteger(P, previous(P)->tag == tokMinus);
+            if (value == NULL) {
+                switch (current(P)->tag) {
+                case tokTrue:
+                case tokFalse:
+                    value = parseBool(P);
                     break;
-                }
-                if (check(P, tokFloatLiteral)) {
-                    value = parseFloat(P, previous(P)->tag == tokMinus);
+                case tokCharLiteral:
+                    value = parseChar(P);
                     break;
+                case tokIntLiteral:
+                    value = parseInteger(P, false);
+                    break;
+                case tokFloatLiteral:
+                    value = parseFloat(P, false);
+                    break;
+                case tokStringLiteral:
+                    value = parseString(P);
+                    break;
+                case tokPlus:
+                case tokMinus:
+                    if (check(P, tokIntLiteral)) {
+                        value = parseInteger(P, previous(P)->tag == tokMinus);
+                        break;
+                    }
+                    if (check(P, tokFloatLiteral)) {
+                        value = parseFloat(P, previous(P)->tag == tokMinus);
+                        break;
+                    }
+                    // fall through
+                default:
+                    reportUnexpectedToken(P,
+                                          "string/float/int/char/bool literal");
                 }
-                // fall through
-            default:
-                reportUnexpectedToken(P, "string/float/int/char/bool literal");
             }
 
             if (isKvp) {
@@ -2994,7 +3001,7 @@ static AstNode *parseTypeImpl(Parser *P)
     FileLoc loc = current(P)->fileLoc;
     bool isConst = match(P, tokConst);
     Token tok = *current(P);
-    if (isPrimitiveType(tok.tag)) {
+    if (isPrimitiveTypeTag(tok.tag)) {
         type = primitive(P);
     }
     else {

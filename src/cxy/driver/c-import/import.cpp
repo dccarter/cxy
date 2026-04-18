@@ -364,8 +364,11 @@ static const Type *toCxy(IncludeContext &ctx, const clang::QualType qualtype)
 static AstNode *toCxy(IncludeContext &ctx, const clang::FieldDecl &decl)
 {
     cstring name;
-    if (decl.getName().empty())
+    Flags flags = flgPublic;
+    if (decl.getName().empty()) {
         name = makeAnonymousVariable(ctx.strings, "__ext_f");
+        flags |= flgAnonymous;
+    }
     else
         name = getCDeclName(ctx, decl);
 
@@ -374,7 +377,7 @@ static AstNode *toCxy(IncludeContext &ctx, const clang::FieldDecl &decl)
     auto node = makeStructField(ctx.pool,
                                 &loc,
                                 name,
-                                flgPublic,
+                                flags,
                                 makeTypeReferenceNode(ctx.pool, type, &loc),
                                 nullptr,
                                 nullptr);

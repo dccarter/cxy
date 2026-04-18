@@ -101,6 +101,7 @@ typedef struct CommandLineParser {
     CmdCommand **cmds;
     CmdFlag *args;
     void *ctx;
+    char *(*strdup)(void *ctx, const char *str);
     char error[128];
 } CmdParser;
 

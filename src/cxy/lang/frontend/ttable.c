@@ -267,7 +267,7 @@ bool compareTypes(const Type *lhs, const Type *rhs)
         return left->primitive.id == right->primitive.id;
     case typPointer:
         return compareTypes(left->pointer.pointed, right->pointer.pointed) &&
-            left->pointer.isAllocated == right->pointer.isAllocated;
+               left->pointer.isAllocated == right->pointer.isAllocated;
     case typReference:
         return compareTypes(left->reference.referred,
                             right->reference.referred);
@@ -813,7 +813,7 @@ const Type *makeTypeInfo(TypeTable *table, const Type *target)
 
 const Type *makePointerType(TypeTable *table, const Type *pointed, u64 flags)
 {
-    pointed = flattenWrappedType(pointed, &flags);
+    // pointed = flattenWrappedType(pointed, &flags);
     Type type = make(Type,
                      .tag = typPointer,
                      .flags = flags,
@@ -826,7 +826,7 @@ const Type *makeAllocatedPointerType(TypeTable *table,
                                      const Type *pointed,
                                      u64 flags)
 {
-    pointed = flattenWrappedType(pointed, &flags);
+    // pointed = flattenWrappedType(pointed, &flags);
     Type type = make(Type,
                      .tag = typPointer,
                      .flags = flags,

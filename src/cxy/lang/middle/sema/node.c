@@ -86,7 +86,8 @@ static AstNode *createStructInitialize(TypingContext *ctx,
     AstNodeList init = {};
     for (AstNode *member = decl->structDecl.members; member;
          member = member->next) {
-        if (!hasFlag(member, Static) && nodeIs(member, FieldDecl) && member->structField.value) {
+        if (!hasFlag(member, Static) && nodeIs(member, FieldDecl) &&
+            member->structField.value) {
             AstNode *expr = insertAstNode(
                 &init,
                 makeFieldExpr(
@@ -384,11 +385,14 @@ void transformToMemberCallExpr(AstVisitor *visitor,
         target->flags,
         target,
         op == opIs
-            ?
-            makeResolvedPathWithArgs(ctx->pool,
-                &target->loc,member,target->flags & flgConst,
-                NULL, args, NULL):
-            makeIdentifier(ctx->pool, &target->loc, member, 0, NULL, NULL),
+            ? makeResolvedPathWithArgs(ctx->pool,
+                                       &target->loc,
+                                       member,
+                                       target->flags & flgConst,
+                                       NULL,
+                                       args,
+                                       NULL)
+            : makeIdentifier(ctx->pool, &target->loc, member, 0, NULL, NULL),
         NULL,
         NULL);
     callee->parentScope = node;
@@ -489,6 +493,7 @@ bool transformToTruthyOperator(AstVisitor *visitor, AstNode *node)
             NULL);
         type = checkType(visitor, node);
     }
+    type = unwrapType(type, NULL);
     return typeIs(type, Primitive);
 }
 
@@ -607,7 +612,7 @@ AstNode *transformToUnionValue(TypingContext *ctx,
 {
     if (typeIs(lhs, Pointer) && typeIs(rhs, Pointer) &&
         typeIs(rhs->pointer.pointed, Null)) {
-        return  right;
+        return right;
     }
 
     const Type *stripped = stripPointerOnce(lhs, NULL),

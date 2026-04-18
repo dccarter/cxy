@@ -332,7 +332,7 @@ pub class YamlSerializer {
                     #{M = typeof!(T.ElementType)}
                 }
                 else {
-                    #{M = T.ElementType}
+                    #{M = T.elementType}
                 }
 
                 toYaml[#{M}](&member, true)

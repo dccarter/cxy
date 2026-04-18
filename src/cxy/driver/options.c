@@ -41,6 +41,12 @@ static bool cmdParseDumpAstModes(CmdParser *P,
 #undef DUMP_OPTIONS_COUNT
 }
 
+char *cmdStrdup(void *ctx, const char *str)
+{
+    Options *options = (Options *)ctx;
+    return (char *)makeString(options->strings, str);
+}
+
 static bool cmdParseDumpStatsModes(CmdParser *P,
                                    CmdFlagValue *dst,
                                    const char *str,
@@ -1047,6 +1053,8 @@ static int parsePackageCommand(
            Opt(Name("quiet"), Sf('q'), Help("Suppress non-error output")),
            Opt(Name("verbose"), Help("Enable verbose output")));
     SubParser(P);
+    P->ctx = options;
+    P->strdup = cmdStrdup;
 
     int selected = argparse(argc, &argv, parser);
     CmdCommand *cmd = parser.cmds[selected];
@@ -1281,6 +1289,8 @@ static int parseUtilsCommand(
            Opt(Name("quiet"), Sf('q'), Help("Suppress non-error output")),
            Opt(Name("verbose"), Help("Enable verbose output")));
     SubParser(P);
+    P->ctx = options;
+    P->strdup = cmdStrdup;
 
     int selected = argparse(argc, &argv, parser);
     CmdCommand *cmd = parser.cmds[selected];
@@ -1460,6 +1470,7 @@ bool parseCommandLineOptions(
             Def(".cxy/packages")));
 
     P->ctx = options;
+    P->strdup = cmdStrdup;
     CustomParser(package, parsePackageCommandFwd, &ctx);
     CustomParser(utils, parseUtilsCommandFwd, &ctx);
 

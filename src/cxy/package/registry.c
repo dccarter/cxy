@@ -47,6 +47,7 @@ struct RegistryClient {
     struct StrPool *strings;
     Log          *log;
     bool          verbose;
+    bool          insecure;        /* skip TLS certificate verification (CXY_REGISTRY_INSECURE=1) */
 };
 
 /* -------------------------------------------------------------------------
@@ -328,6 +329,11 @@ RegistryClient *registryClientInit(struct StrPool *strings, Log *log, const char
     if (chosenKey)
         strncpy(client->apiKey, chosenKey, sizeof(client->apiKey) - 1);
 
+    /* --- TLS verification ----------------------------------------------- */
+    const char *insecureEnv = getenv("CXY_REGISTRY_INSECURE");
+    client->insecure = (insecureEnv && (strcmp(insecureEnv, "1") == 0 ||
+                                        strcmp(insecureEnv, "true") == 0));
+
     /* --- Initialise curl ------------------------------------------------ */
     client->curl = curl_easy_init();
     if (!client->curl) {
@@ -419,6 +425,12 @@ static bool httpRequest(RegistryClient *client,
     }
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    /* TLS verification (disabled when CXY_REGISTRY_INSECURE=1) */
+    if (client->insecure) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
 
     /* Method-specific setup */
     if (method == HTTP_POST) {

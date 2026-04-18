@@ -1,25 +1,10 @@
-import { Server, Request, Response, Config, SendFile } from "stdlib/http.cxy"
-
-struct User {
-    name: String = null
-    age: i32 = 0
-    func `init`() {}
+import "add.h" as add
+struct Hello {
+   x : i32 = 0
+   y : bool = true
 }
 
-class AuthMiddleware {
-    type Context = User
-    func `init`() {}
-
-    func before(req: &const Request, resp: &Response, ctx: &Context): void {
-    }
-    func after(req: &const Request, resp: &Response, ctx: &Context): void {
-    }
-}
+func mul(a: i32, b: i32) => a * b
 
 func main(): !void {
-    var server = Server[AuthMiddleware]()
-    server("GET /hello", (@unused req: &const Request, resp: &Response) => {
-        resp.body() << "Hello, World!"
-    })
-    server.start()
 }

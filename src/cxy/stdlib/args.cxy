@@ -356,7 +356,7 @@ pub class Command {
                     for j : (i + 1)..argv.size() {
                         remaining.push(argv.[j])
                     }
-                    var remainingArray = remaining.data()
+                    var remainingArray = Slice[string](remaining.data(), remaining.size())
                     return subCmd.parse(remainingArray)
                 } else {
                     // Not a subcommand, store as positional arg

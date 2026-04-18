@@ -80,7 +80,7 @@ pub class LinkedList[T] {
 
     func `init`(){}
 
-    func `deinit`() {
+    func  clear() {
         while (_head != null) {
             var item = _head
             #if T.isDestructible {
@@ -89,6 +89,12 @@ pub class LinkedList[T] {
             _head = item.next
             free(item)
         }
+        _tail = null
+        _size = 0
+    }
+
+    func `deinit`() {
+        clear()
     }
 
     func insert(value: T, it: Iterator = null) {
@@ -113,10 +119,10 @@ pub class LinkedList[T] {
         _size += 1
     }
 
-    func shift() : T {
-        if (_head == null)
-            return null
-        else {
+    func shift() : !T {
+        if (_head == null) {
+            raise InvalidOperationError("Cannot shift from an empty list")
+        } else {
             var item = _head
             _head = item.next
             if (_head != null)
@@ -141,9 +147,10 @@ pub class LinkedList[T] {
         _size += 1
     }
 
-    func pop() : T {
-        if (_tail == null)
-            return null
+    func pop() : !T {
+        if (_tail == null) {
+            raise InvalidOperationError("Cannot pop from an empty list")
+        }
         else {
             var item = _tail
             _tail = item.prev

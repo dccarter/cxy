@@ -18,6 +18,7 @@ import "native/dns/dns.h" as dns
 
 // bring in coroutine stuff
 import { State } from "./coro.cxy"
+import { htonl, htons, ntohs } from "./endian.cxy"
 
 type sockaddr = socket.sockaddr
 #if (defined MACOS) {
@@ -28,84 +29,6 @@ else {
     type sockaddr_in6 = inet.sockaddr_in6
     macro INET6_ADDR_ANY inet.in6addr_any
 }
-
-func htons(x: u16) : u16 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap16(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
-@inline
-func htonl(x: u32) : u32 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap32(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
-@inline
-func htonll(x: u64) : u64 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap64(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
-@inline
-func ntohs(x: u16) : u16 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap16(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
-@inline
-func ntohl(x: u32) : u32 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap32(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
-@inline
-func ntohll(x: u64) : u64 {
-    #if (BYTE_ORDER! == BIG_ENDIAN!) {
-        return x
-    }
-    else #if (BYTE_ORDER! == LITTLE_ENDIAN!) {
-        return __bswap64(x)
-    }
-    else {
-        error!("Unknown byte order")
-    }
-}
-
 
 // This macro is defined in netinet/in.h, redefining
 // C macros defined with casts cannot be imported
