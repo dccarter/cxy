@@ -52,8 +52,10 @@ static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
             astConstVisitFallbackVisitAll(visitor, decl);
             break;
         case astFuncDecl:
-            if (!hasFlag(decl->type, Extern)) {}
+            if (!hasFlag(decl->type, Extern)) {
                 visitFunctionDecl(visitor, decl);
+            }
+            break;
         default:
             break;
         }

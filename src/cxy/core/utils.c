@@ -778,13 +778,7 @@ bool runCommandWithProgressFull(const char *header, const char *command, void *l
                         }
                         linePos = 0;
 
-                        if (!showOutput) {
-                            // Buffered mode: redraw display with spinner
-                            clearLastNLines(linesShown);
-                            printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
-                            printBufferedLines(&outputBuf);
-                            linesShown = 1 + outputBuf.lineCount;
-                        }
+                        // Don't redraw on newline - let timer-based animation handle it
                     } else if (linePos < (int)sizeof(lineBuffer) - 1) {
                         lineBuffer[linePos++] = buf[i];
                     }
@@ -854,13 +848,7 @@ bool runCommandWithProgressFull(const char *header, const char *command, void *l
                 }
                 linePos = 0;
 
-                if (!showOutput) {
-                    // Buffered mode: redraw display with latest buffered lines
-                    clearLastNLines(linesShown);
-                    printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
-                    printBufferedLines(&outputBuf);
-                    linesShown = 1 + outputBuf.lineCount;
-                }
+                // Don't redraw on newline - let final display handle it
             } else if (linePos < (int)sizeof(lineBuffer) - 1) {
                 lineBuffer[linePos++] = buf[i];
             }
@@ -877,12 +865,7 @@ bool runCommandWithProgressFull(const char *header, const char *command, void *l
         addLineToBuffer(&outputBuf, lineBuffer);
         linePos = 0;
 
-        if (!showOutput) {
-            clearLastNLines(linesShown);
-            printf(cYLW " %s" cDEF " %s\n", spinnerFrames[spinnerFrame], header);
-            printBufferedLines(&outputBuf);
-            linesShown = 1 + outputBuf.lineCount;
-        }
+        // Don't redraw on trailing line - let final display handle it
     }
 
     // Close pipe and ensure we have the child's exit status.

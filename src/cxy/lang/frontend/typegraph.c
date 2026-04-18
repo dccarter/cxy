@@ -9,8 +9,8 @@
 
 #define NODE_SIZE (sizeof(DynArray))
 
-typedef  struct GraphNodeContext {
-    bool visited;
+typedef struct GraphNodeContext {
+    u32 visited; // Each bit represents a pass
 } GraphNodeContext;
 
 typedef struct GraphNode {
@@ -22,10 +22,8 @@ typedef struct GraphNode {
 static GraphNode *newGraphNode(MemPool *pool, const Type *type)
 {
     GraphNode *node = allocFromMemPool(pool, sizeof(GraphNode));
-    *node = (GraphNode){
-        .type = type,
-        .edges = newTempHashTable(sizeof(Type *))
-    };
+    *node =
+        (GraphNode){.type = type, .edges = newTempHashTable(sizeof(Type *))};
     return node;
 }
 
@@ -34,7 +32,7 @@ static bool compareGraphNodes(const void *a, const void *b)
     return (*(GraphNode **)a)->type == (*(GraphNode **)b)->type;
 }
 
-static inline  HashCode hashGraphNode(const GraphNode *node)
+static inline HashCode hashGraphNode(const GraphNode *node)
 {
     return hashPtr(hashInit(), node->type);
 }
@@ -43,10 +41,10 @@ static GraphNode *findNode(TypeGraph *g, const Type *type)
 {
     GraphNode *node = &(GraphNode){.type = type};
     GraphNode **found = findInHashTable(&g->nodes,
-                           &node,
-                           hashGraphNode(node),
-                          sizeof(GraphNode *),
-                           compareGraphNodes);
+                                        &node,
+                                        hashGraphNode(node),
+                                        sizeof(GraphNode *),
+                                        compareGraphNodes);
     if (found != NULL) {
         return *found;
     }
@@ -57,11 +55,8 @@ static bool addNode(TypeGraph *g, const Type *type)
 {
     GraphNode *node = newGraphNode(&g->pool, type);
     const HashCode hash = hashGraphNode(node);
-    return insertInHashTable(&g->nodes,
-                             &node,
-                             hash,
-                             sizeof(GraphNode *),
-                             compareGraphNodes);
+    return insertInHashTable(
+        &g->nodes, &node, hash, sizeof(GraphNode *), compareGraphNodes);
 }
 
 typedef CxyPair(GraphNode *, bool) GetOrCreateNodeResult;
@@ -69,33 +64,25 @@ static GetOrCreateNodeResult getOrCreateNode(TypeGraph *g, const Type *type)
 {
     GraphNode *node = &(GraphNode){.type = type};
     const HashCode hash = hashGraphNode(node);
-    GraphNode **found = findInHashTable(&g->nodes,
-                                       &node,
-                                       hash,
-                                      sizeof(GraphNode *),
-                                       compareGraphNodes);
+    GraphNode **found = findInHashTable(
+        &g->nodes, &node, hash, sizeof(GraphNode *), compareGraphNodes);
     if (found != NULL) {
-        return (GetOrCreateNodeResult){*found, true };
+        return (GetOrCreateNodeResult){*found, true};
     }
 
     node = newGraphNode(&g->pool, type);
     insertInHashTable(
-                &g->nodes,
-                &node,
-                hash,
-                sizeof(GraphNode *),
-                compareGraphNodes);
+        &g->nodes, &node, hash, sizeof(GraphNode *), compareGraphNodes);
     return (GetOrCreateNodeResult){findNode(g, type), false};
 }
 
 static bool findEdge(GraphNode *node, const Type *type)
 {
-    return findInHashTable(
-        &node->edges,
-        &type,
-        hashPtr(hashInit(), type),
-        sizeof(Type *),
-        comparePointers);
+    return findInHashTable(&node->edges,
+                           &type,
+                           hashPtr(hashInit(), type),
+                           sizeof(Type *),
+                           comparePointers);
 }
 
 static void addNodeEdge(GraphNode *node, const Type *type)
@@ -120,17 +107,36 @@ static void addNodeEdge(GraphNode *node, const Type *type)
     case typException:
     case typEnum:
         if (!findEdge(node, type)) {
-            bool status = insertInHashTable(
-                &node->edges,
-                &type,
-                hashPtr(hashInit(), type),
-                sizeof(Type *),
-                comparePointers);
+            bool status = insertInHashTable(&node->edges,
+                                            &type,
+                                            hashPtr(hashInit(), type),
+                                            sizeof(Type *),
+                                            comparePointers);
             csAssert0(status);
         }
         break;
     default:
         break;
+    }
+}
+
+static void addSyntheticFunctionTypes(TypeGraph *g, const Type *funcType)
+{
+    if (!typeIs(funcType, Func))
+        return;
+
+    // Add return type if it's synthetic (not primitive, no decl)
+    const Type *retType = stripAll(funcType->func.retType);
+    if (!isPrimitiveType(retType) && getTypeDecl(retType) == NULL) {
+        addTypeGraphNode(g, retType);
+    }
+
+    // Add parameter types if synthetic
+    for (int i = 0; i < funcType->func.paramsCount; i++) {
+        const Type *paramType = stripAll(funcType->func.params[i]);
+        if (!isPrimitiveType(paramType) && getTypeDecl(paramType) == NULL) {
+            addTypeGraphNode(g, paramType);
+        }
     }
 }
 
@@ -180,7 +186,9 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
         for (int i = 0; i < type->tStruct.members->count; i++) {
             NamedTypeMember *ntm = &type->tStruct.members->members[i];
             if (nodeIs(ntm->decl, FuncDecl)) {
-                // addFuncDeclNodes(g, node, ntm->type);
+                // Don't add function type itself as dependency,
+                // but do add synthetic parameter/return types (tuples, etc.)
+                addSyntheticFunctionTypes(g, ntm->type);
                 continue;
             }
             addNodeEdge(node, ntm->type);
@@ -201,7 +209,8 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
                 addNodeEdge(node, type->tClass.inheritance->base);
                 addTypeGraphNode(g, type->tClass.inheritance->base);
             }
-            for (int i = 0; i < type->tClass.inheritance->interfacesCount; i++) {
+            for (int i = 0; i < type->tClass.inheritance->interfacesCount;
+                 i++) {
                 addNodeEdge(node, type->tClass.inheritance->interfaces[i]);
                 addTypeGraphNode(g, type->tClass.inheritance->interfaces[i]);
             }
@@ -209,7 +218,9 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
         for (int i = 0; i < type->tClass.members->count; i++) {
             NamedTypeMember *ntm = &type->tClass.members->members[i];
             if (nodeIs(ntm->decl, FuncDecl)) {
-                // addFuncDeclNodes(g, node, ntm->type);
+                // Don't add function type itself as dependency,
+                // but do add synthetic parameter/return types (tuples, etc.)
+                addSyntheticFunctionTypes(g, ntm->type);
                 continue;
             }
             addNodeEdge(node, ntm->type);
@@ -228,7 +239,9 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
             if (ntm->type == NULL)
                 continue;
             if (nodeIs(ntm->decl, FuncDecl)) {
-                // addFuncDeclNodes(g, node, ntm->type);
+                // Don't add function type itself as dependency,
+                // but do add synthetic parameter/return types (tuples, etc.)
+                addSyntheticFunctionTypes(g, ntm->type);
                 continue;
             }
             addNodeEdge(node, ntm->type);
@@ -244,12 +257,12 @@ void addTypeGraphNode(TypeGraph *g, const Type *type)
         addTypeGraphNode(g, type->alias.aliased);
         break;
     case typPointer:
-        addNodeEdge(node, type->pointer.pointed);
-        addTypeGraphNode(g, type->pointer.pointed);
+        // addNodeEdge(node, type->pointer.pointed);
+        // addTypeGraphNode(g, type->pointer.pointed);
         break;
     case typReference:
-        addNodeEdge(node, type->reference.referred);
-        addTypeGraphNode(g, type->reference.referred);
+        // addNodeEdge(node, type->reference.referred);
+        // addTypeGraphNode(g, type->reference.referred);
         break;
     case typOptional:
         addNodeEdge(node, type->optional.target);
@@ -279,31 +292,34 @@ void addTypeGraphNodeToModule(TypeGraph *g, const Type *type)
     addTypeGraphNode(g, type);
 }
 
-static void visitGraphNode(TypeGraph *g, const Type *type, TypeGraphVisitor* visitor)
+static void visitGraphNode(TypeGraph *g,
+                           const Type *type,
+                           TypeGraphVisitor *visitor,
+                           int pass)
 {
     GraphNode *node = findNode(g, type);
-    if (node == NULL || node->context.visited)
+    if (node == NULL || (node->context.visited & BIT(pass)))
         return;
 
     if (visitor->previsit) {
         visitor->previsit(type, visitor);
     }
-    node->context.visited = true;
+    node->context.visited |= BIT(pass);
     HashtableIt it = newHashTableIt(&node->edges, sizeof(Type *));
     while (hashTableItHasNext(&it)) {
         visitor->depth++;
         const Type **neighbour = hashTableItNext(&it);
-        visitGraphNode(g, *neighbour, visitor);
+        visitGraphNode(g, *neighbour, visitor, pass);
         visitor->depth--;
     }
-    if  (visitor->visit)
+    if (visitor->visit)
         visitor->visit(type, visitor);
 }
 
 TypeGraph newTypeGraph(TypeTable *types, const Type *module)
 {
     TypeGraph g = {
-        .module =  module,
+        .module = module,
         .pool = newMemPool(),
     };
     // We want to keep everything contained in this temporary memory pool
@@ -312,10 +328,26 @@ TypeGraph newTypeGraph(TypeTable *types, const Type *module)
     return g;
 }
 
-void visitTypeGraph(TypeGraph *g, TypeGraphVisitor* visitor)
+void visitTypeGraph(TypeGraph *g, TypeGraphVisitor* visitor, int pass)
 {
-    // Start by visiting the module
-    visitGraphNode(g, g->module, visitor);
+    if (visitor->visitAll) {
+        // Visit all nodes in hash table (order doesn't matter)
+        HashtableIt it = newHashTableIt(&g->nodes, sizeof(GraphNode *));
+        while (hashTableItHasNext(&it)) {
+            GraphNode **node = hashTableItNext(&it);
+            visitGraphNode(g, (*node)->type, visitor, pass);
+        }
+    } else {
+        // DFS from module first (for dependency-ordered traversal)
+        visitGraphNode(g, g->module, visitor, pass);
+        
+        // Then visit any remaining unvisited nodes (isolated synthetic types)
+        HashtableIt it = newHashTableIt(&g->nodes, sizeof(GraphNode *));
+        while (hashTableItHasNext(&it)) {
+            GraphNode **node = hashTableItNext(&it);
+            visitGraphNode(g, (*node)->type, visitor, pass);
+        }
+    }
 }
 
 void freeTypeGraph(TypeGraph *g)

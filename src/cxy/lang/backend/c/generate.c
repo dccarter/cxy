@@ -116,6 +116,7 @@ static void generateStructTypeDef(CodegenContext *ctx,
     else
         format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Struct");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -127,6 +128,7 @@ static void generateTupleTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Tuple");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Tuple");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -138,6 +140,7 @@ static void generateUnionTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Union");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Union");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -149,6 +152,7 @@ static void generateUntaggedUnionTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Union");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Union");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -160,6 +164,7 @@ static void generateResultTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Result");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Result");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -171,6 +176,7 @@ static void generateEnumTypeDef(CodegenContext *ctx,
     generateTypeName(ctx, state, type->tEnum.base);
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Enum");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -185,6 +191,7 @@ static void generateExceptionTypeDef(CodegenContext *ctx,
     else
         format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Exception");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -196,6 +203,7 @@ static void generateClassTypeDef(CodegenContext *ctx,
     generateCustomTypeName(ctx, state, type, "Class");
     format(state, " ", NULL);
     generateCustomTypeName(ctx, state, type, "Class");
+    format(state, " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(state, ";\n", NULL);
 }
 
@@ -276,6 +284,7 @@ static void generateTupleType(CodegenContext *ctx, const Type *type)
 {
     format(typeState(ctx), "struct ", NULL);
     generateCustomTypeName(ctx, typeState(ctx), type, "Tuple");
+    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tuple.count; i++) {
         format(typeState(ctx), "\n", NULL);
@@ -308,6 +317,7 @@ static void generateClassType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Class");
+    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tClass.members->count; i++) {
         const NamedTypeMember *member = &type->tClass.members->members[i];
@@ -326,6 +336,7 @@ static void generateStructType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Struct");
+    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), " {{{>}", NULL);
     for (u64 i = 0; i < type->tStruct.members->count; i++) {
         const NamedTypeMember *member = &type->tStruct.members->members[i];
@@ -366,6 +377,7 @@ static void generateUnionType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Union");
+    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), "{{{>}\n", NULL);
     format(typeState(ctx), "uint32_t tag;\n", NULL);
     format(typeState(ctx), "union {{{>}", NULL);
@@ -387,6 +399,7 @@ static void generateResultType(CodegenContext *ctx, const Type *type)
     format(typeState(ctx), "struct ", NULL);
     generateStructAttributes(ctx, type);
     generateCustomTypeName(ctx, typeState(ctx), type, "Result");
+    format(typeState(ctx), " /* type index: {u64} */", (FormatArg[]){{.u64 = type->index}});
     format(typeState(ctx), "{{{>}\n", NULL);
     format(typeState(ctx), "uint32_t tag;\n", NULL);
     format(typeState(ctx), "union {{{>}", NULL);
@@ -2042,9 +2055,25 @@ static void visitProgram(ConstAstVisitor *visitor, const AstNode *node)
         // Create a type graph and generate all the needed types
         TypeGraph g = newTypeGraph(ctx->table, node->type);
         preCodeGen(&g, node);
-        TypeGraphVisitor gv = {
-            .previsit = typeGraphPrevisit, .visit = typeGraphVisit, .ctx = ctx};
-        visitTypeGraph(&g, &gv);
+        
+        // Pass 0: Generate all typedefs first (order doesn't matter)
+        TypeGraphVisitor typedefVisitor = {
+            .previsit = typeGraphPrevisit,
+            .visit = NULL,
+            .ctx = ctx,
+            .visitAll = true  // Visit all nodes
+        };
+        visitTypeGraph(&g, &typedefVisitor, 0);
+
+        // Pass 1: Generate full definitions in dependency order
+        TypeGraphVisitor defVisitor = {
+            .previsit = NULL,
+            .visit = typeGraphVisit,
+            .ctx = ctx,
+            .visitAll = false  // DFS from module only
+        };
+        visitTypeGraph(&g, &defVisitor, 1);
+        
         freeTypeGraph(&g);
     }
 

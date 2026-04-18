@@ -19,14 +19,15 @@ typedef struct PrintGraphCtx {
 } PrintGraphCtx;
 
 typedef struct TypeGraphVisitor {
-    int depth;
     void (*previsit)(const Type *, struct TypeGraphVisitor *);
     void (*visit)(const Type *, struct TypeGraphVisitor *);
     void *ctx;
+    u32 depth;
+    bool visitAll;  // If true, visit all nodes; if false, DFS from module only
 } TypeGraphVisitor;
 
 TypeGraph newTypeGraph(TypeTable *types, const Type *module);
 void addTypeGraphNode(TypeGraph *g, const Type *type);
 void addTypeGraphNodeToModule(TypeGraph *g, const Type *type);
-void visitTypeGraph(TypeGraph *g, TypeGraphVisitor *visitor);
+void visitTypeGraph(TypeGraph *g, TypeGraphVisitor *visitor, int pass);
 void freeTypeGraph(TypeGraph *g);
